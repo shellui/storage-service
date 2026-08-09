@@ -1,0 +1,71 @@
+services:
+  storage-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: shellui/storage-service:local
+    container_name: storage-service
+    ports:
+      - "${STORAGE_SERVICE_PORT:-8001}:8000"
+    environment:
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required — copy .env.example to .env and set SECRET_KEY}"
+      DEBUG: "${DEBUG:-false}"
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-}"
+      CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-}"
+      POSTGRES_DATABASE_URL: "${POSTGRES_DATABASE_URL:-}"
+      SQLITE_PATH: "/app/data/db.sqlite3"
+      MEDIA_ROOT: "/app/data/media"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:4000,http://localhost:5174,http://localhost:5175,https://admin.shellui.com}"
+      # JWT verification — override in .env for production, e.g.
+      # IDENTITY_JWKS_URL=https://id.shellui.com/.well-known/jwks.json
+      IDENTITY_JWKS_URL: "${IDENTITY_JWKS_URL:-http://host.docker.internal:8000/.well-known/jwks.json}"
+      IDENTITY_SERVICE_URL: "${IDENTITY_SERVICE_URL:-}"
+      IDENTITY_ISSUER: "${IDENTITY_ISSUER:-}"
+      IDENTITY_AUDIENCE: "${IDENTITY_AUDIENCE:-}"
+      JWT_HS256_FALLBACK_SECRET: "${JWT_HS256_FALLBACK_SECRET:-}"
+      JWT_ALGORITHMS: "${JWT_ALGORITHMS:-RS256}"
+      JWKS_CACHE_TTL: "${JWKS_CACHE_TTL:-900}"
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-filesystem}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_STORAGE_BUCKET_NAME: "${AWS_STORAGE_BUCKET_NAME:-}"
+      AWS_S3_REGION_NAME: "${AWS_S3_REGION_NAME:-us-east-1}"
+      AWS_S3_ENDPOINT_URL: "${AWS_S3_ENDPOINT_URL:-}"
+      AWS_S3_CUSTOM_DOMAIN: "${AWS_S3_CUSTOM_DOMAIN:-}"
+      STORAGE_KEY_PREFIX: "${STORAGE_KEY_PREFIX:-shellui}"
+      DOWNLOAD_MODE: "${DOWNLOAD_MODE:-auto}"
+      X_ACCEL_REDIRECT_ENABLED: "${X_ACCEL_REDIRECT_ENABLED:-false}"
+      X_ACCEL_REDIRECT_PREFIX: "${X_ACCEL_REDIRECT_PREFIX:-/protected/}"
+      SIGNED_URL_EXPIRES: "${SIGNED_URL_EXPIRES:-3600}"
+      DEFAULT_COMPANY_QUOTA_BYTES: "${DEFAULT_COMPANY_QUOTA_BYTES:-10G}"
+      DEFAULT_USER_QUOTA_BYTES: "${DEFAULT_USER_QUOTA_BYTES:-0}"
+      MAX_UPLOAD_BYTES: "${MAX_UPLOAD_BYTES:-5G}"
+      WEBDAV_ENABLED: "${WEBDAV_ENABLED:-true}"
+      GUNICORN_WORKERS: "${GUNICORN_WORKERS:-2}"
+      GUNICORN_THREADS: "${GUNICORN_THREADS:-2}"
+      GUNICORN_TIMEOUT: "${GUNICORN_TIMEOUT:-120}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-}"
+      SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
+      SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0}"
+    volumes:
+      - storage-service-data:/app/data
+    restart: unless-stopped
+
+  # Optional local S3-compatible store for development
+  minio:
+    image: minio/minio:latest
+    profiles: ["s3"]
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+    volumes:
+      - storage-minio-data:/data
+
+volumes:
+  storage-service-data:
+  storage-minio-data:

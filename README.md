@@ -1,2 +1,145 @@
 # storage-service
-Store, organize and serve large files, from videos to images.
+
+`storage-service` is a Django backend that provides **Supabase-compatible** object storage APIs for ShellUI (`/storage/v1/*`).
+
+It authenticates with JWTs issued by [identity-service](https://github.com/shellui/identity-service) (JWKS / RS256), stores blobs in **S3** (or local filesystem), enforces **per-company** and optional **per-user** quotas, exposes **WebDAV** for third-party file clients, and fires Django **signals** on upload/delete (including Markdown sidecar extraction).
+
+## Features
+
+- Supabase-compatible Storage REST API under `/storage/v1/*` (buckets, upload, download, list with folders, move/copy, signed URLs, public objects)
+- JWT verification via identity-service JWKS (`IDENTITY_JWKS_URL`)
+- Pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**
+- Company total quota + optional per-user quota
+- MIME type detection and per-bucket allow-lists
+- Nested folder listing (prefix-based, same shape as Supabase)
+- WebDAV at `/dav/` for third-party file clients (quotas + signals apply)
+- Download offload: signed S3 redirect, NGINX `X-Accel-Redirect`, or Django stream
+- OpenAPI docs (Swagger + ReDoc) and a simple home page
+- Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
+- CORS for local ShellUI (`http://localhost:4000`), admin, and extra origins
+
+## Project structure
+
+- `config/` — Django settings and URL routing
+- `apps/authapi/` — JWKS JWT authentication
+- `apps/storage/` — buckets, objects, quotas, downloads, signals
+- `apps/webdav/` — WebDAV connector
+- `docs/` — topic guides (Docusaurus)
+
+## Main endpoints
+
+| Area | Path |
+|------|------|
+| Health | `GET /storage/v1/health` |
+| Buckets | `GET/POST /storage/v1/bucket`, `GET/PUT/DELETE /storage/v1/bucket/{name}` |
+| Upload | `POST/PUT /storage/v1/object/{bucket}/{*path}` |
+| Download | `GET /storage/v1/object/{bucket}/{*path}` |
+| Public download | `GET /storage/v1/object/public/{bucket}/{*path}` |
+| List (folders) | `POST /storage/v1/object/list/{bucket}` |
+| Delete many | `DELETE /storage/v1/object/{bucket}` |
+| Move / copy | `POST /storage/v1/object/move`, `POST /storage/v1/object/copy` |
+| Sign URL | `POST /storage/v1/object/sign/{bucket}/{*path}` |
+| Quota | `GET /storage/v1/quota` |
+| WebDAV | `/dav/{bucket}/…` |
+| OpenAPI | `/api/docs/`, `/api/docs/redoc/` |
+
+Auth header: `Authorization: Bearer <access_token>` from identity-service. Supabase clients may also send `apikey` (ignored; JWT is authoritative).
+
+## Quick start
+
+```bash
+# Requires https://docs.astral.sh/uv/
+uv sync
+cp .env.example .env
+# Set SECRET_KEY; point IDENTITY_JWKS_URL at identity-service
+uv run python manage.py migrate
+uv run python manage.py runserver 8001
+```
+
+Open `http://localhost:8001/` for Swagger / ReDoc. Create the one-time admin user from the home page if you need Django admin (quotas, buckets).
+
+Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package with `uv add <name>`; refresh the lock with `uv lock`.
+
+### Identity wiring
+
+Tokens come from identity-service. Point storage at its JWKS with an env var:
+
+```bash
+# Local
+IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json
+
+# Production
+IDENTITY_JWKS_URL=https://id.shellui.com/.well-known/jwks.json
+
+# Or only the base URL (path /.well-known/jwks.json is appended):
+IDENTITY_SERVICE_URL=https://id.shellui.com
+```
+
+Copy `.env.example` → `.env` and change the value there (Compose and `runserver` both load it).
+
+For identity DEBUG/HS256 locally, also set `JWT_HS256_FALLBACK_SECRET` to the same `SECRET_KEY` as identity-service.
+### S3 / MinIO
+
+```bash
+STORAGE_BACKEND=s3
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_STORAGE_BUCKET_NAME=shellui
+AWS_S3_ENDPOINT_URL=http://localhost:9000   # MinIO; omit for AWS
+AWS_S3_REGION_NAME=us-east-1
+```
+
+Compose helper:
+
+```bash
+docker compose --profile s3 up minio
+```
+
+## Download strategies
+
+| Mode | When to use |
+|------|-------------|
+| `redirect` (auto for S3) | 302 to a signed object URL — best bandwidth offload, **no nginx required** |
+| `xaccel` | NGINX serves bytes after Django authorizes (`X-Accel-Redirect`) — great for local disk |
+| `stream` | Django streams the file — simplest, uses app workers |
+
+See [docs/downloads.md](docs/downloads.md).
+
+## ShellUI frontend (future connector)
+
+Mirror Supabase Storage so one client can target either backend:
+
+```ts
+// Planned shape — not shipped in shellui yet
+storage: {
+  type: 'shellui', // or 'supabase'
+  url: 'http://localhost:8001',
+}
+// Client calls `${url}/storage/v1/...` like @supabase/storage-js
+```
+
+## Docker
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Default host port: `8001`.
+
+## Tests
+
+```bash
+uv run python manage.py test
+```
+
+## Documentation
+
+- [API overview](docs/index.md)
+- [JWKS auth](docs/authentication.md)
+- [Quotas](docs/quotas.md)
+- [Downloads & nginx](docs/downloads.md)
+- [Third-party clients (WebDAV / S3)](docs/clients.md)
+- [Signals](docs/signals.md)
+
+Build docs site: `./tools/generate-docs.sh`

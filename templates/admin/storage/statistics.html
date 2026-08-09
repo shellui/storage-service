@@ -1,0 +1,246 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; Upload statistics
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="storage-dashboard">
+  <div class="storage-dashboard__header">
+    <div>
+      <h1>Upload statistics</h1>
+      <p class="storage-muted">Generated {{ storage_stats.generated_at|date:"Y-m-d H:i:s e" }}</p>
+    </div>
+  </div>
+
+  <div class="storage-cards">
+    <div class="storage-card">
+      <div class="storage-card__label">Objects</div>
+      <div class="storage-card__value">{{ storage_stats.object_count }}</div>
+      <div class="storage-card__meta">{{ storage_stats.total_bytes_display }}</div>
+    </div>
+    <div class="storage-card">
+      <div class="storage-card__label">Documents</div>
+      <div class="storage-card__value">{{ storage_stats.document_count }}</div>
+      <div class="storage-card__meta">{{ storage_stats.document_bytes_display }}</div>
+    </div>
+    <div class="storage-card">
+      <div class="storage-card__label">Uploads 24h / 7d / 30d</div>
+      <div class="storage-card__value" style="font-size:1.2rem">{{ storage_stats.uploads_24h }} / {{ storage_stats.uploads_7d }} / {{ storage_stats.uploads_30d }}</div>
+      <div class="storage-card__meta">{{ storage_stats.bytes_7d_display }} in last 7 days</div>
+    </div>
+    <div class="storage-card">
+      <div class="storage-card__label">Buckets · companies</div>
+      <div class="storage-card__value" style="font-size:1.2rem">{{ storage_stats.bucket_count }} · {{ storage_stats.company_count }}</div>
+    </div>
+  </div>
+
+  <section class="storage-panel" style="margin-bottom:0.75rem">
+    <h3>Uploads · last 30 days</h3>
+    <div class="storage-bars" style="height:120px" aria-label="Daily upload counts">
+      {% for row in storage_stats.daily_series %}
+        <div class="storage-bar" title="{{ row.day }}: {{ row.object_count }} files ({{ row.total_bytes_display }})">
+          <div class="storage-bar__fill" style="height: {{ row.bar_pct }}%"></div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="storage-grid">
+    <section class="storage-panel">
+      <h3>MIME families</h3>
+      <table class="storage-table">
+        <thead><tr><th>Family</th><th>Files</th><th>Size</th></tr></thead>
+        <tbody>
+          {% for row in storage_stats.by_family %}
+            <tr><td>{{ row.family }}</td><td>{{ row.object_count }}</td><td>{{ row.total_bytes_display }}</td></tr>
+          {% empty %}
+            <tr><td colspan="3" class="storage-muted">No data</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="storage-panel">
+      <h3>Top MIME types</h3>
+      <table class="storage-table">
+        <thead><tr><th>MIME</th><th>Files</th><th>Size</th></tr></thead>
+        <tbody>
+          {% for row in storage_stats.by_mime %}
+            <tr><td><code>{{ row.mime_type }}</code></td><td>{{ row.object_count }}</td><td>{{ row.total_bytes_display }}</td></tr>
+          {% empty %}
+            <tr><td colspan="3" class="storage-muted">No data</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="storage-grid">
+    <section class="storage-panel">
+      <h3>By company</h3>
+      <table class="storage-table">
+        <thead><tr><th>Company</th><th>Files</th><th>Size</th></tr></thead>
+        <tbody>
+          {% for row in storage_stats.by_company %}
+            <tr><td>{{ row.company_id }}</td><td>{{ row.object_count }}</td><td>{{ row.total_bytes_display }}</td></tr>
+          {% empty %}
+            <tr><td colspan="3" class="storage-muted">No data</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="storage-panel">
+      <h3>By bucket</h3>
+      <table class="storage-table">
+        <thead><tr><th>Bucket</th><th>Files</th><th>Size</th></tr></thead>
+        <tbody>
+          {% for row in storage_stats.by_bucket %}
+            <tr><td>{{ row.label }}</td><td>{{ row.object_count }}</td><td>{{ row.total_bytes_display }}</td></tr>
+          {% empty %}
+            <tr><td colspan="3" class="storage-muted">No data</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="storage-grid">
+    <section class="storage-panel">
+      <h3>Company quotas</h3>
+      <table class="storage-table">
+        <thead><tr><th>Company</th><th>Used</th><th>Limit</th><th>Usage</th></tr></thead>
+        <tbody>
+          {% for row in storage_stats.quotas %}
+            <tr>
+              <td>{{ row.company_id }}</td>
+              <td>{{ row.used_display }}</td>
+              <td>{{ row.max_display }}</td>
+              <td>
+                <div class="storage-meter" title="{{ row.pct }}%">
+                  <div class="storage-meter__fill{% if row.pct >= 90 %} is-critical{% elif row.pct >= 70 %} is-warn{% endif %}" style="width: {{ row.pct }}%"></div>
+                </div>
+                {{ row.pct }}%
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="storage-muted">No quotas yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="storage-panel">
+      <h3>Recent uploads</h3>
+      <table class="storage-table">
+        <thead><tr><th>File</th><th>Bucket</th><th>MIME</th><th>Size</th><th>When</th></tr></thead>
+        <tbody>
+          {% for row in storage_stats.recent %}
+            <tr>
+              <td>
+                <strong>{{ row.basename }}</strong>
+                {% if row.is_document %}<span class="storage-pill">doc</span>{% endif %}
+                <div class="storage-muted">{{ row.name }}</div>
+              </td>
+              <td>c{{ row.company_id }}/{{ row.bucket }}</td>
+              <td><code>{{ row.mime_type }}</code></td>
+              <td>{{ row.size_display }}</td>
+              <td>{{ row.created_at|date:"Y-m-d H:i" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="storage-muted">No uploads yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .storage-dashboard__header { margin-bottom: 1rem; }
+  .storage-dashboard__header h1 { margin: 0 0 0.25rem; }
+  .storage-muted { color: var(--body-quiet-color, #6b7280); font-size: 0.9rem; }
+  .storage-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .storage-card {
+    background: var(--body-bg, #fff);
+    border: 1px solid var(--hairline-color, #e5e7eb);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+  }
+  .storage-card__label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--body-quiet-color, #6b7280); }
+  .storage-card__value { font-size: 1.6rem; font-weight: 700; margin: 0.2rem 0; }
+  .storage-card__meta { font-size: 0.82rem; color: var(--body-quiet-color, #6b7280); }
+  .storage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .storage-panel {
+    background: var(--body-bg, #fff);
+    border: 1px solid var(--hairline-color, #e5e7eb);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+  }
+  .storage-panel h3 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+  .storage-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .storage-table th, .storage-table td { text-align: left; padding: 0.4rem 0.35rem; border-bottom: 1px solid var(--hairline-color, #e5e7eb); vertical-align: top; }
+  .storage-table th { color: var(--body-quiet-color, #6b7280); font-weight: 600; }
+  .storage-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 96px;
+  }
+  .storage-bar {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    background: var(--darkened-bg, #f3f4f6);
+    border-radius: 2px 2px 0 0;
+    overflow: hidden;
+  }
+  .storage-bar__fill {
+    width: 100%;
+    min-height: 2px;
+    background: #1d4ed8;
+  }
+  .storage-meter {
+    display: inline-block;
+    vertical-align: middle;
+    width: 88px;
+    height: 8px;
+    margin-right: 0.4rem;
+    background: var(--darkened-bg, #f3f4f6);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .storage-meter__fill { height: 100%; background: #16a34a; }
+  .storage-meter__fill.is-warn { background: #ca8a04; }
+  .storage-meter__fill.is-critical { background: #dc2626; }
+  .storage-pill {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+</style>
+{% endblock %}
