@@ -54,6 +54,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🐛 Bug Fixes
 
 - After deleting a blob on the filesystem backend, prune empty parent directories (UUID / bucket path leftovers under `data/media/objects/`).
+- OpenAPI / Swagger / ReDoc: fix schema crash on `ShareLinkView` (`request` is `None` during generation); add ShellUI SDK templates (same pattern as identity-service) so docs auto-authorize when opened inside ShellUI.
 
 ### ✨ Feature (earlier)
 

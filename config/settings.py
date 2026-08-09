@@ -166,6 +166,8 @@ SPECTACULAR_SETTINGS = {
     'TAGS': [
         {'name': 'buckets', 'description': 'Create and manage storage buckets.'},
         {'name': 'objects', 'description': 'Upload, download, list, move, copy, and delete objects.'},
+        {'name': 'access', 'description': 'Path-level access grants (invite / restrict / block).'},
+        {'name': 'share', 'description': 'Capability share links for anonymous downloads.'},
         {'name': 'quotas', 'description': 'Company and per-user storage quotas.'},
         {'name': 'health', 'description': 'Service health checks.'},
     ],

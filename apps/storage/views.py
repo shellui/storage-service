@@ -754,12 +754,13 @@ class ShareLinkView(APIView):
     """
 
     def get_permissions(self):
-        if self.request.method == 'DELETE':
+        # Schema generation may call this before request is bound.
+        if getattr(self, 'request', None) is not None and self.request.method == 'DELETE':
             return [IsAuthenticatedPrincipal()]
         return [AllowAny()]
 
     def get_authenticators(self):
-        if self.request.method == 'DELETE':
+        if getattr(self, 'request', None) is not None and self.request.method == 'DELETE':
             return super().get_authenticators()
         return []
 
