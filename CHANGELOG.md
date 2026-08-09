@@ -29,6 +29,11 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - Access descriptor on bucket and object list responses for clear UI labeling; `StorageAccessGrant` model reserved for future invite/block sharing.
 - Docs: [Access control](docs/access.md).
 
+### 🔒 Security
+
+- Regression tests: expired JWTs are rejected with 401 on bucket list, object list, and object download/preview (no file bytes returned).
+- Auth unit tests for `IdentityJWKSAuthentication` expired / missing-`exp` tokens.
+
 ### 🐛 Bug Fixes
 
 - After deleting a blob on the filesystem backend, prune empty parent directories (UUID / bucket path leftovers under `data/media/objects/`).

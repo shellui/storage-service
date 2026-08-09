@@ -238,7 +238,7 @@ class StorageAPITests(TestCase):
         )
         self.assertIn(list_resp.status_code, {401, 403})
 
-    def test_expired_token_rejected(self):
+    def _expired_auth(self):
         expired = jwt.encode(
             {
                 'sub': '1',
@@ -251,7 +251,11 @@ class StorageAPITests(TestCase):
             'test-secret',
             algorithm='HS256',
         )
-        auth = {'HTTP_AUTHORIZATION': f'Bearer {expired}'}
+        return {'HTTP_AUTHORIZATION': f'Bearer {expired}'}
+
+    def test_expired_token_rejected_on_object_list(self):
+        """Expired JWT must not list private company objects (data leak)."""
+        auth = self._expired_auth()
         list_resp = self.client.post(
             f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
             {'prefix': '', 'limit': 10},
@@ -259,6 +263,47 @@ class StorageAPITests(TestCase):
             **auth,
         )
         self.assertEqual(list_resp.status_code, 401)
+        self.assertIn('expired', list_resp.json().get('detail', '').lower())
+
+    def test_expired_token_rejected_on_bucket_list(self):
+        """Expired JWT must not list buckets."""
+        response = self.client.get('/storage/v1/bucket', **self._expired_auth())
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('expired', response.json().get('detail', '').lower())
+
+    def test_expired_token_rejected_on_object_download(self):
+        """Expired JWT must not download or preview object bytes."""
+        # Seed an object with a valid token first.
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/secret.txt',
+            data=b'top-secret',
+            content_type='text/plain',
+            **self.auth,
+        )
+        response = self.client.get(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/secret.txt',
+            **self._expired_auth(),
+        )
+        self.assertEqual(response.status_code, 401)
+        body = response.json()
+        self.assertIn('expired', body.get('detail', '').lower())
+        # Response must not contain file bytes
+        self.assertNotIn(b'top-secret', response.content)
+
+    def test_expired_token_rejected_on_authenticated_download_alias(self):
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/secret2.txt',
+            data=b'top-secret-2',
+            content_type='text/plain',
+            **self.auth,
+        )
+        response = self.client.get(
+            f'/storage/v1/object/authenticated/{COMPANY_BUCKET_NAME}/secret2.txt',
+            **self._expired_auth(),
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('expired', response.json().get('detail', '').lower())
+        self.assertNotIn(b'top-secret-2', response.content)
 
     def test_stats_endpoint(self):
         self.client.post(
