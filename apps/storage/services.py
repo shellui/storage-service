@@ -9,13 +9,13 @@ from django.conf import settings
 from django.core.files.base import ContentFile, File
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from .access import access_summary
+from .access import access_summary, path_access_summary
 from .backends import build_storage_key, content_etag, delete_storage_key
 from .mime import mime_allowed, normalize_mime_type, safe_object_path
-from .models import Bucket, StorageObject
+from .models import Bucket, StorageAccessGrant, StorageObject
 from .quotas import QuotaExceeded, assert_can_store, apply_usage_delta
 from .signals import storage_object_deleted, storage_object_uploaded
 
@@ -71,6 +71,7 @@ def serialize_object(
     *,
     include_folder_placeholder: bool = False,
     access: dict | None = None,
+    grants=None,
 ) -> dict:
     payload = {
         'id': str(obj.id),
@@ -96,9 +97,12 @@ def serialize_object(
     if access is not None:
         payload['access'] = access
     else:
-        from .access import access_summary
-
-        payload['access'] = access_summary(obj.bucket)
+        payload['access'] = path_access_summary(
+            obj.bucket,
+            path=obj.name,
+            object_id=str(obj.id),
+            grants=grants,
+        )
     return payload
 
 
@@ -111,13 +115,18 @@ def list_objects(
     search: str = '',
     sort_column: str = 'name',
     sort_order: str = 'asc',
+    principal=None,
 ) -> list[dict]:
     """
     Supabase-compatible listing with folder placeholders.
 
     Returns files under ``prefix`` (non-recursive) plus synthetic folder entries
     (``id: null``) for immediate child directories.
+
+    When ``principal`` is provided, entries the principal cannot read are omitted.
     """
+    from .access import active_grants_for_company, can_access_path
+
     prefix = (prefix or '').strip('/')
     if prefix:
         prefix = prefix + '/'
@@ -130,6 +139,10 @@ def list_objects(
     folders: set[str] = set()
 
     for obj in qs.iterator(chunk_size=500):
+        if principal is not None and not can_access_path(
+            principal, bucket, obj.name, object_id=str(obj.id)
+        ):
+            continue
         rest = obj.name[len(prefix) :]
         if not rest:
             continue
@@ -142,6 +155,9 @@ def list_objects(
     sort_column = sort_column if sort_column in {'name', 'updated_at', 'created_at'} else 'name'
     reverse = sort_order.lower() == 'desc'
 
+    # One grant fetch for the whole listing — path_access_summary filters in memory.
+    grants = active_grants_for_company(int(bucket.company_id))
+
     folder_entries = [
         {
             'id': None,
@@ -152,12 +168,18 @@ def list_objects(
             'updated_at': None,
             'last_accessed_at': None,
             'metadata': None,
-            'access': access_summary(bucket),
+            'access': path_access_summary(
+                bucket,
+                path=f'{prefix}{name}'.strip('/'),
+                grants=grants,
+            ),
         }
         for name in folders
     ]
 
-    file_entries = [serialize_object(o, include_folder_placeholder=True) for o in files]
+    file_entries = [
+        serialize_object(o, include_folder_placeholder=True, grants=grants) for o in files
+    ]
 
     def sort_key(item):
         if sort_column == 'name':
@@ -272,6 +294,14 @@ def upload_object(
         storage_key=storage_key,
     )
     apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=size)
+    from .access import apply_default_private_on_create
+
+    apply_default_private_on_create(
+        company_id=bucket.company_id,
+        user_id=owner_id,
+        bucket=bucket,
+        path=object_name,
+    )
     storage_object_uploaded.send(
         sender=StorageObject,
         instance=obj,
@@ -373,6 +403,114 @@ def delete_under_prefix(bucket: Bucket, folder_path: str, *, request=None) -> li
     return deleted
 
 
+def _rewrite_grants_for_prefix_rename(
+    *,
+    company_id: int,
+    bucket_name: str,
+    old_prefix: str,
+    new_prefix: str,
+) -> int:
+    """Update folder/object grants whose resource_id is the renamed prefix or under it."""
+    old_prefix = (old_prefix or '').strip('/')
+    new_prefix = (new_prefix or '').strip('/')
+    if not old_prefix or old_prefix == new_prefix:
+        return 0
+
+    qs = StorageAccessGrant.objects.filter(
+        company_id=company_id,
+        resource_type__in={
+            StorageAccessGrant.ResourceType.FOLDER,
+            StorageAccessGrant.ResourceType.OBJECT,
+        },
+    ).filter(Q(bucket_name=bucket_name) | Q(bucket_name=''))
+
+    updated = 0
+    for grant in qs:
+        rid = (grant.resource_id or '').strip().strip('/')
+        if not rid:
+            continue
+        if rid == old_prefix:
+            grant.resource_id = new_prefix
+            grant.save(update_fields=['resource_id', 'updated_at'])
+            updated += 1
+        elif rid.startswith(old_prefix + '/'):
+            grant.resource_id = new_prefix + rid[len(old_prefix) :]
+            grant.save(update_fields=['resource_id', 'updated_at'])
+            updated += 1
+    return updated
+
+
+@transaction.atomic
+def rename_folder(
+    *,
+    bucket: Bucket,
+    source_path: str,
+    dest_path: str,
+) -> dict:
+    """
+    Rename/move a virtual folder by rewriting every object name under the prefix.
+
+    Also rewrites folder/object access grants that target the old prefix.
+    """
+    src = safe_object_path(source_path).strip('/')
+    dst = safe_object_path(dest_path).strip('/')
+    if not src or not dst:
+        raise StorageError('from and to folder paths are required', status=400, code='invalid_prefix')
+    if src == dst:
+        return {'from': src, 'to': dst, 'moved': 0, 'grants_updated': 0}
+    if dst.startswith(src + '/'):
+        raise StorageError(
+            'Cannot rename a folder into itself.',
+            status=400,
+            code='invalid_destination',
+        )
+
+    objs = list(objects_under_prefix(bucket, src).select_for_update().order_by('name'))
+    if not objs:
+        raise StorageError('Folder not found', status=404, code='folder_not_found')
+
+    if objects_under_prefix(bucket, dst).exists() or StorageObject.objects.filter(
+        bucket=bucket, name=dst
+    ).exists():
+        raise StorageError(
+            'A folder or file already exists at the destination.',
+            status=400,
+            code='resource_already_exists',
+        )
+
+    # Rename deepest paths first so unique name constraints never collide mid-pass.
+    objs.sort(key=lambda o: o.name.count('/'), reverse=True)
+
+    moved: list[str] = []
+    for obj in objs:
+        if not obj.name.startswith(src + '/'):
+            continue
+        new_name = dst + obj.name[len(src) :]
+        if StorageObject.objects.filter(bucket=bucket, name=new_name).exclude(pk=obj.pk).exists():
+            raise StorageError(
+                'A folder or file already exists at the destination.',
+                status=400,
+                code='resource_already_exists',
+            )
+        obj.name = new_name
+        obj.updated_at = timezone.now()
+        obj.save(update_fields=['name', 'updated_at'])
+        moved.append(new_name)
+
+    grants_updated = _rewrite_grants_for_prefix_rename(
+        company_id=int(bucket.company_id),
+        bucket_name=bucket.name,
+        old_prefix=src,
+        new_prefix=dst,
+    )
+    return {
+        'from': src,
+        'to': dst,
+        'moved': len(moved),
+        'grants_updated': grants_updated,
+    }
+
+
 @transaction.atomic
 def move_object(
     *,
@@ -460,6 +598,14 @@ def copy_object(
         storage_key=storage_key,
     )
     apply_usage_delta(company_id=dest_bucket.company_id, user_id=obj.owner_id, delta=src.size)
+    from .access import apply_default_private_on_create
+
+    apply_default_private_on_create(
+        company_id=dest_bucket.company_id,
+        user_id=obj.owner_id,
+        bucket=dest_bucket,
+        path=dest_name,
+    )
     storage_object_uploaded.send(
         sender=StorageObject,
         instance=obj,
@@ -481,10 +627,10 @@ def create_bucket(
     """
     Deprecated for API use. Arbitrary bucket creation is disabled.
 
-    Prefer ``ensure_system_buckets`` / ``list_accessible_buckets``.
+    Prefer ``ensure_company_bucket`` / ``list_accessible_buckets``.
     """
     raise StorageError(
-        'Creating custom buckets is disabled. Use the company or personal bucket.',
+        'Creating custom buckets is disabled. Use the company bucket with access grants.',
         status=403,
         code='bucket_create_disabled',
     )

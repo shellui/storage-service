@@ -26,7 +26,12 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import AuthenticationFailed
 
 from apps.authapi.authentication import IdentityJWKSAuthentication
-from apps.storage.access import get_accessible_bucket, list_accessible_buckets
+from apps.storage.access import (
+    assert_can_access_path,
+    can_access_path,
+    get_accessible_bucket,
+    list_accessible_buckets,
+)
 from apps.storage.downloads import build_download_response
 from apps.storage.mime import safe_object_path
 from apps.storage.models import StorageObject
@@ -181,9 +186,10 @@ class WebDAVView(View):
                 # Exact object or folder prefix
                 obj = StorageObject.objects.filter(bucket=bucket, name=object_path).first()
                 if obj:
-                    multistatus.append(
-                        _prop_xml_for_object(_href(bucket.name, obj.name), obj)
-                    )
+                    if can_access_path(principal, bucket, obj.name, object_id=str(obj.id)):
+                        multistatus.append(
+                            _prop_xml_for_object(_href(bucket.name, obj.name), obj)
+                        )
                 else:
                     # Treat as folder
                     prefix = object_path.rstrip('/') + '/'
@@ -194,22 +200,24 @@ class WebDAVView(View):
                         )
                     )
                     if depth != '0':
-                        self._append_children(multistatus, bucket, prefix)
+                        self._append_children(multistatus, bucket, prefix, principal)
             else:
                 multistatus.append(
                     _prop_xml_for_collection(_href(bucket.name, collection=True), bucket.name)
                 )
                 if depth != '0':
-                    self._append_children(multistatus, bucket, '')
+                    self._append_children(multistatus, bucket, '', principal)
 
         body = ET.tostring(multistatus, encoding='utf-8', xml_declaration=True)
         return _dav_response(207, body)
 
-    def _append_children(self, multistatus, bucket, prefix: str):
+    def _append_children(self, multistatus, bucket, prefix: str, principal):
         folders: set[str] = set()
         files: list[StorageObject] = []
         qs = StorageObject.objects.filter(bucket=bucket, name__startswith=prefix)
         for obj in qs.iterator(chunk_size=500):
+            if not can_access_path(principal, bucket, obj.name, object_id=str(obj.id)):
+                continue
             rest = obj.name[len(prefix) :]
             if not rest:
                 continue
@@ -242,6 +250,10 @@ class WebDAVView(View):
         obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
         if not obj:
             return _dav_response(404, 'Not found', content_type='text/plain')
+        try:
+            assert_can_access_path(principal, bucket, name, object_id=str(obj.id))
+        except StorageError:
+            return _dav_response(403, 'Forbidden', content_type='text/plain')
         if head:
             response = HttpResponse(status=200, content_type=obj.mime_type)
             response['Content-Length'] = str(obj.size)
@@ -258,11 +270,14 @@ class WebDAVView(View):
         if not bucket_name or not object_path:
             return _dav_response(400, 'Bucket and path required', content_type='text/plain')
         bucket = get_accessible_bucket(principal, bucket_name, write=True)
+        name = safe_object_path(object_path)
+        try:
+            assert_can_access_path(principal, bucket, name, write=True)
+        except StorageError:
+            return _dav_response(403, 'Forbidden', content_type='text/plain')
         content_type = request.headers.get('Content-Type')
         body = BytesIO(request.body)
-        created = not StorageObject.objects.filter(
-            bucket=bucket, name=safe_object_path(object_path)
-        ).exists()
+        created = not StorageObject.objects.filter(bucket=bucket, name=name).exists()
         upload_object(
             bucket=bucket,
             path=object_path,
@@ -290,22 +305,43 @@ class WebDAVView(View):
             if not objs:
                 return _dav_response(404, 'Not found', content_type='text/plain')
             for item in objs:
-                delete_object(item, request=request)
+                if can_access_path(
+                    principal, bucket, item.name, write=True, object_id=str(item.id)
+                ):
+                    delete_object(item, request=request)
             return _dav_response(204)
+        try:
+            assert_can_access_path(principal, bucket, name, write=True, object_id=str(obj.id))
+        except StorageError:
+            return _dav_response(403, 'Forbidden', content_type='text/plain')
         delete_object(obj, request=request)
         return _dav_response(204)
 
     def mkcol(self, request, path=''):
-        # Folders are virtual (prefix-based). Accept MKCOL as no-op success so
-        # clients can create directory hierarchies before uploading files.
+        # Folders are virtual (prefix-based). Apply private-by-default grants so
+        # the new folder is only accessible to the creator unless nested under a
+        # folder that already defines access (then inherit).
+        from apps.storage.access import apply_default_private_on_create
+
         principal = request.webdav_user
-        require_company_id(principal)
+        company_id = require_company_id(principal)
         bucket_name, object_path = _parse_path(path)
         if not bucket_name:
             return _dav_response(403, 'Cannot create bucket via MKCOL', content_type='text/plain')
-        get_accessible_bucket(principal, bucket_name, write=True)
+        bucket = get_accessible_bucket(principal, bucket_name, write=True)
         if object_path:
-            safe_object_path(object_path)
+            name = safe_object_path(object_path)
+            try:
+                assert_can_access_path(principal, bucket, name, write=True)
+            except StorageError:
+                return _dav_response(403, 'Forbidden', content_type='text/plain')
+            apply_default_private_on_create(
+                company_id=company_id,
+                user_id=principal.user_id,
+                bucket=bucket,
+                path=name,
+                is_folder=True,
+            )
         return _dav_response(201)
 
     def move(self, request, path=''):
@@ -325,8 +361,13 @@ class WebDAVView(View):
         src_bucket_name, src_path = _parse_path(path)
         if not all([dest_bucket_name, dest_path, src_bucket_name, src_path]):
             return _dav_response(400, 'Invalid paths', content_type='text/plain')
-        src_bucket = get_accessible_bucket(principal, src_bucket_name)
-        dest_bucket = get_accessible_bucket(principal, dest_bucket_name)
+        src_bucket = get_accessible_bucket(principal, src_bucket_name, write=not copy)
+        dest_bucket = get_accessible_bucket(principal, dest_bucket_name, write=True)
+        try:
+            assert_can_access_path(principal, src_bucket, src_path, write=not copy)
+            assert_can_access_path(principal, dest_bucket, dest_path, write=True)
+        except StorageError:
+            return _dav_response(403, 'Forbidden', content_type='text/plain')
         if copy:
             copy_object(
                 bucket=src_bucket,

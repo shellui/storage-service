@@ -6,7 +6,10 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 
 ## Features
 
-- Supabase-compatible Storage REST API under `/storage/v1/*` (buckets, upload, download, list with folders, move/copy, signed URLs, public objects)
+- Supabase-compatible Storage REST API under `/storage/v1/*` (one company bucket, upload, download, list with folders, move/copy, signed URLs)
+- **One bucket per company** — new folders/files are **private to the creator** by default; share with **access grants** (user / company / folder / object). Nested items inherit the parent folder's permissions.
+- **Share links** — secret capability URLs with expiry and/or max downloads (no registration; not listed publicly)
+- Reserved **connector** buckets (SharePoint / Dropbox, …) as future **read-only** mounts
 - JWT verification via identity-service JWKS (`IDENTITY_JWKS_URL`)
 - Pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**
 - Company total quota + optional per-user quota
@@ -32,9 +35,10 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 |------|------|
 | Health | `GET /storage/v1/health` |
 | Buckets | `GET/POST /storage/v1/bucket`, `GET/PUT/DELETE /storage/v1/bucket/{name}` |
+| Access grants | `GET/POST /storage/v1/access/grant`, `DELETE /storage/v1/access/grant/{id}` |
+| Share links | `POST/GET /storage/v1/share/{bucket}/{*path}`, `GET/DELETE /storage/v1/share/link/{token}` |
 | Upload | `POST/PUT /storage/v1/object/{bucket}/{*path}` |
 | Download | `GET /storage/v1/object/{bucket}/{*path}` |
-| Public download | `GET /storage/v1/object/public/{bucket}/{*path}` |
 | List (folders) | `POST /storage/v1/object/list/{bucket}` |
 | Delete many | `DELETE /storage/v1/object/{bucket}` |
 | Move / copy | `POST /storage/v1/object/move`, `POST /storage/v1/object/copy` |
@@ -56,7 +60,7 @@ uv run python manage.py migrate
 uv run python manage.py runserver 8001
 ```
 
-Open `http://localhost:8001/` for Swagger / ReDoc. Create the one-time admin user from the home page if you need Django admin (quotas, buckets).
+Open `http://localhost:8001/` for Swagger / ReDoc. Create the one-time admin user from the home page if you need Django admin (quotas, grants, share links).
 
 Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package with `uv add <name>`; refresh the lock with `uv lock`.
 
@@ -137,6 +141,8 @@ uv run python manage.py test
 
 - [API overview](docs/index.md)
 - [JWKS auth](docs/authentication.md)
+- [Access control & grants](docs/access.md)
+- [Share links](docs/sharing.md)
 - [Quotas](docs/quotas.md)
 - [Downloads & nginx](docs/downloads.md)
 - [Third-party clients (WebDAV / S3)](docs/clients.md)

@@ -18,11 +18,25 @@ from rest_framework.views import APIView
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
 
 from .downloads import build_download_response, build_signed_url
+from .grants import create_grant, delete_grant, list_grants, list_grants_effective
 from .mime import safe_object_path
 from .models import StorageObject, UserQuota
 from .quotas import get_or_create_company_quota, snapshot
+from .shares import (
+    create_share_link,
+    list_share_links_for_object,
+    redeem_share_link,
+    revoke_share_link,
+    serialize_share_link,
+)
 from .stats import build_storage_stats
-from .access import get_accessible_bucket, list_accessible_buckets
+from .access import (
+    assert_can_access_path,
+    get_accessible_bucket,
+    get_accessible_object,
+    list_accessible_buckets,
+    serialize_grant,
+)
 from .services import (
     StorageError,
     copy_object,
@@ -31,6 +45,7 @@ from .services import (
     delete_under_prefix,
     list_objects,
     move_object,
+    rename_folder,
     require_company_id,
     serialize_bucket,
     serialize_object,
@@ -114,7 +129,7 @@ class BucketListCreateView(APIView):
 
     def post(self, request):
         return _error_message(
-            'Creating custom buckets is disabled. Use the company or personal bucket.',
+            'Creating custom buckets is disabled. Use the company bucket with access grants.',
             status_code=403,
             code='bucket_create_disabled',
         )
@@ -191,11 +206,7 @@ class ObjectResourceView(APIView):
     )
     def get(self, request, bucket_id, object_path):
         try:
-            bucket = get_accessible_bucket(request.user, bucket_id)
-            name = safe_object_path(object_path)
-            obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
-            if not obj:
-                raise StorageError('Object not found', status=404, code='object_not_found')
+            _bucket, obj = get_accessible_object(request.user, bucket_id, object_path)
         except StorageError as exc:
             return _error(exc)
         except ValueError as exc:
@@ -223,11 +234,9 @@ class ObjectResourceView(APIView):
     @extend_schema(tags=['objects'], summary='Delete single object')
     def delete(self, request, bucket_id, object_path):
         try:
-            bucket = get_accessible_bucket(request.user, bucket_id, write=True)
-            name = safe_object_path(object_path)
-            obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
-            if not obj:
-                raise StorageError('Object not found', status=404, code='object_not_found')
+            _bucket, obj = get_accessible_object(
+                request.user, bucket_id, object_path, write=True
+            )
             delete_object(obj, request=request)
         except StorageError as exc:
             return _error(exc)
@@ -238,6 +247,8 @@ class ObjectResourceView(APIView):
     def _upload(self, request, bucket_id, object_path, default_upsert=False):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id, write=True)
+            name = safe_object_path(object_path)
+            assert_can_access_path(request.user, bucket, name, write=True)
             upsert_header = request.headers.get('x-upsert', '').lower()
             upsert = default_upsert or upsert_header in {'true', '1', 'yes'}
 
@@ -303,11 +314,15 @@ class ObjectPublicDownloadView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    @extend_schema(tags=['objects'], summary='Download public object (disabled in v1)', auth=[])
+    @extend_schema(
+        tags=['objects'],
+        summary='Download public object (disabled — use share links)',
+        auth=[],
+    )
     def get(self, request, bucket_id, object_path):
-        # v1: public buckets are disabled. Prefer authenticated download or signed URLs.
+        # Public buckets stay disabled. Anonymous access uses /share/link/{token}.
         return _error_message(
-            'Public object downloads are disabled.',
+            'Public object downloads are disabled. Use a share link instead.',
             status_code=403,
             code='public_download_disabled',
         )
@@ -319,11 +334,7 @@ class ObjectInfoView(APIView):
     @extend_schema(tags=['objects'], summary='Object metadata')
     def get(self, request, bucket_id, object_path):
         try:
-            bucket = get_accessible_bucket(request.user, bucket_id)
-            name = safe_object_path(object_path)
-            obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
-            if not obj:
-                raise StorageError('Object not found', status=404, code='object_not_found')
+            _bucket, obj = get_accessible_object(request.user, bucket_id, object_path)
         except StorageError as exc:
             return _error(exc)
         except ValueError as exc:
@@ -348,6 +359,7 @@ class ObjectListView(APIView):
                 search=body.get('search') or '',
                 sort_column=(sort_by.get('column') if isinstance(sort_by, dict) else None) or 'name',
                 sort_order=(sort_by.get('order') if isinstance(sort_by, dict) else None) or 'asc',
+                principal=request.user,
             )
         except StorageError as exc:
             return _error(exc)
@@ -375,7 +387,7 @@ class ObjectDeleteManyView(APIView):
 
 
 class ObjectPrefixView(APIView):
-    """Folder prefix stats (GET) and recursive delete (DELETE)."""
+    """Folder prefix stats (GET), rename (POST), and recursive delete (DELETE)."""
 
     permission_classes = [IsAuthenticatedPrincipal]
 
@@ -391,6 +403,28 @@ class ObjectPrefixView(APIView):
             return _error(exc)
         except ValueError as exc:
             return _error_message(str(exc))
+
+    @extend_schema(tags=['objects'], summary='Rename a folder prefix')
+    def post(self, request, bucket_id):
+        try:
+            bucket = get_accessible_bucket(request.user, bucket_id, write=True)
+            body = request.data if isinstance(request.data, dict) else {}
+            source = body.get('from') or body.get('prefix') or body.get('source') or ''
+            dest = body.get('to') or body.get('destination') or ''
+            source = str(source).strip('/')
+            dest = str(dest).strip('/')
+            if not source or not dest:
+                return _error_message('from and to folder paths are required')
+            safe_object_path(source)
+            safe_object_path(dest)
+            assert_can_access_path(request.user, bucket, source, write=True)
+            assert_can_access_path(request.user, bucket, dest, write=True)
+            result = rename_folder(bucket=bucket, source_path=source, dest_path=dest)
+        except StorageError as exc:
+            return _error(exc)
+        except ValueError as exc:
+            return _error_message(str(exc))
+        return Response(result)
 
     @extend_schema(tags=['objects'], summary='Delete all objects under a folder prefix')
     def delete(self, request, bucket_id):
@@ -426,6 +460,8 @@ class ObjectMoveView(APIView):
                 return _error_message('sourceKey and destinationKey must be bucket/path')
             src_bucket = get_accessible_bucket(request.user, src_bucket_name, write=True)
             dst_bucket = get_accessible_bucket(request.user, dst_bucket_name, write=True)
+            assert_can_access_path(request.user, src_bucket, src_obj, write=True)
+            assert_can_access_path(request.user, dst_bucket, dst_obj, write=True)
             obj = move_object(
                 bucket=src_bucket,
                 source_path=src_obj,
@@ -452,8 +488,10 @@ class ObjectCopyView(APIView):
             dst_bucket_name, _, dst_obj = to_path.partition('/')
             if not src_bucket_name or not src_obj or not dst_bucket_name or not dst_obj:
                 return _error_message('sourceKey and destinationKey must be bucket/path')
-            src_bucket = get_accessible_bucket(request.user, src_bucket_name, write=True)
+            src_bucket = get_accessible_bucket(request.user, src_bucket_name)
             dst_bucket = get_accessible_bucket(request.user, dst_bucket_name, write=True)
+            assert_can_access_path(request.user, src_bucket, src_obj)
+            assert_can_access_path(request.user, dst_bucket, dst_obj, write=True)
             obj = copy_object(
                 bucket=src_bucket,
                 source_path=src_obj,
@@ -473,15 +511,11 @@ class ObjectSignView(APIView):
     @extend_schema(tags=['objects'], summary='Create signed URL')
     def post(self, request, bucket_id, object_path=''):
         try:
-            bucket = get_accessible_bucket(request.user, bucket_id, write=True)
             data = request.data if isinstance(request.data, dict) else {}
             # Supabase also supports batch sign with path in body
             path = object_path or data.get('path') or ''
             expires = int(data.get('expiresIn') or data.get('expires_in') or 3600)
-            name = safe_object_path(path)
-            obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
-            if not obj:
-                raise StorageError('Object not found', status=404, code='object_not_found')
+            _bucket, obj = get_accessible_object(request.user, bucket_id, path)
             url = build_signed_url(obj, expires_in=expires)
         except StorageError as exc:
             return _error(exc)
@@ -596,3 +630,157 @@ class UserQuotaAdminView(APIView):
                 'used_bytes': quota.used_bytes,
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# Access grants
+# ---------------------------------------------------------------------------
+
+
+@extend_schema_view(
+    get=extend_schema(tags=['access'], summary='List access grants'),
+    post=extend_schema(tags=['access'], summary='Create access grant'),
+)
+class AccessGrantListCreateView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    def get(self, request):
+        try:
+            resource_type = request.query_params.get('resource_type') or None
+            resource_id = request.query_params.get('resource_id') or None
+            bucket = request.query_params.get('bucket') or None
+            include_effective = str(
+                request.query_params.get('include_effective') or ''
+            ).lower() in {'1', 'true', 'yes'}
+            if include_effective:
+                payload = list_grants_effective(
+                    principal=request.user,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    bucket=bucket,
+                )
+                return Response(payload)
+            grants = list_grants(
+                principal=request.user,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                bucket=bucket,
+            )
+        except StorageError as exc:
+            return _error(exc)
+        return Response(grants)
+
+    def post(self, request):
+        try:
+            data = request.data if isinstance(request.data, dict) else {}
+            grant = create_grant(principal=request.user, data=data)
+        except StorageError as exc:
+            return _error(exc)
+        return Response(serialize_grant(grant), status=status.HTTP_201_CREATED)
+
+
+class AccessGrantDetailView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(tags=['access'], summary='Delete access grant')
+    def delete(self, request, grant_id):
+        try:
+            delete_grant(principal=request.user, grant_id=grant_id)
+        except StorageError as exc:
+            return _error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Capability share links (anonymous download by secret token)
+# ---------------------------------------------------------------------------
+
+
+@extend_schema_view(
+    get=extend_schema(tags=['share'], summary='List share links for an object'),
+    post=extend_schema(tags=['share'], summary='Create a share link for an object'),
+)
+class ObjectShareView(APIView):
+    """
+    Authenticated create/list of share links for one object.
+
+    Links are never published in a public directory — only returned to the
+    creator (token once on create) or listed to creators/admins for that object.
+    """
+
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    def get(self, request, bucket_id, object_path):
+        try:
+            links = list_share_links_for_object(
+                principal=request.user,
+                bucket_name=bucket_id,
+                path=object_path,
+            )
+        except StorageError as exc:
+            return _error(exc)
+        except ValueError as exc:
+            return _error_message(str(exc))
+        return Response([serialize_share_link(link) for link in links])
+
+    def post(self, request, bucket_id, object_path):
+        try:
+            data = request.data if isinstance(request.data, dict) else {}
+            max_downloads = data.get('max_downloads', data.get('maxDownloads'))
+            if max_downloads in ('', None):
+                max_downloads = None
+            link = create_share_link(
+                principal=request.user,
+                bucket_name=bucket_id,
+                path=object_path,
+                expires_at=data.get('expires_at') or data.get('expiresAt'),
+                max_downloads=max_downloads,
+                notes=str(data.get('notes') or ''),
+            )
+        except StorageError as exc:
+            return _error(exc)
+        except ValueError as exc:
+            return _error_message(str(exc))
+        return Response(
+            serialize_share_link(link, include_token=True),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ShareLinkView(APIView):
+    """
+    ``GET`` — anonymous redeem (no registration).
+    ``DELETE`` — authenticated revoke by creator or company owner/staff.
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'DELETE':
+            return [IsAuthenticatedPrincipal()]
+        return [AllowAny()]
+
+    def get_authenticators(self):
+        if self.request.method == 'DELETE':
+            return super().get_authenticators()
+        return []
+
+    @extend_schema(tags=['share'], summary='Download via share link token', auth=[])
+    def get(self, request, token):
+        try:
+            _link, obj = redeem_share_link(token)
+        except StorageError as exc:
+            return _error(exc)
+
+        download = request.query_params.get('download')
+        as_attachment = download is not None
+        filename = None if download in (None, '', 'true', '1') else download
+        response = build_download_response(obj, as_attachment=as_attachment, filename=filename)
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
+    @extend_schema(tags=['share'], summary='Revoke a share link')
+    def delete(self, request, token):
+        try:
+            link = revoke_share_link(principal=request.user, token=token)
+        except StorageError as exc:
+            return _error(exc)
+        return Response(serialize_share_link(link))

@@ -11,11 +11,11 @@ from django.core.files.storage import default_storage
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from apps.storage.access import (
-    COMPANY_BUCKET_NAME,
-    ensure_system_buckets,
-    user_bucket_name,
-)
+from datetime import timedelta
+
+from django.utils import timezone
+
+from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.mime import guess_mime_type, mime_allowed, safe_object_path
 from apps.storage.models import Bucket, BucketKind, CompanyQuota, StorageObject, UserQuota
 from apps.storage.quotas import QuotaExceeded, assert_can_store
@@ -114,19 +114,17 @@ class StorageAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'ok')
 
-    def test_list_buckets_provisions_company_and_user(self):
+    def test_list_buckets_provisions_company_only(self):
         response = self.client.get('/storage/v1/bucket', **self.auth)
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(len(body), 2)
-        kinds = {row['kind'] for row in body}
-        self.assertEqual(kinds, {'company', 'user'})
-        company = next(row for row in body if row['kind'] == 'company')
-        personal = next(row for row in body if row['kind'] == 'user')
+        self.assertEqual(len(body), 1)
+        company = body[0]
+        self.assertEqual(company['kind'], 'company')
         self.assertEqual(company['name'], COMPANY_BUCKET_NAME)
         self.assertEqual(company['access']['audience'], 'company')
-        self.assertEqual(personal['name'], user_bucket_name(1))
-        self.assertEqual(personal['access']['audience'], 'owner')
+        self.assertTrue(company['access']['shareable'])
+        self.assertTrue(company['access']['grants_enabled'])
         self.assertFalse(company['public'])
 
     def test_create_bucket_disabled(self):
@@ -138,19 +136,6 @@ class StorageAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json().get('error'), 'bucket_create_disabled')
-
-    def test_user_cannot_access_other_users_bucket(self):
-        ensure_system_buckets(company_id=10, user_id=1)
-        ensure_system_buckets(company_id=10, user_id=2)
-        other = user_bucket_name(2)
-        response = self.client.post(
-            f'/storage/v1/object/{other}/secret.txt',
-            data=b'secret',
-            content_type='text/plain',
-            **self.auth,
-        )
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json().get('error'), 'bucket_access_denied')
 
     def test_company_bucket_upload_list_download(self):
         content = b'hello nested world'
@@ -172,9 +157,7 @@ class StorageAPITests(TestCase):
         self.assertEqual(listing.status_code, 200)
         names = [row['name'] for row in listing.json()]
         self.assertIn('folder', names)
-        folder_row = next(row for row in listing.json() if row['name'] == 'folder')
-        self.assertEqual(folder_row['access']['audience'], 'company')
-
+        # Nested upload without ancestor grants → object is private to creator.
         nested = self.client.post(
             f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
             {'prefix': 'folder', 'limit': 100},
@@ -183,7 +166,8 @@ class StorageAPITests(TestCase):
         )
         self.assertIn('hello.txt', [row['name'] for row in nested.json()])
         file_row = next(row for row in nested.json() if row['name'] == 'hello.txt')
-        self.assertEqual(file_row['access']['audience'], 'company')
+        self.assertEqual(file_row['access']['audience'], 'restricted')
+        self.assertIn('1', file_row['access'].get('allowed_user_ids') or [])
 
         download = self.client.get(
             f'/storage/v1/object/{COMPANY_BUCKET_NAME}/folder/hello.txt',
@@ -192,32 +176,363 @@ class StorageAPITests(TestCase):
         self.assertEqual(download.status_code, 200)
         self.assertEqual(b''.join(download.streaming_content), content)
 
-    def test_personal_bucket_is_private_to_owner(self):
-        personal = user_bucket_name(1)
-        response = self.client.post(
-            f'/storage/v1/object/{personal}/note.txt',
-            data=b'private',
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        denied = self.client.get(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/folder/hello.txt',
+            **other_auth,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json().get('error'), 'path_access_denied')
+
+    def test_upload_private_by_default(self):
+        upload = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/solo.txt',
+            data=b'mine',
             content_type='text/plain',
             **self.auth,
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(upload.status_code, 200)
+
+        listing = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': '', 'limit': 100},
+            format='json',
+            **self.auth,
+        )
+        row = next(r for r in listing.json() if r['name'] == 'solo.txt')
+        self.assertEqual(row['access']['audience'], 'restricted')
 
         other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
         denied = self.client.get(
-            f'/storage/v1/object/{personal}/note.txt',
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/solo.txt',
             **other_auth,
         )
         self.assertEqual(denied.status_code, 403)
 
-        # Other user still sees company bucket + their own personal bucket only.
-        listing = self.client.get('/storage/v1/bucket', **other_auth)
-        names = {row['name'] for row in listing.json()}
-        self.assertIn(COMPANY_BUCKET_NAME, names)
-        self.assertIn(user_bucket_name(2), names)
-        self.assertNotIn(personal, names)
+        other_list = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': '', 'limit': 100},
+            format='json',
+            **other_auth,
+        )
+        self.assertEqual(other_list.status_code, 200)
+        self.assertNotIn('solo.txt', [r['name'] for r in other_list.json()])
+
+    def test_empty_folder_placeholder_is_private(self):
+        upload = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/projects/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        self.assertEqual(upload.status_code, 200)
+
+        listing = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': '', 'limit': 100},
+            format='json',
+            **self.auth,
+        )
+        folder_row = next(r for r in listing.json() if r['name'] == 'projects')
+        self.assertEqual(folder_row['access']['audience'], 'restricted')
+        self.assertIn('1', folder_row['access'].get('allowed_user_ids') or [])
+
+    def test_nested_inherits_folder_grants(self):
+        # Create private folder via placeholder, then upload nested file — inherits.
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        nested = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/secret.txt',
+            data=b'secret',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertEqual(nested.status_code, 200)
+
+        listing = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'vault', 'limit': 100},
+            format='json',
+            **self.auth,
+        )
+        file_row = next(r for r in listing.json() if r['name'] == 'secret.txt')
+        self.assertEqual(file_row['access']['audience'], 'restricted')
+
+        # No object-level grants — inheritance from folder only.
+        from apps.storage.models import StorageAccessGrant
+
+        object_grants = StorageAccessGrant.objects.filter(
+            resource_type='object',
+            resource_id='vault/secret.txt',
+        )
+        self.assertEqual(object_grants.count(), 0)
+        folder_grants = StorageAccessGrant.objects.filter(
+            resource_type='folder',
+            resource_id='vault',
+        )
+        self.assertEqual(folder_grants.count(), 2)
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        denied = self.client.get(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/secret.txt',
+            **other_auth,
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        # Manual grant lets another user in.
+        allow = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'user',
+                'subject_id': '2',
+                'resource_type': 'folder',
+                'resource_id': 'vault',
+                'permission': 'read',
+                'effect': 'allow',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(allow.status_code, 201)
+        allowed = self.client.get(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/secret.txt',
+            **other_auth,
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+    def test_nested_folder_copies_parent_grants(self):
+        """Nested folder materializes parent ACL (not company-open with empty grants)."""
+        from apps.storage.models import StorageAccessGrant
+
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        # Share parent with user 2 before creating nested folder.
+        self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'user',
+                'subject_id': '2',
+                'resource_type': 'folder',
+                'resource_id': 'vault',
+                'permission': 'read',
+                'effect': 'allow',
+            },
+            format='json',
+            **self.auth,
+        )
+
+        nested = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/team/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        self.assertEqual(nested.status_code, 200)
+
+        team_grants = list(
+            StorageAccessGrant.objects.filter(resource_type='folder', resource_id='vault/team')
+        )
+        # deny company + allow user 1 + allow user 2 (copied from parent)
+        self.assertEqual(len(team_grants), 3)
+        subjects = {(g.effect, g.subject_type, g.subject_id) for g in team_grants}
+        self.assertIn(('deny', 'company', '10'), subjects)
+        self.assertIn(('allow', 'user', '1'), subjects)
+        self.assertIn(('allow', 'user', '2'), subjects)
+
+        listing = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'vault', 'limit': 100},
+            format='json',
+            **self.auth,
+        )
+        team_row = next(r for r in listing.json() if r['name'] == 'team')
+        self.assertEqual(team_row['access']['audience'], 'restricted')
+        self.assertEqual(set(team_row['access'].get('allowed_user_ids') or []), {'1', '2'})
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        # User 2 can list/see under vault/team (read via copied grant).
+        other_list = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'vault/team', 'limit': 100},
+            format='json',
+            **other_auth,
+        )
+        self.assertEqual(other_list.status_code, 200)
+
+        stranger = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=3)}'}
+        stranger_list = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'vault', 'limit': 100},
+            format='json',
+            **stranger,
+        )
+        self.assertNotIn('team', [r['name'] for r in stranger_list.json()])
+
+    def test_cannot_make_nested_folder_public_while_parent_private(self):
+        """Removing company deny under a private parent must fail with a clear error."""
+        from apps.storage.models import StorageAccessGrant
+
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/team/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+
+        deny = StorageAccessGrant.objects.get(
+            resource_type='folder',
+            resource_id='vault/team',
+            effect='deny',
+            subject_type='company',
+        )
+        resp = self.client.delete(
+            f'/storage/v1/access/grant/{deny.id}',
+            **self.auth,
+        )
+        self.assertEqual(resp.status_code, 400)
+        body = resp.json()
+        self.assertEqual(body.get('error'), 'parent_folder_private')
+        self.assertIn('vault', body.get('message', ''))
+        self.assertIn('private', body.get('message', '').lower())
+
+        # Company allow on nested path is also blocked (would pierce parent).
+        allow_company = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'company',
+                'subject_id': '10',
+                'resource_type': 'folder',
+                'resource_id': 'vault/team',
+                'permission': 'read',
+                'effect': 'allow',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(allow_company.status_code, 400)
+        self.assertEqual(allow_company.json().get('error'), 'parent_folder_private')
+
+        # Opening the parent first, then the nested folder, works.
+        for g in StorageAccessGrant.objects.filter(resource_type='folder', resource_id='vault'):
+            self.client.delete(f'/storage/v1/access/grant/{g.id}', **self.auth)
+        # Parent no longer private — nested make-public should succeed.
+        resp2 = self.client.delete(
+            f'/storage/v1/access/grant/{deny.id}',
+            **self.auth,
+        )
+        self.assertEqual(resp2.status_code, 204)
+
+    def test_cannot_make_nested_file_public_while_parent_private(self):
+        """Same rule for files: cannot remove object company-deny under a private folder."""
+        from apps.storage.models import StorageAccessGrant
+
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        # File with its own private grants (e.g. made private locally).
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/note.txt',
+            data=b'note',
+            content_type='text/plain',
+            **self.auth,
+        )
+        # Nested upload inherits — add object-level private grants explicitly
+        # (allow first so the creator is not locked out by the company deny).
+        allow_self = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'user',
+                'subject_id': '1',
+                'resource_type': 'object',
+                'resource_id': 'vault/note.txt',
+                'permission': 'admin',
+                'effect': 'allow',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(allow_self.status_code, 201)
+        deny = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'company',
+                'subject_id': '10',
+                'resource_type': 'object',
+                'resource_id': 'vault/note.txt',
+                'permission': 'read',
+                'effect': 'deny',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(deny.status_code, 201)
+
+        effective = self.client.get(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'resource_type': 'object',
+                'resource_id': 'vault/note.txt',
+                'include_effective': '1',
+            },
+            **self.auth,
+        )
+        self.assertEqual(effective.status_code, 200)
+        body = effective.json()
+        self.assertEqual(body.get('private_ancestor'), 'vault')
+        self.assertTrue(any(g['effect'] == 'deny' for g in body.get('grants') or []))
+
+        grant_id = deny.json()['id']
+        resp = self.client.delete(
+            f'/storage/v1/access/grant/{grant_id}',
+            **self.auth,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json().get('error'), 'parent_folder_private')
+        self.assertIn('vault', resp.json().get('message', ''))
+
+        # Company allow on the file is also blocked.
+        allow = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'company',
+                'subject_id': '10',
+                'resource_type': 'object',
+                'resource_id': 'vault/note.txt',
+                'permission': 'read',
+                'effect': 'allow',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(allow.status_code, 400)
+        self.assertEqual(allow.json().get('error'), 'parent_folder_private')
 
     def test_public_download_disabled(self):
-        ensure_system_buckets(company_id=10, user_id=1)
+        ensure_company_bucket(company_id=10)
         bucket = Bucket.objects.get(company_id=10, name=COMPANY_BUCKET_NAME)
         upload_object(
             bucket=bucket,
@@ -363,6 +678,99 @@ class StorageAPITests(TestCase):
         self.assertIn('keep.txt', names)
         self.assertNotIn('reports', names)
 
+    def test_folder_rename_moves_objects_and_grants(self):
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/reports/q1.txt',
+            data=b'q1',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/reports/nested/q2.txt',
+            data=b'q2',
+            content_type='text/plain',
+            **self.auth,
+        )
+        owner_auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=1, is_company_owner=True)}'
+        }
+        deny = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'company',
+                'subject_id': '10',
+                'resource_type': 'folder',
+                'resource_id': 'reports',
+                'permission': 'read',
+                'effect': 'deny',
+            },
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(deny.status_code, 201)
+        deny_id = deny.json()['id']
+        allow = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'user',
+                'subject_id': '1',
+                'resource_type': 'folder',
+                'resource_id': 'reports',
+                'permission': 'write',
+                'effect': 'allow',
+            },
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(allow.status_code, 201)
+        allow_id = allow.json()['id']
+
+        renamed = self.client.post(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}',
+            {'from': 'reports', 'to': 'archives'},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(renamed.status_code, 200)
+        body = renamed.json()
+        self.assertEqual(body['from'], 'reports')
+        self.assertEqual(body['to'], 'archives')
+        self.assertEqual(body['moved'], 2)
+        # Includes auto-private grants on the folder tree, plus our deny/allow.
+        self.assertGreaterEqual(body['grants_updated'], 2)
+
+        listing = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': '', 'limit': 100},
+            format='json',
+            **self.auth,
+        )
+        names = [row['name'] for row in listing.json()]
+        self.assertIn('archives', names)
+        self.assertNotIn('reports', names)
+
+        nested = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'archives', 'limit': 100},
+            format='json',
+            **self.auth,
+        )
+        nested_names = [row['name'] for row in nested.json()]
+        self.assertIn('q1.txt', nested_names)
+        self.assertIn('nested', nested_names)
+
+        grants = self.client.get(
+            '/storage/v1/access/grant',
+            {'resource_type': 'folder', 'resource_id': 'archives', 'bucket': COMPANY_BUCKET_NAME},
+            **owner_auth,
+        )
+        self.assertEqual(grants.status_code, 200)
+        by_id = {g['id']: g for g in grants.json()}
+        self.assertEqual(by_id[deny_id]['resource_id'], 'archives')
+        self.assertEqual(by_id[allow_id]['resource_id'], 'archives')
+
     def test_delete_prunes_empty_filesystem_dirs(self):
         response = self.client.post(
             f'/storage/v1/object/{COMPANY_BUCKET_NAME}/nested/file.txt',
@@ -405,7 +813,7 @@ class StorageAPITests(TestCase):
         self.assertIn('Title', obj.metadata['markdown_text'])
 
     def test_webdav_propfind_and_put(self):
-        ensure_system_buckets(company_id=10, user_id=1)
+        ensure_company_bucket(company_id=10)
         response = self.client.generic('PROPFIND', '/dav/', **self.auth, HTTP_DEPTH='1')
         self.assertEqual(response.status_code, 207)
         self.assertIn(COMPANY_BUCKET_NAME.encode(), response.content)
@@ -424,7 +832,7 @@ class StorageAPITests(TestCase):
             ).exists()
         )
 
-    def test_connector_bucket_hidden(self):
+    def test_connector_bucket_read_only(self):
         Bucket.objects.create(
             company_id=10,
             name='sharepoint',
@@ -433,8 +841,91 @@ class StorageAPITests(TestCase):
             public=False,
         )
         response = self.client.get('/storage/v1/bucket', **self.auth)
-        names = {row['name'] for row in response.json()}
-        self.assertNotIn('sharepoint', names)
+        rows = {row['name']: row for row in response.json()}
+        self.assertIn('sharepoint', rows)
+        self.assertFalse(rows['sharepoint']['access']['can_write'])
+        self.assertEqual(rows['sharepoint']['access']['writers'], 'none')
+
+        denied_write = self.client.post(
+            '/storage/v1/object/sharepoint/file.txt',
+            data=b'x',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertEqual(denied_write.status_code, 403)
+
+    def test_share_link_expiry_and_max_downloads(self):
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/deck.pdf',
+            data=b'%PDF-1.4',
+            content_type='application/pdf',
+            **self.auth,
+        )
+        created = self.client.post(
+            f'/storage/v1/share/{COMPANY_BUCKET_NAME}/deck.pdf',
+            {
+                'max_downloads': 1,
+                'expires_at': (timezone.now() + timedelta(hours=1)).isoformat(),
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(created.status_code, 201)
+        token = created.json()['token']
+        self.assertTrue(token)
+
+        # Anonymous redeem (no auth).
+        first = self.client.get(f'/storage/v1/share/link/{token}')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(b''.join(first.streaming_content), b'%PDF-1.4')
+
+        second = self.client.get(f'/storage/v1/share/link/{token}')
+        self.assertEqual(second.status_code, 410)
+        self.assertEqual(second.json().get('error'), 'share_inactive')
+
+        # No public directory of share tokens.
+        listing = self.client.get(
+            f'/storage/v1/share/{COMPANY_BUCKET_NAME}/deck.pdf',
+            **self.auth,
+        )
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(len(listing.json()), 1)
+
+    def test_share_link_requires_limit(self):
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/a.txt',
+            data=b'a',
+            content_type='text/plain',
+            **self.auth,
+        )
+        response = self.client.post(
+            f'/storage/v1/share/{COMPANY_BUCKET_NAME}/a.txt',
+            {},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json().get('error'), 'share_limit_required')
+
+    def test_share_link_revoke(self):
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/b.txt',
+            data=b'b',
+            content_type='text/plain',
+            **self.auth,
+        )
+        created = self.client.post(
+            f'/storage/v1/share/{COMPANY_BUCKET_NAME}/b.txt',
+            {'max_downloads': 10},
+            format='json',
+            **self.auth,
+        )
+        token = created.json()['token']
+        revoked = self.client.delete(f'/storage/v1/share/link/{token}', **self.auth)
+        self.assertEqual(revoked.status_code, 200)
+        self.assertIsNotNone(revoked.json().get('revoked_at'))
+        response = self.client.get(f'/storage/v1/share/link/{token}')
+        self.assertEqual(response.status_code, 410)
 
 
 @override_settings(
@@ -459,7 +950,7 @@ class XAccelDownloadTests(TestCase):
         self.addCleanup(self.jwks_patch.stop)
 
     def test_xaccel_header(self):
-        company, _personal = ensure_system_buckets(company_id=10, user_id=1)
+        company = ensure_company_bucket(company_id=10)
         upload_object(
             bucket=company,
             path='a.bin',

@@ -3,7 +3,14 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from .models import Bucket, CompanyQuota, StorageObject, StorageAccessGrant, UserQuota
+from .models import (
+    Bucket,
+    CompanyQuota,
+    ObjectShareLink,
+    StorageObject,
+    StorageAccessGrant,
+    UserQuota,
+)
 from .stats import build_storage_stats, human_bytes
 
 
@@ -61,14 +68,16 @@ class BucketAdmin(admin.ModelAdmin):
         'name',
         'kind',
         'company_id',
+        'connector_provider',
         'owner_id',
         'public',
         'file_count',
         'created_at',
     )
-    list_filter = ('kind', 'public', 'company_id')
+    list_filter = ('kind', 'public', 'company_id', 'connector_provider')
     search_fields = ('name', 'connector_provider')
     readonly_fields = ('id', 'created_at', 'updated_at')
+    # Only company + connector kinds remain on the model choices.
 
     @admin.display(description='Files')
     def file_count(self, obj):
@@ -82,14 +91,37 @@ class StorageAccessGrantAdmin(admin.ModelAdmin):
         'permission',
         'subject_type',
         'subject_id',
+        'bucket_name',
         'resource_type',
         'resource_id',
         'company_id',
         'created_at',
     )
     list_filter = ('effect', 'permission', 'subject_type', 'resource_type', 'company_id')
-    search_fields = ('subject_id', 'resource_id', 'notes')
+    search_fields = ('subject_id', 'resource_id', 'bucket_name', 'notes')
     readonly_fields = ('id', 'created_at', 'updated_at')
+
+
+@admin.register(ObjectShareLink, site=storage_admin_site)
+class ObjectShareLinkAdmin(admin.ModelAdmin):
+    list_display = (
+        'token_short',
+        'object',
+        'company_id',
+        'created_by_id',
+        'expires_at',
+        'max_downloads',
+        'download_count',
+        'revoked_at',
+        'created_at',
+    )
+    list_filter = ('company_id',)
+    search_fields = ('token', 'notes', 'object__name')
+    readonly_fields = ('id', 'token', 'download_count', 'created_at')
+
+    @admin.display(description='Token')
+    def token_short(self, obj):
+        return f'{obj.token[:10]}…'
 
 
 @admin.register(StorageObject, site=storage_admin_site)

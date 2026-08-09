@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 
 from django.core.validators import MinValueValidator
@@ -12,8 +13,7 @@ from django.utils import timezone
 class BucketKind(models.TextChoices):
     """Fixed bucket types. Free-form user-created buckets are not supported."""
 
-    COMPANY = 'company', 'Company private'
-    USER = 'user', 'User private'
+    COMPANY = 'company', 'Company'
     CONNECTOR = 'connector', 'External connector'
 
 
@@ -21,8 +21,10 @@ class Bucket(models.Model):
     """
     Storage namespace scoped to a company.
 
-    v1: only system-managed ``company`` and ``user-<id>`` buckets.
-    ``connector`` is reserved for future SharePoint / Dropbox / etc.
+    Current model: one system ``company`` bucket per company. Access inside that
+    bucket is refined with ``StorageAccessGrant`` (folder / object).
+
+    ``connector`` is reserved for future read-only mounts (SharePoint, Dropbox, …).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -36,7 +38,7 @@ class Bucket(models.Model):
     )
     public = models.BooleanField(
         default=False,
-        help_text='v1: always false. Public buckets are disabled.',
+        help_text='Always false. Anonymous access uses capability share links, not public buckets.',
     )
     file_size_limit = models.BigIntegerField(
         null=True,
@@ -49,7 +51,7 @@ class Bucket(models.Model):
         blank=True,
         help_text='Empty list = allow all. Otherwise list of MIME types / prefixes (e.g. image/*).',
     )
-    # Required for kind=user (the only reader/writer). Optional for connector.
+    # Optional connector owner / contact. Unused for company buckets.
     owner_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     # Future: 'sharepoint', 'dropbox', …
     connector_provider = models.CharField(max_length=64, blank=True, default='')
@@ -169,15 +171,15 @@ class UserQuota(models.Model):
 
 class StorageAccessGrant(models.Model):
     """
-    Future fine-grained sharing (invite / provide / block).
+    Fine-grained sharing inside a company (invite / provide / block).
 
-    Not enforced in v1 — company and user bucket kinds define access instead.
-    Kept in the schema so the product model is explicit.
+    Evaluation order:
+    1. effect=deny for matching subject + resource
+    2. effect=allow for matching subject + resource
+    3. Fall back to bucket-kind defaults
 
-    Evaluation order when enabled:
-    1. effect=deny for matching subject+resource
-    2. effect=allow
-    3. fall back to bucket kind defaults
+    Subjects ``group`` are stored for future identity-service group claims;
+    only ``user`` and ``company`` are evaluated today.
     """
 
     class SubjectType(models.TextChoices):
@@ -201,6 +203,12 @@ class StorageAccessGrant(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company_id = models.PositiveIntegerField(db_index=True)
+    bucket_name = models.SlugField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Bucket this grant applies to. Empty means company bucket for folder/object grants.',
+    )
     subject_type = models.CharField(max_length=16, choices=SubjectType.choices)
     subject_id = models.CharField(
         max_length=64,
@@ -237,3 +245,65 @@ class StorageAccessGrant(models.Model):
             f'{self.subject_type}:{self.subject_id} → '
             f'{self.resource_type}:{self.resource_id}'
         )
+
+
+def _default_share_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+class ObjectShareLink(models.Model):
+    """
+    Capability URL to download one object without signing in.
+
+    Not listed publicly: only the creator (or admins) can list/revoke.
+    Anyone who possesses the token may download while the link is valid.
+
+    Validity is ``expires_at`` and/or ``max_downloads`` (at least one required).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    token = models.CharField(max_length=64, unique=True, default=_default_share_token, db_index=True)
+    object = models.ForeignKey(
+        StorageObject,
+        on_delete=models.CASCADE,
+        related_name='share_links',
+    )
+    company_id = models.PositiveIntegerField(db_index=True)
+    created_by_id = models.PositiveIntegerField(db_index=True)
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Optional absolute expiry. Required if max_downloads is unset.',
+    )
+    max_downloads = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text='Optional download cap. Required if expires_at is unset.',
+    )
+    download_count = models.PositiveIntegerField(default=0)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    notes = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['company_id', 'object']),
+            models.Index(fields=['created_by_id', 'created_at']),
+        ]
+        verbose_name = 'object share link'
+        verbose_name_plural = 'object share links'
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f'share:{self.token[:8]}… → {self.object_id}'
+
+    def is_active(self, *, now=None) -> bool:
+        now = now or timezone.now()
+        if self.revoked_at is not None:
+            return False
+        if self.expires_at is not None and self.expires_at <= now:
+            return False
+        if self.max_downloads is not None and self.download_count >= self.max_downloads:
+            return False
+        return True

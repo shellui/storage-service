@@ -2,6 +2,8 @@
 
 Django always authorizes the request. Bytes can be served three ways.
 
+Anonymous downloads use [share links](sharing.md) (`GET /storage/v1/share/link/{token}`), not public buckets. Authenticated downloads and short-lived signed URLs are unchanged below.
+
 ## Modes (`DOWNLOAD_MODE`)
 
 | Value | Behavior |

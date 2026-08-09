@@ -17,9 +17,9 @@ Typical settings:
 | Username | any string (often the user email) |
 | Password | identity-service **access JWT** |
 
-Layout: `/dav/{bucket}/folder/file.ext`
+Layout: `/dav/{bucket}/folder/file.ext` — typically `/dav/company/…` (one company bucket; access grants apply).
 
-Buckets must already exist (`POST /storage/v1/bucket` or Django admin). `MKCOL` creates virtual folders (prefix-based).
+The company bucket is auto-provisioned. `MKCOL` creates virtual folders (prefix-based) that are **private to the creator** by default (nested folders inherit parent grants).
 
 Examples (non-exhaustive, not recommendations): the WebDAV support built into some desktop OSes, command-line sync tools, and file managers that offer a WebDAV or S3 plugin.
 

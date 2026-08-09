@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from apps.storage.access import COMPANY_BUCKET_NAME, ensure_system_buckets
+from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.services import upload_object
 from apps.storage.stats import build_storage_stats, human_bytes
 
@@ -21,7 +21,7 @@ from apps.storage.stats import build_storage_stats, human_bytes
 )
 class StorageStatsTests(TestCase):
     def setUp(self):
-        company, _personal = ensure_system_buckets(company_id=10, user_id=1)
+        company = ensure_company_bucket(company_id=10)
         self.assertEqual(company.name, COMPANY_BUCKET_NAME)
         upload_object(
             bucket=company,

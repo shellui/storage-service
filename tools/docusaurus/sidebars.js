@@ -3,6 +3,8 @@ const sidebars = {
   tutorialSidebar: [
     "index",
     "authentication",
+    "access",
+    "sharing",
     "quotas",
     "downloads",
     "clients",

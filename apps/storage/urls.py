@@ -7,6 +7,18 @@ urlpatterns = [
     path('bucket', views.BucketListCreateView.as_view(), name='bucket-list'),
     path('bucket/<slug:bucket_id>', views.BucketDetailView.as_view(), name='bucket-detail'),
     path('bucket/<slug:bucket_id>/empty', views.BucketEmptyView.as_view(), name='bucket-empty'),
+    path('access/grant', views.AccessGrantListCreateView.as_view(), name='access-grant-list'),
+    path(
+        'access/grant/<uuid:grant_id>',
+        views.AccessGrantDetailView.as_view(),
+        name='access-grant-detail',
+    ),
+    path('share/link/<str:token>', views.ShareLinkView.as_view(), name='share-link'),
+    re_path(
+        r'^share/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
+        views.ObjectShareView.as_view(),
+        name='object-share',
+    ),
     path('object/list/<slug:bucket_id>', views.ObjectListView.as_view(), name='object-list'),
     path('object/prefix/<slug:bucket_id>', views.ObjectPrefixView.as_view(), name='object-prefix'),
     path('object/move', views.ObjectMoveView.as_view(), name='object-move'),
