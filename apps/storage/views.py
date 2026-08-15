@@ -54,6 +54,7 @@ from .services import (
     serialize_object,
     summarize_prefix,
     upload_object,
+    resolve_item_by_id,
 )
 
 
@@ -343,6 +344,17 @@ class ObjectInfoView(APIView):
         except ValueError as exc:
             return _error_message(str(exc))
         return Response(serialize_object(obj))
+
+
+class ObjectByIdView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(tags=['objects'], summary='Resolve a file or folder by stable id')
+    def get(self, request, object_id):
+        try:
+            return Response(resolve_item_by_id(request.user, str(object_id)))
+        except StorageError as exc:
+            return _error(exc)
 
 
 class ObjectListView(APIView):

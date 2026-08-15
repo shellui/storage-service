@@ -19,6 +19,8 @@ from .models import Bucket, StorageAccessGrant, StorageObject
 from .quotas import QuotaExceeded, assert_can_store, apply_usage_delta
 from .signals import storage_object_deleted, storage_object_uploaded
 
+FOLDER_PLACEHOLDER_NAME = '.emptyFolderPlaceholder'
+
 
 class StorageError(Exception):
     def __init__(self, message: str, *, status: int = 400, code: str = 'storage_error'):
@@ -137,6 +139,7 @@ def list_objects(
 
     files: list[StorageObject] = []
     folders: set[str] = set()
+    folder_ids: dict[str, str] = {}
 
     for obj in qs.iterator(chunk_size=500):
         if principal is not None and not can_access_path(
@@ -147,8 +150,10 @@ def list_objects(
         if not rest:
             continue
         if '/' in rest:
-            folder_name = rest.split('/', 1)[0]
+            folder_name, remainder = rest.split('/', 1)
             folders.add(folder_name)
+            if remainder == FOLDER_PLACEHOLDER_NAME:
+                folder_ids[folder_name] = str(obj.id)
         else:
             files.append(obj)
 
@@ -161,6 +166,7 @@ def list_objects(
     folder_entries = [
         {
             'id': None,
+            'folder_id': folder_ids.get(name),
             'name': name,
             'bucket_id': bucket.name,
             'owner': None,
@@ -351,7 +357,53 @@ def delete_paths(bucket: Bucket, paths: list[str], *, request=None) -> list[str]
     return deleted
 
 
-FOLDER_PLACEHOLDER_NAME = '.emptyFolderPlaceholder'
+def resolve_item_by_id(principal, object_id: str) -> dict:
+    """Resolve a file or folder from the stable picker id (object UUID)."""
+    from .access import assert_can_access_path, display_name_for_bucket
+
+    try:
+        uid = uuid.UUID(str(object_id))
+    except ValueError as exc:
+        raise StorageError('Invalid object id', status=400, code='invalid_id') from exc
+
+    obj = StorageObject.objects.select_related('bucket').filter(id=uid).first()
+    if not obj:
+        raise StorageError('Object not found', status=404, code='object_not_found')
+
+    company_id = getattr(principal, 'company_id', None)
+    if company_id is not None and int(obj.company_id) != int(company_id):
+        raise StorageError('Object not found', status=404, code='object_not_found')
+
+    assert_can_access_path(
+        principal,
+        obj.bucket,
+        obj.name,
+        object_id=str(obj.id),
+    )
+
+    name = obj.name
+    is_placeholder = name == FOLDER_PLACEHOLDER_NAME or name.endswith(f'/{FOLDER_PLACEHOLDER_NAME}')
+    if is_placeholder:
+        folder_path = (
+            '' if name == FOLDER_PLACEHOLDER_NAME else name[: -(len(FOLDER_PLACEHOLDER_NAME) + 1)]
+        )
+        folder_name = (
+            folder_path.rsplit('/', 1)[-1] if folder_path else display_name_for_bucket(obj.bucket)
+        )
+        return {
+            'id': str(obj.id),
+            'bucket': obj.bucket.name,
+            'path': folder_path,
+            'name': folder_name,
+            'type': 'folder',
+        }
+    return {
+        'id': str(obj.id),
+        'bucket': obj.bucket.name,
+        'path': name,
+        'name': obj.basename,
+        'type': 'file',
+    }
 
 
 def _prefix_filter(folder_path: str) -> str:

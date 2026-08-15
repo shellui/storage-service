@@ -20,6 +20,7 @@ urlpatterns = [
         name='object-share',
     ),
     path('object/list/<slug:bucket_id>', views.ObjectListView.as_view(), name='object-list'),
+    path('object/id/<uuid:object_id>', views.ObjectByIdView.as_view(), name='object-by-id'),
     path('object/prefix/<slug:bucket_id>', views.ObjectPrefixView.as_view(), name='object-prefix'),
     path('object/move', views.ObjectMoveView.as_view(), name='object-move'),
     path('object/copy', views.ObjectCopyView.as_view(), name='object-copy'),

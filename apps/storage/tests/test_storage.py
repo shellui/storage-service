@@ -239,6 +239,38 @@ class StorageAPITests(TestCase):
         folder_row = next(r for r in listing.json() if r['name'] == 'projects')
         self.assertEqual(folder_row['access']['audience'], 'restricted')
         self.assertIn('1', folder_row['access'].get('allowed_user_ids') or [])
+        self.assertIsNone(folder_row['id'])
+        self.assertEqual(folder_row['folder_id'], upload.json()['Id'])
+
+    def test_resolve_folder_id_survives_rename(self):
+        created = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/projects/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        self.assertEqual(created.status_code, 200)
+        folder_id = created.json()['Id']
+
+        renamed = self.client.post(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}',
+            {'from': 'projects', 'to': 'renamed-projects'},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(renamed.status_code, 200)
+
+        resolved = self.client.get(
+            f'/storage/v1/object/id/{folder_id}',
+            **self.auth,
+        )
+        self.assertEqual(resolved.status_code, 200)
+        body = resolved.json()
+        self.assertEqual(body['id'], folder_id)
+        self.assertEqual(body['type'], 'folder')
+        self.assertEqual(body['path'], 'renamed-projects')
+        self.assertEqual(body['name'], 'renamed-projects')
+        self.assertEqual(body['bucket'], COMPANY_BUCKET_NAME)
 
     def test_nested_inherits_folder_grants(self):
         # Create private folder via placeholder, then upload nested file — inherits.
