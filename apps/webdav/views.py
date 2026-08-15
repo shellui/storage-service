@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import re
 from io import BytesIO
+from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree as ET
 
 from django.http import HttpResponse
@@ -36,6 +37,7 @@ from apps.storage.downloads import build_download_response
 from apps.storage.mime import safe_object_path
 from apps.storage.models import StorageObject
 from apps.storage.services import (
+    FOLDER_PLACEHOLDER_NAME,
     StorageError,
     copy_object,
     delete_object,
@@ -81,7 +83,9 @@ def _authenticate(request):
 
 def _parse_path(path: str) -> tuple[str | None, str]:
     """Return (bucket_name|None, object_path) from leftover URL path."""
-    cleaned = path.strip('/')
+    # Clients send percent-encoded segments (e.g. ``My%20File.pdf``); Django may
+    # already decode the route capture, but Destination headers often stay encoded.
+    cleaned = unquote(path or '').strip('/')
     if not cleaned:
         return None, ''
     bucket, _, rest = cleaned.partition('/')
@@ -89,15 +93,29 @@ def _parse_path(path: str) -> tuple[str | None, str]:
 
 
 def _href(bucket: str | None = None, object_path: str = '', collection: bool = False) -> str:
+    """Build a WebDAV href with each path segment percent-encoded (RFC 3986)."""
     parts = ['/dav']
     if bucket:
-        parts.append(bucket)
+        parts.append(quote(bucket, safe=''))
     if object_path:
-        parts.append(object_path)
+        parts.extend(quote(seg, safe='') for seg in object_path.split('/') if seg != '')
     href = '/'.join(parts)
     if collection and not href.endswith('/'):
         href += '/'
     return href
+
+
+def _destination_dav_path(destination: str) -> str | None:
+    """Extract ``/dav/...`` path from a Destination header (absolute or relative)."""
+    raw = (destination or '').strip()
+    if not raw:
+        return None
+    parsed = urlsplit(raw)
+    path = unquote(parsed.path or raw)
+    match = re.search(r'/dav/(.+)$', path)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def _prop_xml_for_collection(href: str, displayname: str) -> ET.Element:
@@ -183,20 +201,34 @@ class WebDAVView(View):
         else:
             bucket = get_accessible_bucket(principal, bucket_name)
             if object_path:
+                name = safe_object_path(object_path)
                 # Exact object or folder prefix
-                obj = StorageObject.objects.filter(bucket=bucket, name=object_path).first()
+                obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
                 if obj:
-                    if can_access_path(principal, bucket, obj.name, object_id=str(obj.id)):
-                        multistatus.append(
-                            _prop_xml_for_object(_href(bucket.name, obj.name), obj)
-                        )
+                    if not can_access_path(
+                        principal, bucket, obj.name, object_id=str(obj.id)
+                    ):
+                        return _dav_response(403, 'Forbidden', content_type='text/plain')
+                    multistatus.append(
+                        _prop_xml_for_object(_href(bucket.name, obj.name), obj)
+                    )
                 else:
-                    # Treat as folder
-                    prefix = object_path.rstrip('/') + '/'
+                    # Folder only if something exists under this prefix. Never
+                    # synthesize empty collections for unknown paths — clients that
+                    # re-encode file hrefs would otherwise see every file as an
+                    # empty folder.
+                    prefix = name.rstrip('/') + '/'
+                    has_children = StorageObject.objects.filter(
+                        bucket=bucket, name__startswith=prefix
+                    ).exists()
+                    if not has_children:
+                        return _dav_response(404, 'Not found', content_type='text/plain')
+                    if not can_access_path(principal, bucket, name):
+                        return _dav_response(403, 'Forbidden', content_type='text/plain')
                     multistatus.append(
                         _prop_xml_for_collection(
-                            _href(bucket.name, object_path, collection=True),
-                            object_path.rsplit('/', 1)[-1],
+                            _href(bucket.name, name, collection=True),
+                            name.rsplit('/', 1)[-1],
                         )
                     )
                     if depth != '0':
@@ -223,7 +255,7 @@ class WebDAVView(View):
                 continue
             if '/' in rest:
                 folders.add(rest.split('/', 1)[0])
-            else:
+            elif rest != FOLDER_PLACEHOLDER_NAME:
                 files.append(obj)
         for name in sorted(folders):
             folder_path = f'{prefix}{name}'.strip('/')
@@ -318,30 +350,37 @@ class WebDAVView(View):
         return _dav_response(204)
 
     def mkcol(self, request, path=''):
-        # Folders are virtual (prefix-based). Apply private-by-default grants so
-        # the new folder is only accessible to the creator unless nested under a
-        # folder that already defines access (then inherit).
-        from apps.storage.access import apply_default_private_on_create
-
+        # Folders are virtual (prefix-based). Persist the same
+        # ``.emptyFolderPlaceholder`` marker as REST so PROPFIND can list the
+        # folder, and private-by-default grants attach to the folder path.
         principal = request.webdav_user
-        company_id = require_company_id(principal)
+        require_company_id(principal)
         bucket_name, object_path = _parse_path(path)
         if not bucket_name:
             return _dav_response(403, 'Cannot create bucket via MKCOL', content_type='text/plain')
         bucket = get_accessible_bucket(principal, bucket_name, write=True)
-        if object_path:
-            name = safe_object_path(object_path)
-            try:
-                assert_can_access_path(principal, bucket, name, write=True)
-            except StorageError:
-                return _dav_response(403, 'Forbidden', content_type='text/plain')
-            apply_default_private_on_create(
-                company_id=company_id,
-                user_id=principal.user_id,
-                bucket=bucket,
-                path=name,
-                is_folder=True,
-            )
+        if not object_path:
+            return _dav_response(400, 'Folder path required', content_type='text/plain')
+        name = safe_object_path(object_path)
+        try:
+            assert_can_access_path(principal, bucket, name, write=True)
+        except StorageError:
+            return _dav_response(403, 'Forbidden', content_type='text/plain')
+        placeholder = f'{name}/{FOLDER_PLACEHOLDER_NAME}'
+        if StorageObject.objects.filter(bucket=bucket, name=placeholder).exists():
+            return _dav_response(405, 'Collection already exists', content_type='text/plain')
+        # Any existing object under this prefix also means the collection exists.
+        if StorageObject.objects.filter(bucket=bucket, name__startswith=name + '/').exists():
+            return _dav_response(405, 'Collection already exists', content_type='text/plain')
+        upload_object(
+            bucket=bucket,
+            path=placeholder,
+            fileobj=BytesIO(b''),
+            owner_id=principal.user_id,
+            content_type='application/octet-stream',
+            upsert=False,
+            request=request,
+        )
         return _dav_response(201)
 
     def move(self, request, path=''):
@@ -352,12 +391,11 @@ class WebDAVView(View):
 
     def _move_or_copy(self, request, path, copy: bool):
         principal = request.webdav_user
-        company_id = require_company_id(principal)
-        dest = request.headers.get('Destination', '')
-        match = re.search(r'/dav/(.+)$', dest)
-        if not match:
+        require_company_id(principal)
+        dest_tail = _destination_dav_path(request.headers.get('Destination', ''))
+        if not dest_tail:
             return _dav_response(400, 'Invalid Destination', content_type='text/plain')
-        dest_bucket_name, dest_path = _parse_path(match.group(1))
+        dest_bucket_name, dest_path = _parse_path(dest_tail)
         src_bucket_name, src_path = _parse_path(path)
         if not all([dest_bucket_name, dest_path, src_bucket_name, src_path]):
             return _dav_response(400, 'Invalid paths', content_type='text/plain')

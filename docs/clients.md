@@ -19,7 +19,7 @@ Typical settings:
 
 Layout: `/dav/{bucket}/folder/file.ext` — typically `/dav/company/…` (one company bucket; access grants apply).
 
-The company bucket is auto-provisioned. `MKCOL` creates virtual folders (prefix-based) that are **private to the creator** by default (nested folders inherit parent grants).
+The company bucket is auto-provisioned. `MKCOL` creates virtual folders (prefix-based, with the same `.emptyFolderPlaceholder` marker as REST) that are **private to the creator** by default (nested folders inherit parent grants). PROPFIND/GET/PUT honor the same path grants as the REST API — private folders return `403` for other users, and company-open files appear in listings.
 
 Examples (non-exhaustive, not recommendations): the WebDAV support built into some desktop OSes, command-line sync tools, and file managers that offer a WebDAV or S3 plugin.
 

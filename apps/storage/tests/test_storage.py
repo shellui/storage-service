@@ -832,6 +832,179 @@ class StorageAPITests(TestCase):
             ).exists()
         )
 
+    def test_webdav_href_encodes_spaces(self):
+        """PROPFIND hrefs must percent-encode spaces so clients keep the entry."""
+        ensure_company_bucket(company_id=10)
+        # Make company-open so grants don't obscure the encoding check.
+        from apps.storage.models import StorageAccessGrant
+
+        upload = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/My Report.pdf',
+            data=b'%PDF',
+            content_type='application/pdf',
+            **self.auth,
+        )
+        self.assertEqual(upload.status_code, 200)
+        StorageAccessGrant.objects.filter(
+            resource_id='My Report.pdf',
+            subject_type='company',
+            effect='deny',
+        ).delete()
+
+        dav = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/',
+            **self.auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(dav.status_code, 207)
+        body = dav.content.decode()
+        self.assertIn('/dav/company/My%20Report.pdf', body)
+        self.assertNotIn('/dav/company/My%20Report.pdf/', body)
+        self.assertIn('My Report.pdf', body)  # displayname stays human-readable
+        self.assertIn('getcontentlength', body)
+
+        # GET via encoded URL works.
+        got = self.client.get(
+            f'/dav/{COMPANY_BUCKET_NAME}/My%20Report.pdf',
+            **self.auth,
+        )
+        self.assertEqual(got.status_code, 200)
+
+        # PROPFIND on the file must not synthesize an empty folder.
+        file_prop = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/My%20Report.pdf',
+            **self.auth,
+            HTTP_DEPTH='0',
+        )
+        self.assertEqual(file_prop.status_code, 207)
+        self.assertNotIn(b'collection', file_prop.content)
+        self.assertIn(b'getcontentlength', file_prop.content)
+
+        missing = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/does-not-exist',
+            **self.auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(missing.status_code, 404)
+
+    def test_webdav_respects_path_grants(self):
+        """WebDAV listings must match REST ACL: hide private paths, show company-open files."""
+        from apps.storage.models import StorageAccessGrant
+
+        ensure_company_bucket(company_id=10)
+
+        # Private folder + nested file (private to user 1).
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/vault/secret.txt',
+            data=b'secret',
+            content_type='text/plain',
+            **self.auth,
+        )
+
+        # Company-open file (upload private, then remove auto company deny).
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/open.txt',
+            data=b'hello',
+            content_type='text/plain',
+            **self.auth,
+        )
+        StorageAccessGrant.objects.filter(
+            resource_type='object',
+            resource_id='open.txt',
+            subject_type='company',
+            effect='deny',
+        ).delete()
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+
+        rest = self.client.post(
+            f'/storage/v1/object/list/{COMPANY_BUCKET_NAME}',
+            {'prefix': '', 'limit': 100},
+            format='json',
+            **other_auth,
+        )
+        self.assertEqual(rest.status_code, 200)
+        rest_names = [r['name'] for r in rest.json()]
+        self.assertIn('open.txt', rest_names)
+        self.assertNotIn('vault', rest_names)
+
+        dav = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/',
+            **other_auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(dav.status_code, 207)
+        body = dav.content.decode()
+        self.assertIn('open.txt', body)
+        self.assertNotIn('vault', body)
+        self.assertNotIn('secret.txt', body)
+
+        # Direct PROPFIND on private folder must be forbidden (not an empty collection).
+        denied_folder = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/vault',
+            **other_auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(denied_folder.status_code, 403)
+
+        denied_file = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/vault/secret.txt',
+            **other_auth,
+            HTTP_DEPTH='0',
+        )
+        self.assertEqual(denied_file.status_code, 403)
+
+        # Owner still sees private folder via WebDAV.
+        owner = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/',
+            **self.auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(owner.status_code, 207)
+        self.assertIn(b'vault', owner.content)
+        self.assertIn(b'open.txt', owner.content)
+
+    def test_webdav_mkcol_lists_for_creator_only(self):
+        ensure_company_bucket(company_id=10)
+        created = self.client.generic(
+            'MKCOL',
+            f'/dav/{COMPANY_BUCKET_NAME}/emptydir',
+            **self.auth,
+        )
+        self.assertEqual(created.status_code, 201)
+
+        owner = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/',
+            **self.auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(owner.status_code, 207)
+        self.assertIn(b'emptydir', owner.content)
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        other = self.client.generic(
+            'PROPFIND',
+            f'/dav/{COMPANY_BUCKET_NAME}/',
+            **other_auth,
+            HTTP_DEPTH='1',
+        )
+        self.assertEqual(other.status_code, 207)
+        self.assertNotIn(b'emptydir', other.content)
+
     def test_connector_bucket_read_only(self):
         Bucket.objects.create(
             company_id=10,
