@@ -29,6 +29,7 @@ def make_token(
     email: str = 'user@example.com',
     is_staff: bool = False,
     is_company_owner: bool = False,
+    access_global_metrics: bool = False,
     secret: str = 'test-secret',
 ) -> str:
     payload = {
@@ -42,6 +43,8 @@ def make_token(
         },
         'exp': 2**31 - 1,
     }
+    if access_global_metrics:
+        payload['pat_agm'] = True
     return jwt.encode(payload, secret, algorithm='HS256')
 
 

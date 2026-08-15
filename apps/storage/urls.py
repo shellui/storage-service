@@ -57,6 +57,8 @@ urlpatterns = [
     ),
     path('quota', views.QuotaView.as_view(), name='quota'),
     path('stats', views.StatsView.as_view(), name='storage-stats'),
+    path('metrics', views.StorageMetricsView.as_view(), name='storage-metrics'),
+    path('metrics/all', views.StorageGlobalMetricsView.as_view(), name='storage-metrics-all'),
     path('quota/company/<int:company_id>', views.CompanyQuotaAdminView.as_view(), name='quota-company'),
     path(
         'quota/company/<int:company_id>/user/<int:user_id>',

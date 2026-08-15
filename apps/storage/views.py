@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 
+from django.http import HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.types import OpenApiTypes
@@ -17,11 +18,20 @@ from rest_framework.views import APIView
 
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
 
+from . import metrics as storage_metrics
+from .access import (
+    assert_can_access_path,
+    get_accessible_bucket,
+    get_accessible_object,
+    list_accessible_buckets,
+    serialize_grant,
+)
 from .downloads import build_download_response, build_signed_url
 from .grants import create_grant, delete_grant, list_grants, list_grants_effective
 from .mime import safe_object_path
 from .models import StorageObject, UserQuota
 from .quotas import get_or_create_company_quota, snapshot
+from .renderers import PrometheusTextRenderer
 from .shares import (
     create_share_link,
     list_share_links_for_object,
@@ -30,13 +40,6 @@ from .shares import (
     serialize_share_link,
 )
 from .stats import build_storage_stats
-from .access import (
-    assert_can_access_path,
-    get_accessible_bucket,
-    get_accessible_object,
-    list_accessible_buckets,
-    serialize_grant,
-)
 from .services import (
     StorageError,
     copy_object,
@@ -549,6 +552,88 @@ class StatsView(APIView):
             company_id=company_id,
         )
         return Response(stats)
+
+
+def _metrics_company_from_token(request):
+    """Company scope comes only from the Bearer token (no query override)."""
+    if (request.GET.get('company_id') or '').strip():
+        return None, Response(
+            {
+                'error': 'Remove company_id from the query string; company scope comes from the access token only.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    company_id = getattr(request.user, 'company_id', None)
+    if company_id is None:
+        return None, Response(
+            {'error': 'Missing company_id in access token.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return int(company_id), None
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['platform-metrics'],
+        summary='Prometheus metrics (staff or company owner)',
+        description=(
+            'Prometheus text exposition for the company in the Bearer token '
+            '(JWT or PAT must include a `company_id` claim). Do not send `company_id` as a query parameter.'
+        ),
+        responses={
+            200: OpenApiResponse(description='text/plain Prometheus exposition'),
+            400: OpenApiResponse(
+                description='Missing company_id in token, or company_id was sent in the query string'
+            ),
+            401: OpenApiResponse(description='Missing or invalid Bearer token'),
+            403: OpenApiResponse(description='Forbidden'),
+        },
+    ),
+)
+class StorageMetricsView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+    renderer_classes = [PrometheusTextRenderer]
+
+    def get(self, request):
+        user = request.user
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_company_owner', False)):
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        company_id, err = _metrics_company_from_token(request)
+        if err:
+            return err
+        return HttpResponse(
+            storage_metrics.metrics_http_body(company_id=company_id),
+            content_type=storage_metrics.METRICS_CONTENT_TYPE,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['platform-metrics'],
+        summary='Prometheus metrics for all companies (staff)',
+        description=(
+            'Global Prometheus text exposition across all companies. Requires a Django staff user '
+            'or a PAT created by staff with `access_global_metrics` (JWT claim `pat_agm`).'
+        ),
+        responses={
+            200: OpenApiResponse(description='text/plain Prometheus exposition'),
+            401: OpenApiResponse(description='Missing or invalid Bearer token'),
+            403: OpenApiResponse(description='Forbidden (not staff and no global-metrics PAT)'),
+        },
+    ),
+)
+class StorageGlobalMetricsView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+    renderer_classes = [PrometheusTextRenderer]
+
+    def get(self, request):
+        user = request.user
+        if getattr(user, 'is_staff', False) or getattr(user, 'access_global_metrics', False):
+            return HttpResponse(
+                storage_metrics.metrics_http_body(),
+                content_type=storage_metrics.METRICS_CONTENT_TYPE,
+            )
+        return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
 
 class QuotaView(APIView):

@@ -25,6 +25,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### ✨ Feature
 
+- **Prometheus metrics:** `GET /storage/v1/metrics` (company-scoped, staff or company owner) and `GET /storage/v1/metrics/all` (staff or `pat_agm` PAT). See [Metrics](docs/metrics.md).
 - **One company bucket** per company; personal `user-*` buckets are no longer provisioned.
 - **Access grants enforced** for bucket / folder / object (`allow` / `deny`, read/write/admin) via `/storage/v1/access/grant`.
 - **Private by default**: new folders and uploads are restricted to the creator; nested **folders copy** the parent folder's grants; nested files inherit via path matching. Share via manual grants or [share links](docs/sharing.md).

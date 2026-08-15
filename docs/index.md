@@ -9,6 +9,7 @@ This backend provides Supabase-compatible object storage under `/storage/v1/*` u
 - Project setup: see `README.md`.
 - **[Authentication (JWKS)](authentication.md)** — verifying identity-service tokens.
 - **[Quotas](quotas.md)** — company totals and optional per-user limits.
+- **[Metrics (Prometheus)](metrics.md)** — `GET /storage/v1/metrics` and `/metrics/all`.
 - **[Downloads](downloads.md)** — signed redirects, `X-Accel-Redirect`, and streaming.
 - **[Third-party clients](clients.md)** — connecting WebDAV or S3-compatible apps.
 - **[Access control](access.md)** — one company bucket, access grants, connector mounts.

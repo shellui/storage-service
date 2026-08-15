@@ -44,6 +44,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 | Move / copy | `POST /storage/v1/object/move`, `POST /storage/v1/object/copy` |
 | Sign URL | `POST /storage/v1/object/sign/{bucket}/{*path}` |
 | Quota | `GET /storage/v1/quota` |
+| Metrics | `GET /storage/v1/metrics`, `GET /storage/v1/metrics/all` |
 | WebDAV | `/dav/{bucket}/…` |
 | OpenAPI | `/api/docs/`, `/api/docs/redoc/` |
 
@@ -144,6 +145,7 @@ uv run python manage.py test
 - [Access control & grants](docs/access.md)
 - [Share links](docs/sharing.md)
 - [Quotas](docs/quotas.md)
+- [Metrics (Prometheus)](docs/metrics.md)
 - [Downloads & nginx](docs/downloads.md)
 - [Third-party clients (WebDAV / S3)](docs/clients.md)
 - [Signals](docs/signals.md)
