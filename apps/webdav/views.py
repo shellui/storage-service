@@ -213,18 +213,11 @@ class WebDAVView(View):
                         _prop_xml_for_object(_href(bucket.name, obj.name), obj)
                     )
                 else:
-                    # Folder only if something exists under this prefix. Never
-                    # synthesize empty collections for unknown paths — clients that
-                    # re-encode file hrefs would otherwise see every file as an
-                    # empty folder.
-                    prefix = name.rstrip('/') + '/'
-                    has_children = StorageObject.objects.filter(
-                        bucket=bucket, name__startswith=prefix
-                    ).exists()
-                    if not has_children:
-                        return _dav_response(404, 'Not found', content_type='text/plain')
+                    # Folder path: enforce the same grants as REST (do not leak
+                    # private folders as empty collections).
                     if not can_access_path(principal, bucket, name):
                         return _dav_response(403, 'Forbidden', content_type='text/plain')
+                    prefix = name.rstrip('/') + '/'
                     multistatus.append(
                         _prop_xml_for_collection(
                             _href(bucket.name, name, collection=True),
