@@ -128,7 +128,7 @@ git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
 
-Pushing a `v*` tag that points at `main` runs [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml) and publishes Docusaurus to GitHub Pages at [https://storage.docs.shellui.com](https://storage.docs.shellui.com).
+Pushes to `main` and `v*` tags that point at `main` run [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml) and publish Docusaurus to GitHub Pages at [https://storage.docs.shellui.com](https://storage.docs.shellui.com).
 
 Enable Pages once in the GitHub repo (source: `gh-pages` branch) and point a DNS CNAME `storage.docs.shellui.com` at `<org>.github.io`.
 

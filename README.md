@@ -144,7 +144,7 @@ uv run python manage.py test
 
 ## Documentation
 
-Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `v*` tags).
+Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `main` and `v*` tags).
 
 - [API overview](docs/index.md)
 - [JWKS auth](docs/authentication.md)
