@@ -26,15 +26,20 @@ services:
       JWT_ALGORITHMS: "${JWT_ALGORITHMS:-RS256}"
       JWKS_CACHE_TTL: "${JWKS_CACHE_TTL:-900}"
       STORAGE_BACKEND: "${STORAGE_BACKEND:-filesystem}"
+      # S3 / MinIO / R2 — same vars for Django (django-storages) and nginx (X-Accel-Redirect).
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       AWS_STORAGE_BUCKET_NAME: "${AWS_STORAGE_BUCKET_NAME:-}"
       AWS_S3_REGION_NAME: "${AWS_S3_REGION_NAME:-us-east-1}"
       AWS_S3_ENDPOINT_URL: "${AWS_S3_ENDPOINT_URL:-}"
       AWS_S3_CUSTOM_DOMAIN: "${AWS_S3_CUSTOM_DOMAIN:-}"
+      AWS_S3_SIGNATURE_VERSION: "${AWS_S3_SIGNATURE_VERSION:-s3v4}"
+      AWS_S3_ADDRESSING_STYLE: "${AWS_S3_ADDRESSING_STYLE:-}"
+      NGINX_RESOLVER: "${NGINX_RESOLVER:-127.0.0.11 8.8.8.8}"
       STORAGE_KEY_PREFIX: "${STORAGE_KEY_PREFIX:-shellui}"
       DOWNLOAD_MODE: "${DOWNLOAD_MODE:-auto}"
-      X_ACCEL_REDIRECT_ENABLED: "${X_ACCEL_REDIRECT_ENABLED:-false}"
+      # Image includes nginx; leave true so filesystem downloads use X-Accel-Redirect.
+      X_ACCEL_REDIRECT_ENABLED: "${X_ACCEL_REDIRECT_ENABLED:-true}"
       X_ACCEL_REDIRECT_PREFIX: "${X_ACCEL_REDIRECT_PREFIX:-/protected/}"
       SIGNED_URL_EXPIRES: "${SIGNED_URL_EXPIRES:-3600}"
       DEFAULT_COMPANY_QUOTA_BYTES: "${DEFAULT_COMPANY_QUOTA_BYTES:-10G}"
@@ -53,6 +58,13 @@ services:
     restart: unless-stopped
 
   # Optional local S3-compatible store for development
+  #   STORAGE_BACKEND=s3
+  #   AWS_S3_ENDPOINT_URL=http://minio:9000
+  #   AWS_STORAGE_BUCKET_NAME=shellui
+  #   AWS_ACCESS_KEY_ID=minioadmin
+  #   AWS_SECRET_ACCESS_KEY=minioadmin
+  #   AWS_S3_ADDRESSING_STYLE=path
+  #   docker compose --profile s3 up --build
   minio:
     image: minio/minio:latest
     profiles: ["s3"]

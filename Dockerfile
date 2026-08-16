@@ -8,13 +8,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SQLITE_PATH=/app/data/db.sqlite3 \
     MEDIA_ROOT=/app/data/media \
     DEBUG=false \
-    STORAGE_BACKEND=filesystem
+    STORAGE_BACKEND=filesystem \
+    DOWNLOAD_MODE=auto \
+    X_ACCEL_REDIRECT_ENABLED=true \
+    X_ACCEL_REDIRECT_PREFIX=/protected/
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    nginx \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /etc/nginx/sites-enabled/default
+
+COPY tools/nginx /app/tools/nginx
+RUN python3 /app/tools/nginx/render-conf.py /etc/nginx/conf.d/storage.conf && nginx -t
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /bin/
 

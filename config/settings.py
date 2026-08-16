@@ -15,6 +15,13 @@ import dj_database_url
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
 
+from config.s3utils import (
+    infer_addressing_style,
+    infer_s3_region,
+    normalize_custom_domain,
+    normalize_s3_endpoint,
+)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
@@ -266,14 +273,30 @@ if STORAGE_BACKEND not in {'s3', 'filesystem'}:
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '').strip()
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '').strip()
 AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME', '').strip()
-AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION_NAME', 'us-east-1').strip() or 'us-east-1'
-AWS_S3_ENDPOINT_URL = os.getenv('AWS_S3_ENDPOINT_URL', '').strip() or None
-AWS_S3_CUSTOM_DOMAIN = os.getenv('AWS_S3_CUSTOM_DOMAIN', '').strip() or None
+_raw_s3_endpoint = os.getenv('AWS_S3_ENDPOINT_URL', '').strip() or None
+AWS_S3_ENDPOINT_URL = normalize_s3_endpoint(_raw_s3_endpoint, AWS_STORAGE_BUCKET_NAME)
+AWS_S3_REGION_NAME = infer_s3_region(
+    AWS_S3_ENDPOINT_URL,
+    os.getenv('AWS_S3_REGION_NAME', 'us-east-1'),
+)
+AWS_S3_CUSTOM_DOMAIN = normalize_custom_domain(
+    os.getenv('AWS_S3_CUSTOM_DOMAIN', '').strip() or None,
+    AWS_S3_ENDPOINT_URL,
+)
 AWS_DEFAULT_ACL = None
 AWS_QUERYSTRING_AUTH = True
 AWS_S3_FILE_OVERWRITE = True
 AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=3600'}
 AWS_S3_SIGNATURE_VERSION = os.getenv('AWS_S3_SIGNATURE_VERSION', 's3v4').strip() or 's3v4'
+# path = /bucket/key (MinIO and custom endpoints); virtual = bucket.s3.region.amazonaws.com/key
+AWS_S3_ADDRESSING_STYLE = infer_addressing_style(
+    AWS_S3_ENDPOINT_URL,
+    os.getenv('AWS_S3_ADDRESSING_STYLE', ''),
+)
+if AWS_S3_ADDRESSING_STYLE not in {'path', 'virtual', 'auto'}:
+    raise ImproperlyConfigured(
+        f'AWS_S3_ADDRESSING_STYLE must be path, virtual, or auto. Got: {AWS_S3_ADDRESSING_STYLE!r}'
+    )
 # Prefix inside the bucket for all ShellUI objects (keeps multi-tenant keys tidy).
 STORAGE_KEY_PREFIX = os.getenv('STORAGE_KEY_PREFIX', 'shellui').strip().strip('/')
 
@@ -292,6 +315,7 @@ if STORAGE_BACKEND == 's3':
             'secret_key': AWS_SECRET_ACCESS_KEY or None,
             'endpoint_url': AWS_S3_ENDPOINT_URL,
             'custom_domain': AWS_S3_CUSTOM_DOMAIN,
+            'addressing_style': AWS_S3_ADDRESSING_STYLE,
             'default_acl': None,
             'querystring_auth': True,
             'file_overwrite': True,

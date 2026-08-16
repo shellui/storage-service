@@ -13,7 +13,7 @@ from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from .access import access_summary, path_access_summary
-from .backends import build_storage_key, content_etag, delete_storage_key
+from .backends import build_storage_key, content_etag, delete_storage_key, is_s3_backend
 from .mime import mime_allowed, normalize_mime_type, safe_object_path
 from .models import Bucket, StorageAccessGrant, StorageObject
 from .quotas import QuotaExceeded, assert_can_store, apply_usage_delta
@@ -27,6 +27,36 @@ class StorageError(Exception):
         super().__init__(message)
         self.status = status
         self.code = code
+
+
+def _save_blob(storage_key: str, data: bytes) -> None:
+    try:
+        default_storage.save(storage_key, ContentFile(data))
+    except Exception as exc:
+        raise _blob_write_error(exc) from exc
+
+
+def _blob_write_error(exc: BaseException) -> StorageError:
+    code = ''
+    response = getattr(exc, 'response', None)
+    if isinstance(response, dict):
+        code = str((response.get('Error') or {}).get('Code') or '')
+    if is_s3_backend() and code in {'NoSuchBucket', '404'}:
+        bucket = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', '') or '(unset)'
+        endpoint = getattr(settings, 'AWS_S3_ENDPOINT_URL', None) or 'AWS default'
+        return StorageError(
+            f'S3 bucket {bucket!r} was not found at {endpoint}. '
+            'Use a scheme+host endpoint with no path (OVH: '
+            'https://s3.eu-west-par.io.cloud.ovh.net), set AWS_S3_REGION_NAME to '
+            'the bucket region (not us-east-1 unless it really is), and create '
+            'the bucket if it does not exist.',
+            status=502,
+            code='s3_bucket_missing',
+        )
+    if is_s3_backend():
+        detail = code or str(exc) or exc.__class__.__name__
+        return StorageError(f'S3 upload failed: {detail}', status=502, code='s3_error')
+    return StorageError('Failed to write object to storage.', status=500, code='storage_write_failed')
 
 
 def require_company_id(principal) -> int:
@@ -259,7 +289,7 @@ def upload_object(
 
     if existing:
         old_key = existing.storage_key
-        default_storage.save(old_key, ContentFile(data))
+        _save_blob(old_key, data)
         delta = size - replacing
         existing.size = size
         existing.etag = etag
@@ -286,7 +316,7 @@ def upload_object(
         object_name=object_name,
         object_id=object_id,
     )
-    default_storage.save(storage_key, ContentFile(data))
+    _save_blob(storage_key, data)
     obj = StorageObject.objects.create(
         id=object_id,
         bucket=bucket,
@@ -636,7 +666,7 @@ def copy_object(
         object_name=dest_name,
         object_id=object_id,
     )
-    default_storage.save(storage_key, ContentFile(data))
+    _save_blob(storage_key, data)
     obj = StorageObject.objects.create(
         id=object_id,
         bucket=dest_bucket,

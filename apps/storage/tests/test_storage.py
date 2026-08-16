@@ -70,6 +70,37 @@ class MimeTests(TestCase):
             safe_object_path('../secret')
 
 
+class S3EndpointNormalizeTests(TestCase):
+    def test_strips_path_and_bucket_subdomain(self):
+        from config.s3utils import (
+            infer_addressing_style,
+            infer_s3_region,
+            normalize_custom_domain,
+            normalize_s3_endpoint,
+        )
+
+        endpoint = normalize_s3_endpoint(
+            'https://shellui-storage.s3.eu-west-par.io.cloud.ovh.net/api/v3',
+            'shellui-storage',
+        )
+        self.assertEqual(endpoint, 'https://s3.eu-west-par.io.cloud.ovh.net')
+        self.assertEqual(infer_s3_region(endpoint, 'us-east-1'), 'eu-west-par')
+        self.assertEqual(infer_addressing_style(endpoint, ''), 'virtual')
+        self.assertIsNone(
+            normalize_custom_domain(
+                's3.eu-west-par.io.cloud.ovh.net',
+                endpoint,
+            )
+        )
+
+    def test_minio_stays_path_style(self):
+        from config.s3utils import infer_addressing_style, normalize_s3_endpoint
+
+        endpoint = normalize_s3_endpoint('http://minio:9000', 'shellui')
+        self.assertEqual(endpoint, 'http://minio:9000')
+        self.assertEqual(infer_addressing_style(endpoint, ''), 'path')
+
+
 @override_settings(
     STORAGE_BACKEND='filesystem',
     JWT_HS256_FALLBACK_SECRET='test-secret',
@@ -1136,6 +1167,28 @@ class StorageAPITests(TestCase):
         self.assertEqual(response.status_code, 410)
 
 
+class DownloadModeTests(TestCase):
+    def test_auto_s3_without_nginx_streams(self):
+        from apps.storage.downloads import resolve_download_mode
+
+        with override_settings(
+            DOWNLOAD_MODE='auto',
+            STORAGE_BACKEND='s3',
+            X_ACCEL_REDIRECT_ENABLED=False,
+        ):
+            self.assertEqual(resolve_download_mode(), 'stream')
+
+    def test_auto_s3_with_nginx_uses_xaccel(self):
+        from apps.storage.downloads import resolve_download_mode
+
+        with override_settings(
+            DOWNLOAD_MODE='auto',
+            STORAGE_BACKEND='s3',
+            X_ACCEL_REDIRECT_ENABLED=True,
+        ):
+            self.assertEqual(resolve_download_mode(), 'xaccel')
+
+
 @override_settings(
     STORAGE_BACKEND='filesystem',
     JWT_HS256_FALLBACK_SECRET='test-secret',
@@ -1172,3 +1225,50 @@ class XAccelDownloadTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.has_header('X-Accel-Redirect'))
+        self.assertTrue(response['X-Accel-Redirect'].startswith('/protected/'))
+
+
+@override_settings(
+    STORAGE_BACKEND='s3',
+    AWS_STORAGE_BUCKET_NAME='shellui',
+    AWS_S3_ENDPOINT_URL='http://minio:9000',
+    JWT_HS256_FALLBACK_SECRET='test-secret',
+    ALLOW_JWT_HS256_FALLBACK=True,
+    IDENTITY_JWKS_URL='http://jwks.test/.well-known/jwks.json',
+    DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
+    DOWNLOAD_MODE='xaccel',
+    X_ACCEL_REDIRECT_ENABLED=True,
+)
+class S3XAccelDownloadTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.token = make_token()
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {self.token}'}
+        self.jwks_patch = patch('apps.authapi.authentication.get_jwks_client')
+        mock_client = self.jwks_patch.start()
+        mock_client.return_value.get_signing_key.return_value = None
+        self.addCleanup(self.jwks_patch.stop)
+
+    @patch('apps.storage.downloads.is_s3_backend', return_value=True)
+    @patch(
+        'apps.storage.downloads.build_signed_url',
+        return_value='http://minio:9000/shellui/shellui/10/company/abc/a.bin?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=sig',
+    )
+    def test_xaccel_uses_protected_s3_and_signed_query(self, _signed, _s3):
+        company = ensure_company_bucket(company_id=10)
+        obj = upload_object(
+            bucket=company,
+            path='a.bin',
+            fileobj=io.BytesIO(b'abc'),
+            owner_id=1,
+            content_type='application/octet-stream',
+        )
+        response = self.client.get(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/a.bin',
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        redirect = response['X-Accel-Redirect']
+        self.assertTrue(redirect.startswith('/protected-s3/'))
+        self.assertIn(obj.storage_key, redirect)
+        self.assertIn('X-Amz-Signature=sig', redirect)

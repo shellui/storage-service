@@ -96,21 +96,23 @@ AWS_SECRET_ACCESS_KEY=...
 AWS_STORAGE_BUCKET_NAME=shellui
 AWS_S3_ENDPOINT_URL=http://localhost:9000   # MinIO; omit for AWS
 AWS_S3_REGION_NAME=us-east-1
+AWS_S3_ADDRESSING_STYLE=path                # path for MinIO; virtual for AWS
 ```
 
-Compose helper:
+These `AWS_*` values are shared by **Django** (uploads via django-storages) and **nginx** in the Docker image (X-Accel-Redirect fetches from the same bucket). In Compose, point the endpoint at the MinIO service hostname:
 
 ```bash
-docker compose --profile s3 up minio
+AWS_S3_ENDPOINT_URL=http://minio:9000
+docker compose --profile s3 up --build
 ```
 
 ## Download strategies
 
 | Mode | When to use |
 |------|-------------|
-| `redirect` (auto for S3) | 302 to a signed object URL — best bandwidth offload, **no nginx required** |
-| `xaccel` | NGINX serves bytes after Django authorizes (`X-Accel-Redirect`) — great for local disk |
-| `stream` | Django streams the file — simplest, uses app workers |
+| `redirect` | 302 to a signed object URL — when the **browser** can reach S3 (set `DOWNLOAD_MODE=redirect`) |
+| `xaccel` (auto in Docker) | NGINX serves bytes after Django authorizes — local disk or S3/MinIO via the same `AWS_*` env |
+| `stream` | Django streams the file — use for `runserver` without nginx |
 
 See [docs/downloads.md](docs/downloads.md).
 
