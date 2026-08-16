@@ -7,7 +7,7 @@ const darkCodeTheme = require("prism-react-renderer").themes.dracula;
 const config = {
   title: "ShellUI storage-service",
   tagline: "Supabase-compatible storage backend for ShellUI",
-  url: "https://docs.shellui.com",
+  url: "https://storage.docs.shellui.com",
   baseUrl: "/",
   onBrokenLinks: "throw",
   markdown: {

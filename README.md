@@ -39,11 +39,14 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 | Share links | `POST/GET /storage/v1/share/{bucket}/{*path}`, `GET/DELETE /storage/v1/share/link/{token}` |
 | Upload | `POST/PUT /storage/v1/object/{bucket}/{*path}` |
 | Download | `GET /storage/v1/object/{bucket}/{*path}` |
+| By id (picker) | `GET /storage/v1/object/id/{uuid}` |
 | List (folders) | `POST /storage/v1/object/list/{bucket}` |
+| Folder prefix | `GET/POST/DELETE /storage/v1/object/prefix/{bucket}` (stats, rename, recursive delete) |
 | Delete many | `DELETE /storage/v1/object/{bucket}` |
 | Move / copy | `POST /storage/v1/object/move`, `POST /storage/v1/object/copy` |
 | Sign URL | `POST /storage/v1/object/sign/{bucket}/{*path}` |
 | Quota | `GET /storage/v1/quota` |
+| Stats | `GET /storage/v1/stats` |
 | Metrics | `GET /storage/v1/metrics`, `GET /storage/v1/metrics/all` |
 | WebDAV | `/dav/{bucket}/…` |
 | OpenAPI | `/api/docs/`, `/api/docs/redoc/` |
@@ -83,6 +86,7 @@ IDENTITY_SERVICE_URL=https://id.shellui.com
 Copy `.env.example` → `.env` and change the value there (Compose and `runserver` both load it).
 
 For identity DEBUG/HS256 locally, also set `JWT_HS256_FALLBACK_SECRET` to the same `SECRET_KEY` as identity-service.
+
 ### S3 / MinIO
 
 ```bash
@@ -139,6 +143,8 @@ uv run python manage.py test
 ```
 
 ## Documentation
+
+Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `v*` tags).
 
 - [API overview](docs/index.md)
 - [JWKS auth](docs/authentication.md)

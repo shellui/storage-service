@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+.env
+staticfiles/
+data/
+docs/
+tools/docusaurus/node_modules/
+tools/docusaurus/.docusaurus/
+tools/docusaurus/build/

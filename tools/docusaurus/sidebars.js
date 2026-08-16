@@ -6,6 +6,7 @@ const sidebars = {
     "access",
     "sharing",
     "quotas",
+    "metrics",
     "downloads",
     "clients",
     "signals",

@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import tomllib
 from datetime import timedelta
 from pathlib import Path
 
@@ -123,7 +124,18 @@ CSRF_TRUSTED_ORIGINS = _env_csv(
 )
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-VERSION = '0.1.0'
+
+def _project_version():
+    pyproject = BASE_DIR / 'pyproject.toml'
+    with pyproject.open('rb') as fh:
+        data = tomllib.load(fh)
+    version = str(data.get('project', {}).get('version', '')).strip()
+    if not version:
+        raise ImproperlyConfigured(f'project.version is missing in {pyproject}')
+    return version
+
+
+VERSION = _project_version()
 
 INSTALLED_APPS = [
     'django.contrib.admin',
