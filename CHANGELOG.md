@@ -26,6 +26,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🛠 Improvements
 
 - Log JWT/JWKS verification failures with algorithm, key id, issuer/audience, and loaded JWKS kids (token values are never logged). API 401s include a `request_id` matching `X-Request-ID`.
+- Document storage APIViews for OpenAPI (serializers + unique operation IDs) so schema generation no longer skips endpoints.
 
 ### 📚 Documentation
 

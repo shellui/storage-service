@@ -27,10 +27,10 @@ urlpatterns = [
     path('object/<slug:bucket_id>', views.ObjectDeleteManyView.as_view(), name='object-delete-many'),
     re_path(
         r'^object/sign/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
-        views.ObjectSignView.as_view(),
+        views.ObjectSignPathView.as_view(),
         name='object-sign',
     ),
-    path('object/sign/<slug:bucket_id>', views.ObjectSignView.as_view(), name='object-sign-body'),
+    path('object/sign/<slug:bucket_id>', views.ObjectSignBodyView.as_view(), name='object-sign-body'),
     re_path(
         r'^object/info/authenticated/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
         views.ObjectInfoView.as_view(),

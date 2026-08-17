@@ -33,6 +33,36 @@ from .mime import safe_object_path
 from .models import StorageObject, UserQuota
 from .quotas import get_or_create_company_quota, snapshot
 from .renderers import PrometheusTextRenderer
+from .serializers import (
+    AccessGrantCreateSerializer,
+    AccessGrantSerializer,
+    BucketSerializer,
+    CompanyQuotaSerializer,
+    CompanyQuotaUpdateSerializer,
+    DeletedNameSerializer,
+    ErrorSerializer,
+    HealthSerializer,
+    ObjectByIdSerializer,
+    ObjectCopyResponseSerializer,
+    ObjectDeleteManyRequestSerializer,
+    ObjectListRequestSerializer,
+    ObjectMoveRequestSerializer,
+    ObjectMoveResponseSerializer,
+    ObjectSerializer,
+    ObjectUploadResponseSerializer,
+    PrefixDeleteRequestSerializer,
+    PrefixDeleteResponseSerializer,
+    PrefixRenameRequestSerializer,
+    PrefixRenameResponseSerializer,
+    PrefixSummarySerializer,
+    QuotaSerializer,
+    ShareLinkCreateSerializer,
+    ShareLinkSerializer,
+    SignRequestSerializer,
+    SignedUrlSerializer,
+    UserQuotaSerializer,
+    UserQuotaUpdateSerializer,
+)
 from .shares import (
     create_share_link,
     list_share_links_for_object,
@@ -59,6 +89,13 @@ from .services import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_ERRORS = {
+    400: ErrorSerializer,
+    401: ErrorSerializer,
+    403: ErrorSerializer,
+    404: ErrorSerializer,
+}
 
 
 class OctetStreamParser(BaseParser):
@@ -102,7 +139,7 @@ class HealthView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    @extend_schema(tags=['health'], responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(tags=['health'], responses={200: HealthSerializer})
     def get(self, request):
         from django.conf import settings
 
@@ -123,8 +160,19 @@ class HealthView(APIView):
 
 
 @extend_schema_view(
-    get=extend_schema(tags=['buckets'], summary='List buckets'),
-    post=extend_schema(tags=['buckets'], summary='Create bucket (disabled)'),
+    get=extend_schema(
+        tags=['buckets'],
+        summary='List buckets',
+        operation_id='storage_v1_bucket_list',
+        responses={200: BucketSerializer(many=True), **_SCHEMA_ERRORS},
+    ),
+    post=extend_schema(
+        tags=['buckets'],
+        summary='Create bucket (disabled)',
+        operation_id='storage_v1_bucket_create',
+        request=None,
+        responses={403: ErrorSerializer},
+    ),
 )
 class BucketListCreateView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
@@ -145,9 +193,26 @@ class BucketListCreateView(APIView):
 
 
 @extend_schema_view(
-    get=extend_schema(tags=['buckets'], summary='Get bucket'),
-    put=extend_schema(tags=['buckets'], summary='Update bucket (disabled for system buckets)'),
-    delete=extend_schema(tags=['buckets'], summary='Delete bucket (disabled)'),
+    get=extend_schema(
+        tags=['buckets'],
+        summary='Get bucket',
+        operation_id='storage_v1_bucket_retrieve',
+        responses={200: BucketSerializer, **_SCHEMA_ERRORS},
+    ),
+    put=extend_schema(
+        tags=['buckets'],
+        summary='Update bucket (disabled for system buckets)',
+        operation_id='storage_v1_bucket_update',
+        request=None,
+        responses={403: ErrorSerializer},
+    ),
+    delete=extend_schema(
+        tags=['buckets'],
+        summary='Delete bucket (disabled)',
+        operation_id='storage_v1_bucket_destroy',
+        request=None,
+        responses={403: ErrorSerializer},
+    ),
 )
 class BucketDetailView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
@@ -177,7 +242,12 @@ class BucketDetailView(APIView):
 class BucketEmptyView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['buckets'], summary='Empty bucket')
+    @extend_schema(
+        tags=['buckets'],
+        summary='Empty bucket',
+        request=None,
+        responses={200: OpenApiTypes.BOOL, **_SCHEMA_ERRORS},
+    )
     def post(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id, write=True)
@@ -211,7 +281,7 @@ class ObjectResourceView(APIView):
         parameters=[
             OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False),
         ],
-        responses={200: OpenApiResponse(description='File bytes')},
+        responses={200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'), **_SCHEMA_ERRORS},
     )
     def get(self, request, bucket_id, object_path):
         try:
@@ -232,15 +302,27 @@ class ObjectResourceView(APIView):
         parameters=[
             OpenApiParameter('x-upsert', str, OpenApiParameter.HEADER, required=False),
         ],
+        request={'application/octet-stream': OpenApiTypes.BINARY},
+        responses={200: ObjectUploadResponseSerializer, **_SCHEMA_ERRORS},
     )
     def post(self, request, bucket_id, object_path):
         return self._upload(request, bucket_id, object_path)
 
-    @extend_schema(tags=['objects'], summary='Upload object (PUT / upsert)')
+    @extend_schema(
+        tags=['objects'],
+        summary='Upload object (PUT / upsert)',
+        request={'application/octet-stream': OpenApiTypes.BINARY},
+        responses={200: ObjectUploadResponseSerializer, **_SCHEMA_ERRORS},
+    )
     def put(self, request, bucket_id, object_path):
         return self._upload(request, bucket_id, object_path, default_upsert=True)
 
-    @extend_schema(tags=['objects'], summary='Delete single object')
+    @extend_schema(
+        tags=['objects'],
+        summary='Delete single object',
+        operation_id='storage_v1_object_destroy',
+        responses={200: OpenApiTypes.BOOL, **_SCHEMA_ERRORS},
+    )
     def delete(self, request, bucket_id, object_path):
         try:
             _bucket, obj = get_accessible_object(
@@ -315,8 +397,25 @@ class ObjectResourceView(APIView):
         )
 
 
-# Alias used by /object/authenticated/... routes
-ObjectDownloadView = ObjectResourceView
+class ObjectDownloadView(ObjectResourceView):
+    """GET-only alias at ``/object/authenticated/{bucket}/{*path}``."""
+
+    http_method_names = ['get', 'head', 'options']
+
+    @extend_schema(
+        tags=['objects'],
+        summary='Download object (authenticated alias)',
+        operation_id='storage_v1_object_authenticated_retrieve',
+        parameters=[
+            OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'),
+            **_SCHEMA_ERRORS,
+        },
+    )
+    def get(self, request, bucket_id, object_path):
+        return super().get(request, bucket_id, object_path)
 
 
 class ObjectPublicDownloadView(APIView):
@@ -327,6 +426,7 @@ class ObjectPublicDownloadView(APIView):
         tags=['objects'],
         summary='Download public object (disabled — use share links)',
         auth=[],
+        responses={403: ErrorSerializer},
     )
     def get(self, request, bucket_id, object_path):
         # Public buckets stay disabled. Anonymous access uses /share/link/{token}.
@@ -340,7 +440,11 @@ class ObjectPublicDownloadView(APIView):
 class ObjectInfoView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Object metadata')
+    @extend_schema(
+        tags=['objects'],
+        summary='Object metadata',
+        responses={200: ObjectSerializer, **_SCHEMA_ERRORS},
+    )
     def get(self, request, bucket_id, object_path):
         try:
             _bucket, obj = get_accessible_object(request.user, bucket_id, object_path)
@@ -354,7 +458,11 @@ class ObjectInfoView(APIView):
 class ObjectByIdView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Resolve a file or folder by stable id')
+    @extend_schema(
+        tags=['objects'],
+        summary='Resolve a file or folder by stable id',
+        responses={200: ObjectByIdSerializer, **_SCHEMA_ERRORS},
+    )
     def get(self, request, object_id):
         try:
             return Response(resolve_item_by_id(request.user, str(object_id)))
@@ -365,7 +473,12 @@ class ObjectByIdView(APIView):
 class ObjectListView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='List objects (folders + files)')
+    @extend_schema(
+        tags=['objects'],
+        summary='List objects (folders + files)',
+        request=ObjectListRequestSerializer,
+        responses={200: ObjectSerializer(many=True), **_SCHEMA_ERRORS},
+    )
     def post(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id)
@@ -391,7 +504,13 @@ class ObjectDeleteManyView(APIView):
 
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Delete multiple objects')
+    @extend_schema(
+        tags=['objects'],
+        summary='Delete multiple objects',
+        operation_id='storage_v1_object_delete_many',
+        request=ObjectDeleteManyRequestSerializer,
+        responses={200: DeletedNameSerializer(many=True), **_SCHEMA_ERRORS},
+    )
     def delete(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id, write=True)
@@ -411,7 +530,14 @@ class ObjectPrefixView(APIView):
 
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Count objects under a folder prefix')
+    @extend_schema(
+        tags=['objects'],
+        summary='Count objects under a folder prefix',
+        parameters=[
+            OpenApiParameter('prefix', str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: PrefixSummarySerializer, **_SCHEMA_ERRORS},
+    )
     def get(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id)
@@ -424,7 +550,12 @@ class ObjectPrefixView(APIView):
         except ValueError as exc:
             return _error_message(str(exc))
 
-    @extend_schema(tags=['objects'], summary='Rename a folder prefix')
+    @extend_schema(
+        tags=['objects'],
+        summary='Rename a folder prefix',
+        request=PrefixRenameRequestSerializer,
+        responses={200: PrefixRenameResponseSerializer, **_SCHEMA_ERRORS},
+    )
     def post(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id, write=True)
@@ -446,7 +577,12 @@ class ObjectPrefixView(APIView):
             return _error_message(str(exc))
         return Response(result)
 
-    @extend_schema(tags=['objects'], summary='Delete all objects under a folder prefix')
+    @extend_schema(
+        tags=['objects'],
+        summary='Delete all objects under a folder prefix',
+        request=PrefixDeleteRequestSerializer,
+        responses={200: PrefixDeleteResponseSerializer, **_SCHEMA_ERRORS},
+    )
     def delete(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id, write=True)
@@ -466,7 +602,12 @@ class ObjectPrefixView(APIView):
 class ObjectMoveView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Move object')
+    @extend_schema(
+        tags=['objects'],
+        summary='Move object',
+        request=ObjectMoveRequestSerializer,
+        responses={200: ObjectMoveResponseSerializer, **_SCHEMA_ERRORS},
+    )
     def post(self, request):
         try:
             company_id = require_company_id(request.user)
@@ -497,7 +638,12 @@ class ObjectMoveView(APIView):
 class ObjectCopyView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Copy object')
+    @extend_schema(
+        tags=['objects'],
+        summary='Copy object',
+        request=ObjectMoveRequestSerializer,
+        responses={200: ObjectCopyResponseSerializer, **_SCHEMA_ERRORS},
+    )
     def post(self, request):
         try:
             company_id = require_company_id(request.user)
@@ -528,7 +674,6 @@ class ObjectCopyView(APIView):
 class ObjectSignView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['objects'], summary='Create signed URL')
     def post(self, request, bucket_id, object_path=''):
         try:
             data = request.data if isinstance(request.data, dict) else {}
@@ -544,6 +689,30 @@ class ObjectSignView(APIView):
         return Response({'signedURL': url, 'signedUrl': url})
 
 
+class ObjectSignPathView(ObjectSignView):
+    @extend_schema(
+        tags=['objects'],
+        summary='Create signed URL',
+        operation_id='storage_v1_object_sign_path_create',
+        request=SignRequestSerializer,
+        responses={200: SignedUrlSerializer, **_SCHEMA_ERRORS},
+    )
+    def post(self, request, bucket_id, object_path):
+        return super().post(request, bucket_id, object_path)
+
+
+class ObjectSignBodyView(ObjectSignView):
+    @extend_schema(
+        tags=['objects'],
+        summary='Create signed URL (path in body)',
+        operation_id='storage_v1_object_sign_create',
+        request=SignRequestSerializer,
+        responses={200: SignedUrlSerializer, **_SCHEMA_ERRORS},
+    )
+    def post(self, request, bucket_id):
+        return super().post(request, bucket_id, '')
+
+
 # ---------------------------------------------------------------------------
 # Quotas & statistics
 # ---------------------------------------------------------------------------
@@ -552,7 +721,14 @@ class ObjectSignView(APIView):
 class StatsView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['quotas'], summary='Upload / storage statistics')
+    @extend_schema(
+        tags=['quotas'],
+        summary='Upload / storage statistics',
+        parameters=[
+            OpenApiParameter('days', int, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: OpenApiTypes.OBJECT, **_SCHEMA_ERRORS},
+    )
     def get(self, request):
         # Staff see global stats; others are scoped to their company.
         company_id = None
@@ -656,7 +832,11 @@ class StorageGlobalMetricsView(APIView):
 class QuotaView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['quotas'], summary='Current company / user quota usage')
+    @extend_schema(
+        tags=['quotas'],
+        summary='Current company / user quota usage',
+        responses={200: QuotaSerializer, **_SCHEMA_ERRORS},
+    )
     def get(self, request):
         try:
             company_id = require_company_id(request.user)
@@ -686,7 +866,12 @@ class QuotaView(APIView):
 class CompanyQuotaAdminView(APIView):
     permission_classes = [IsAuthenticatedPrincipal, IsStaffOrCompanyOwner]
 
-    @extend_schema(tags=['quotas'], summary='Set company quota')
+    @extend_schema(
+        tags=['quotas'],
+        summary='Set company quota',
+        request=CompanyQuotaUpdateSerializer,
+        responses={200: CompanyQuotaSerializer, **_SCHEMA_ERRORS},
+    )
     def put(self, request, company_id: int):
         # Staff can manage any company; owners only their own.
         if not request.user.is_staff and int(company_id) != int(request.user.company_id or -1):
@@ -712,7 +897,12 @@ class CompanyQuotaAdminView(APIView):
 class UserQuotaAdminView(APIView):
     permission_classes = [IsAuthenticatedPrincipal, IsStaffOrCompanyOwner]
 
-    @extend_schema(tags=['quotas'], summary='Set per-user quota override')
+    @extend_schema(
+        tags=['quotas'],
+        summary='Set per-user quota override',
+        request=UserQuotaUpdateSerializer,
+        responses={200: UserQuotaSerializer, **_SCHEMA_ERRORS},
+    )
     def put(self, request, company_id: int, user_id: int):
         if not request.user.is_staff and int(company_id) != int(request.user.company_id or -1):
             return _error_message('Forbidden', status_code=403, code='forbidden')
@@ -740,8 +930,23 @@ class UserQuotaAdminView(APIView):
 
 
 @extend_schema_view(
-    get=extend_schema(tags=['access'], summary='List access grants'),
-    post=extend_schema(tags=['access'], summary='Create access grant'),
+    get=extend_schema(
+        tags=['access'],
+        summary='List access grants',
+        parameters=[
+            OpenApiParameter('resource_type', str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('resource_id', str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('bucket', str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('include_effective', str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: AccessGrantSerializer(many=True), **_SCHEMA_ERRORS},
+    ),
+    post=extend_schema(
+        tags=['access'],
+        summary='Create access grant',
+        request=AccessGrantCreateSerializer,
+        responses={201: AccessGrantSerializer, **_SCHEMA_ERRORS},
+    ),
 )
 class AccessGrantListCreateView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
@@ -784,7 +989,11 @@ class AccessGrantListCreateView(APIView):
 class AccessGrantDetailView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(tags=['access'], summary='Delete access grant')
+    @extend_schema(
+        tags=['access'],
+        summary='Delete access grant',
+        responses={204: None, **_SCHEMA_ERRORS},
+    )
     def delete(self, request, grant_id):
         try:
             delete_grant(principal=request.user, grant_id=grant_id)
@@ -799,8 +1008,17 @@ class AccessGrantDetailView(APIView):
 
 
 @extend_schema_view(
-    get=extend_schema(tags=['share'], summary='List share links for an object'),
-    post=extend_schema(tags=['share'], summary='Create a share link for an object'),
+    get=extend_schema(
+        tags=['share'],
+        summary='List share links for an object',
+        responses={200: ShareLinkSerializer(many=True), **_SCHEMA_ERRORS},
+    ),
+    post=extend_schema(
+        tags=['share'],
+        summary='Create a share link for an object',
+        request=ShareLinkCreateSerializer,
+        responses={201: ShareLinkSerializer, **_SCHEMA_ERRORS},
+    ),
 )
 class ObjectShareView(APIView):
     """
@@ -866,7 +1084,18 @@ class ShareLinkView(APIView):
             return super().get_authenticators()
         return []
 
-    @extend_schema(tags=['share'], summary='Download via share link token', auth=[])
+    @extend_schema(
+        tags=['share'],
+        summary='Download via share link token',
+        auth=[],
+        parameters=[
+            OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'),
+            **_SCHEMA_ERRORS,
+        },
+    )
     def get(self, request, token):
         try:
             _link, obj = redeem_share_link(token)
@@ -880,7 +1109,11 @@ class ShareLinkView(APIView):
         response['Cache-Control'] = 'private, no-store'
         return response
 
-    @extend_schema(tags=['share'], summary='Revoke a share link')
+    @extend_schema(
+        tags=['share'],
+        summary='Revoke a share link',
+        responses={200: ShareLinkSerializer, **_SCHEMA_ERRORS},
+    )
     def delete(self, request, token):
         try:
             link = revoke_share_link(principal=request.user, token=token)
