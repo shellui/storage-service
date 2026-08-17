@@ -14,14 +14,28 @@ from jwt import PyJWK
 
 logger = logging.getLogger(__name__)
 
+_FETCH_HEADERS = {
+    'Accept': 'application/json',
+    'Accept-Encoding': 'identity',
+    'Connection': 'close',
+}
+
 
 class JWKSClient:
     """Thread-safe JWKS cache with TTL refresh."""
 
-    def __init__(self, url: str, ttl: int = 900, timeout: float = 5.0):
+    def __init__(
+        self,
+        url: str,
+        ttl: int = 900,
+        timeout: float = 15.0,
+        retries: int = 2,
+    ):
         self.url = url
         self.ttl = ttl
         self.timeout = timeout
+        self.retries = max(0, retries)
+        self._session = requests.Session()
         self._lock = threading.Lock()
         self._fetched_at = 0.0
         self._keys: dict[str, Any] = {}
@@ -33,6 +47,36 @@ class JWKSClient:
             self._keys = {}
             self._raw = {'keys': []}
 
+    def _request_timeout(self) -> float | tuple[float, float]:
+        connect = min(5.0, self.timeout)
+        return (connect, self.timeout)
+
+    def _fetch_document(self) -> dict[str, Any]:
+        attempts = self.retries + 1
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                response = self._session.get(
+                    self.url,
+                    timeout=self._request_timeout(),
+                    headers=_FETCH_HEADERS,
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as exc:
+                last_error = exc
+                logger.warning(
+                    'JWKS fetch attempt %s/%s from %s failed: %s',
+                    attempt,
+                    attempts,
+                    self.url,
+                    exc,
+                )
+                if attempt < attempts:
+                    time.sleep(0.25 * attempt)
+        assert last_error is not None
+        raise last_error
+
     def _refresh(self, force: bool = False) -> None:
         now = time.monotonic()
         if not force and self._keys and (now - self._fetched_at) < self.ttl:
@@ -42,11 +86,9 @@ class JWKSClient:
             if not force and self._keys and (now - self._fetched_at) < self.ttl:
                 return
             try:
-                response = requests.get(self.url, timeout=self.timeout)
-                response.raise_for_status()
-                document = response.json()
-            except Exception:
-                logger.exception('Failed to fetch JWKS from %s', self.url)
+                document = self._fetch_document()
+            except requests.RequestException as exc:
+                logger.warning('Failed to fetch JWKS from %s: %s', self.url, exc)
                 if self._keys:
                     return
                 raise
@@ -97,5 +139,13 @@ def get_jwks_client() -> JWKSClient:
                 _client = JWKSClient(
                     url=settings.IDENTITY_JWKS_URL,
                     ttl=getattr(settings, 'JWKS_CACHE_TTL', 900),
+                    timeout=getattr(settings, 'JWKS_TIMEOUT', 15.0),
+                    retries=getattr(settings, 'JWKS_RETRIES', 2),
                 )
     return _client
+
+
+def reset_jwks_client() -> None:
+    global _client
+    with _client_lock:
+        _client = None

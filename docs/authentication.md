@@ -36,6 +36,8 @@ The home page and `GET /storage/v1/health` show the resolved JWKS URL so you can
 | `IDENTITY_ISSUER` | Optional `iss` claim check |
 | `IDENTITY_AUDIENCE` | Optional `aud` claim check |
 | `JWKS_CACHE_TTL` | Seconds to cache JWKS (default `900`) |
+| `JWKS_TIMEOUT` | Seconds to wait for a JWKS HTTP response (default `15`; connect cap `5`) |
+| `JWKS_RETRIES` | Extra JWKS fetch attempts after timeout / 5xx (default `2`) |
 | `JWT_HS256_FALLBACK_SECRET` | Dev-only: verify HS256 when JWKS has no keys (identity `DEBUG=true`). **Rejected at startup if `DEBUG=false`** unless `ALLOW_JWT_HS256_FALLBACK=true` |
 | `ALLOW_JWT_HS256_FALLBACK` | Explicit escape hatch to allow HS256 fallback when `DEBUG=false` (not recommended in production) |
 | `JWT_ALGORITHMS` | Default `RS256` |

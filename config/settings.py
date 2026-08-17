@@ -378,6 +378,8 @@ if not IDENTITY_JWKS_URL.startswith(('http://', 'https://')):
 IDENTITY_ISSUER = os.getenv('IDENTITY_ISSUER', '').strip() or None
 IDENTITY_AUDIENCE = os.getenv('IDENTITY_AUDIENCE', '').strip() or None
 JWKS_CACHE_TTL = _env_int('JWKS_CACHE_TTL', 900)
+JWKS_TIMEOUT = _env_float('JWKS_TIMEOUT', 15)
+JWKS_RETRIES = _env_int('JWKS_RETRIES', 2)
 # Dev-only: verify HS256 tokens signed with identity-service SECRET_KEY when JWKS is empty.
 # Refused in production unless ALLOW_JWT_HS256_FALLBACK is explicitly enabled.
 JWT_HS256_FALLBACK_SECRET = os.getenv('JWT_HS256_FALLBACK_SECRET', '').strip() or None
@@ -424,6 +426,11 @@ for _origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(','):
         CORS_ALLOWED_ORIGINS.append(_origin)
 
 CORS_ALLOW_CREDENTIALS = True
+# Public HTTPS origins (admin.shellui.com) calling http://localhost:8001.
+# Browsers send Access-Control-Request-Private-Network on the OPTIONS preflight.
+CORS_ALLOW_PRIVATE_NETWORK = os.getenv(
+    'CORS_ALLOW_PRIVATE_NETWORK', 'true'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
 CORS_ALLOW_HEADERS = list(
     {
         'accept',
