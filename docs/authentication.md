@@ -71,6 +71,35 @@ Authorization: Bearer <access_token>
 
 Optional Supabase-style `apikey` header is accepted by CORS but ignored for authorization.
 
+## Debugging failed tokens
+
+API clients still get a generic 401 (`Token is invalid or could not be verified against identity JWKS.`) so the token is not leaked. The **process logs** have the details.
+
+Look for `JWT` on the `apps.authapi.authentication` / `apps.authapi.jwks_client` loggers. Useful fields:
+
+| Log field | What it tells you |
+|-----------|-------------------|
+| `alg` / `kid` | Token header. `HS256` with no fallback means identity is in DEBUG mode — set `JWT_HS256_FALLBACK_SECRET`. `kid` missing from `jwks_kids` means storage's JWKS is stale; recopy `IDENTITY_JWKS`. |
+| `iss` / `aud` / `exp` | Unverified claims (signature not trusted). Mismatch against `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE` if those are set. |
+| `jwks_source` / `jwks_kids` | Where keys were loaded (`env`, `file`, or `url`) and which `kid`s storage currently has. |
+| `request_id` / `[req=…]` | Correlate one HTTP call. The 401 JSON includes `request_id`; the same value is in `X-Request-ID`. |
+
+How to read logs:
+
+```bash
+# Local runserver — logs print in that terminal
+uv run python manage.py runserver 8001
+
+# Docker
+docker logs -f <container> 2>&1 | grep JWT
+
+# Coolify / systemd — open the service logs and search for "JWT authentication failed"
+```
+
+On startup, storage logs `Identity JWKS auth ready: source=… key_count=… kids=…`. If `key_count=0` and you are not using HS256 fallback, every request will 401.
+
+When `DEBUG=true`, the 401 `detail` string also appends the PyJWT exception (`InvalidSignatureError`, `DecodeError`, missing `kid`, …).
+
 ## WebDAV
 
 Third-party WebDAV clients may send:

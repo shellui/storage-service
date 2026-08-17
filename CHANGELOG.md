@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 🛠 Improvements
+
+- Log JWT/JWKS verification failures with algorithm, key id, issuer/audience, and loaded JWKS kids (token values are never logged). API 401s include a `request_id` matching `X-Request-ID`.
+
+### 📚 Documentation
+
+- Document how to read storage-service logs locally and in Docker/Coolify.
+
 ## [0.1.1] - 2026-08-18
 
 ### 🛠 Improvements

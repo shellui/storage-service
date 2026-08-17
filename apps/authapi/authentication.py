@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import jwt
 from django.conf import settings
@@ -12,6 +13,82 @@ from .jwks_client import get_jwks_client
 from .principal import StoragePrincipal, principal_from_claims
 
 logger = logging.getLogger(__name__)
+
+_GENERIC_TOKEN_DETAIL = 'Token is invalid or could not be verified against identity JWKS.'
+
+
+def _safe_jwt_meta(raw_token: str) -> dict[str, Any]:
+    """Header/claim fields that are safe to log (never the token or signature)."""
+    meta: dict[str, Any] = {'token_segments': raw_token.count('.') + 1 if raw_token else 0}
+    try:
+        header = jwt.get_unverified_header(raw_token)
+    except Exception as exc:
+        meta['header_error'] = f'{type(exc).__name__}: {exc}'
+        return meta
+    meta['alg'] = header.get('alg')
+    meta['kid'] = header.get('kid')
+    meta['typ'] = header.get('typ')
+    try:
+        payload = jwt.decode(
+            raw_token,
+            options={
+                'verify_signature': False,
+                'verify_exp': False,
+                'verify_nbf': False,
+                'verify_aud': False,
+                'verify_iss': False,
+            },
+            algorithms=[header['alg']] if header.get('alg') else ['RS256', 'HS256'],
+        )
+    except Exception as exc:
+        meta['payload_error'] = f'{type(exc).__name__}: {exc}'
+        return meta
+    meta['iss'] = payload.get('iss')
+    meta['aud'] = payload.get('aud')
+    meta['exp'] = payload.get('exp')
+    meta['sub'] = payload.get('sub')
+    return meta
+
+
+def _jwks_meta() -> dict[str, Any]:
+    info: dict[str, Any] = {
+        'jwks_source': getattr(settings, 'IDENTITY_JWKS_SOURCE', None) or 'url',
+        'jwks_url': getattr(settings, 'IDENTITY_JWKS_URL', None),
+        'jwks_file': getattr(settings, 'IDENTITY_JWKS_FILE', None),
+        'algorithms': list(getattr(settings, 'JWT_ALGORITHMS', ['RS256'])),
+        'issuer': getattr(settings, 'IDENTITY_ISSUER', None),
+        'audience': getattr(settings, 'IDENTITY_AUDIENCE', None),
+        'hs256_fallback': bool(getattr(settings, 'JWT_HS256_FALLBACK_SECRET', None))
+        and (
+            settings.DEBUG or getattr(settings, 'ALLOW_JWT_HS256_FALLBACK', False)
+        ),
+    }
+    try:
+        client = get_jwks_client()
+        info['jwks_key_count'] = client.key_count()
+        info['jwks_kids'] = client.key_ids()
+    except Exception as exc:
+        info['jwks_error'] = f'{type(exc).__name__}: {exc}'
+    return info
+
+
+def _format_context(*parts: dict[str, Any]) -> str:
+    merged: dict[str, Any] = {}
+    for part in parts:
+        merged.update(part)
+    chunks = []
+    for key, value in merged.items():
+        if value is None or value == '' or value == []:
+            continue
+        chunks.append(f'{key}={value!r}')
+    return ' '.join(chunks)
+
+
+def _client_detail(errors: list[Exception]) -> str:
+    if settings.DEBUG and errors:
+        last = errors[-1]
+        return f'{_GENERIC_TOKEN_DETAIL} ({type(last).__name__}: {last})'
+    return _GENERIC_TOKEN_DETAIL
 
 
 class IdentityJWKSAuthentication(authentication.BaseAuthentication):
@@ -53,6 +130,11 @@ class IdentityJWKSAuthentication(authentication.BaseAuthentication):
         try:
             return principal_from_claims(claims)
         except ValueError as exc:
+            logger.warning(
+                'JWT claims rejected: %s. %s',
+                exc,
+                _format_context(_safe_jwt_meta(raw_token)),
+            )
             raise exceptions.AuthenticationFailed(str(exc)) from exc
 
     def _decode_token(self, raw_token: str) -> dict:
@@ -71,6 +153,7 @@ class IdentityJWKSAuthentication(authentication.BaseAuthentication):
         if settings.IDENTITY_ISSUER:
             decode_kwargs['issuer'] = settings.IDENTITY_ISSUER
 
+        token_meta = _safe_jwt_meta(raw_token)
         errors: list[Exception] = []
 
         # RS256 via JWKS
@@ -84,11 +167,23 @@ class IdentityJWKSAuthentication(authentication.BaseAuthentication):
                     **decode_kwargs,
                 )
         except jwt.ExpiredSignatureError as exc:
+            logger.info('JWT expired. %s', _format_context(token_meta, _jwks_meta()))
             raise exceptions.AuthenticationFailed('Token has expired.') from exc
         except jwt.InvalidTokenError as exc:
+            logger.warning(
+                'JWT JWKS verification failed (%s): %s. %s',
+                type(exc).__name__,
+                exc,
+                _format_context(token_meta, _jwks_meta()),
+            )
             errors.append(exc)
         except Exception as exc:
-            logger.debug('JWKS verification failed: %s', exc)
+            logger.warning(
+                'JWT JWKS verification error (%s): %s. %s',
+                type(exc).__name__,
+                exc,
+                _format_context(token_meta, _jwks_meta()),
+            )
             errors.append(exc)
 
         # HS256 fallback for local identity-service DEBUG mode only (gated in settings).
@@ -107,11 +202,30 @@ class IdentityJWKSAuthentication(authentication.BaseAuthentication):
                     issuer=settings.IDENTITY_ISSUER,
                 )
             except jwt.ExpiredSignatureError as exc:
+                logger.info('JWT expired (HS256 fallback). %s', _format_context(token_meta))
                 raise exceptions.AuthenticationFailed('Token has expired.') from exc
             except jwt.InvalidTokenError as exc:
+                logger.warning(
+                    'JWT HS256 fallback failed (%s): %s. %s',
+                    type(exc).__name__,
+                    exc,
+                    _format_context(token_meta),
+                )
                 errors.append(exc)
+        elif token_meta.get('alg') == 'HS256':
+            logger.warning(
+                'Token alg is HS256 but HS256 fallback is disabled. '
+                'For identity-service DEBUG tokens set JWT_HS256_FALLBACK_SECRET '
+                'to identity SECRET_KEY; otherwise issue RS256 tokens. %s',
+                _format_context(token_meta, _jwks_meta()),
+            )
 
-        detail = 'Token is invalid or could not be verified against identity JWKS.'
+        detail = _client_detail(errors)
+        logger.warning(
+            'JWT authentication failed. %s errors=%s',
+            _format_context(token_meta, _jwks_meta()),
+            [type(exc).__name__ for exc in errors] or ['no_signing_key'],
+        )
         if errors:
             raise exceptions.AuthenticationFailed(detail) from errors[-1]
         raise exceptions.AuthenticationFailed(detail)

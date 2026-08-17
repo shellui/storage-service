@@ -143,6 +143,31 @@ Default host port: `8001`.
 uv run python manage.py test
 ```
 
+## Logs
+
+Application logs go to **stdout/stderr** (the terminal for `runserver`, container logs in Docker/Coolify). Each line looks like:
+
+```text
+2026-08-17 15:38:01 WARNING [apps.authapi.authentication] [req=a1b2c3d4e5f6] JWT JWKS verification failed (InvalidSignatureError): Signature verification failed. alg='RS256' kid='abc' jwks_source='env' jwks_kids=['xyz']
+```
+
+`req=` is a per-request id. It is also returned as the `X-Request-ID` response header, and on API errors as JSON `request_id`, so you can grep one failed call:
+
+```bash
+# Local
+uv run python manage.py runserver 8001
+
+# Docker / Coolify — follow container logs
+docker logs -f storage-service
+
+# JWT failures only
+docker logs storage-service 2>&1 | grep JWT
+```
+
+Set `LOG_LEVEL=DEBUG` (default when `DEBUG=true`) or `LOG_LEVEL=INFO` in `.env`. JWT verify failures are logged at **WARNING** with algorithm, `kid`, issuer/audience, and which JWKS keys were loaded — the raw token is never logged. When `DEBUG=true`, the 401 body also includes the underlying PyJWT exception.
+
+See [JWKS auth](docs/authentication.md) for how to interpret those fields.
+
 ## Documentation
 
 Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `main` and `v*` tags).

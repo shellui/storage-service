@@ -98,3 +98,41 @@ class JWKSClientRetryTests(SimpleTestCase):
             key = client.get_signing_key(token)
         mock_get.assert_not_called()
         self.assertIsNotNone(key)
+        self.assertEqual(client.key_count(), 1)
+        self.assertEqual(client.key_ids(), ['kid-1'])
+
+    def test_empty_keys_returns_none_and_logs(self):
+        token = jwt.encode(
+            {'exp': 2**31 - 1},
+            'secret',
+            algorithm='HS256',
+            headers={'kid': 'kid-1', 'alg': 'HS256'},
+        )
+        client = JWKSClient('https://id.example/.well-known/jwks.json')
+        with (
+            patch.object(client._session, 'get', return_value=_ok_response({'keys': []})),
+            self.assertLogs('apps.authapi.jwks_client', level='WARNING') as logs,
+        ):
+            key = client.get_signing_key(token)
+        self.assertIsNone(key)
+        self.assertIn('JWKS has no keys', '\n'.join(logs.output))
+
+    def test_kid_mismatch_with_multiple_keys_logs_available_kids(self):
+        first = _sample_jwks(kid='kid-1')
+        second = _sample_jwks(kid='kid-2')
+        document = {'keys': first['keys'] + second['keys']}
+        token = jwt.encode(
+            {'exp': 2**31 - 1},
+            'secret',
+            algorithm='HS256',
+            headers={'kid': 'missing-kid'},
+        )
+        client = JWKSClient(static_document=document)
+        with self.assertLogs('apps.authapi.jwks_client', level='WARNING') as logs:
+            with self.assertRaises(jwt.InvalidTokenError) as ctx:
+                client.get_signing_key(token)
+        self.assertIn('missing-kid', str(ctx.exception))
+        joined = '\n'.join(logs.output)
+        self.assertIn('missing-kid', joined)
+        self.assertIn('kid-1', joined)
+        self.assertIn('kid-2', joined)

@@ -114,6 +114,9 @@ if not _secret_key:
 SECRET_KEY = _secret_key
 
 DEBUG = os.getenv('DEBUG', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'DEBUG' if DEBUG else 'INFO').strip().upper() or (
+    'DEBUG' if DEBUG else 'INFO'
+)
 
 ALLOWED_HOSTS = _env_csv('ALLOWED_HOSTS', ('localhost', '127.0.0.1'))
 CSRF_TRUSTED_ORIGINS = _env_csv(
@@ -169,6 +172,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'apps.authapi.permissions.IsAuthenticatedPrincipal',
     ],
+    'EXCEPTION_HANDLER': 'config.exceptions.exception_handler',
 }
 
 SPECTACULAR_SETTINGS = {
@@ -196,6 +200,7 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'config.request_context.RequestIdMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -482,10 +487,77 @@ CORS_ALLOW_HEADERS = list(
         'cache-control',
         'apikey',
         'x-client-info',
+        'x-request-id',
     }
 )
+CORS_EXPOSE_HEADERS = ['X-Request-ID']
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'request_id': {
+            '()': 'config.request_context.RequestIdFilter',
+        },
+    },
+    'formatters': {
+        'console': {
+            'format': '{asctime} {levelname} [{name}] [req={request_id}] {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'console',
+            'filters': ['request_id'],
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'config': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'gunicorn.error': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'gunicorn.access': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
 SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
 SENTRY_ENVIRONMENT = os.getenv('SENTRY_ENVIRONMENT', '').strip() or (

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
@@ -57,6 +58,8 @@ from .services import (
     resolve_item_by_id,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class OctetStreamParser(BaseParser):
     media_type = 'application/octet-stream'
@@ -75,6 +78,8 @@ class AnyBinaryParser(BaseParser):
 
 
 def _error(exc: StorageError) -> Response:
+    if exc.status >= 500:
+        logger.error('Storage error %s (%s): %s', exc.status, exc.code, exc)
     return Response(
         {'statusCode': str(exc.status), 'error': exc.code, 'message': str(exc)},
         status=exc.status,

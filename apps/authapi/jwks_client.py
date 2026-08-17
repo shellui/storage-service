@@ -77,6 +77,13 @@ class JWKSClient:
         self._raw = document
         self._keys = keys
         self._fetched_at = time.monotonic()
+        source = 'static' if self._static_document is not None else (self.url or 'unknown')
+        logger.info(
+            'Loaded JWKS from %s: key_count=%s kids=%s',
+            source,
+            len(keys),
+            list(keys),
+        )
 
     def _request_timeout(self) -> float | tuple[float, float]:
         connect = min(5.0, self.timeout)
@@ -125,15 +132,27 @@ class JWKSClient:
             try:
                 document = self._fetch_document()
             except requests.RequestException as exc:
-                logger.warning('Failed to fetch JWKS from %s: %s', self.url, exc)
+                logger.warning(
+                    'Failed to fetch JWKS from %s: %s (cached_keys=%s)',
+                    self.url,
+                    exc,
+                    len(self._keys),
+                )
                 if self._keys:
                     return
                 raise
             self._apply_document(document)
 
+    def key_ids(self) -> list[str]:
+        return list(self._keys)
+
+    def key_count(self) -> int:
+        return len(self._keys)
+
     def get_signing_key(self, token: str):
         header = jwt.get_unverified_header(token)
         kid = header.get('kid')
+        alg = header.get('alg')
         self._refresh()
         if kid and kid in self._keys:
             return self._keys[kid]
@@ -142,9 +161,30 @@ class JWKSClient:
             if kid in self._keys:
                 return self._keys[kid]
         if len(self._keys) == 1:
-            return next(iter(self._keys.values()))
+            only_kid, only_key = next(iter(self._keys.items()))
+            if kid and kid != only_kid:
+                logger.warning(
+                    'JWT kid=%r not in JWKS; using sole available key kid=%s alg=%s',
+                    kid,
+                    only_kid,
+                    alg,
+                )
+            return only_key
         if not self._keys:
+            logger.warning(
+                'JWKS has no keys (url=%s static=%s) for token alg=%s kid=%r',
+                self.url or None,
+                self._static_document is not None,
+                alg,
+                kid,
+            )
             return None
+        logger.warning(
+            'No JWKS signing key matches kid=%r alg=%s; available kids=%s',
+            kid,
+            alg,
+            list(self._keys),
+        )
         raise jwt.InvalidTokenError(f'Unable to find a signing key that matches kid={kid!r}')
 
 

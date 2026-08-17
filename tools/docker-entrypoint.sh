@@ -19,4 +19,6 @@ exec runuser -u appuser -- gunicorn \
   --workers "${GUNICORN_WORKERS:-2}" \
   --threads "${GUNICORN_THREADS:-2}" \
   --timeout "${GUNICORN_TIMEOUT:-120}" \
+  --access-logfile - \
+  --error-logfile - \
   config.wsgi:application

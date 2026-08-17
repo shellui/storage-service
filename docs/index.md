@@ -8,7 +8,7 @@ The published site is [https://storage.docs.shellui.com](https://storage.docs.sh
 
 ## Quick links
 
-- Project setup: see `README.md`.
+- Project setup and **logs**: see `README.md`.
 - **[Authentication (JWKS)](authentication.md)** — verifying identity-service tokens.
 - **[Quotas](quotas.md)** — company totals and optional per-user limits.
 - **[Metrics (Prometheus)](metrics.md)** — `GET /storage/v1/metrics` and `/metrics/all`.

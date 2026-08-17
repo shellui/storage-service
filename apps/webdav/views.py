@@ -15,6 +15,7 @@ quotas/signals; WebDAV goes through them.
 from __future__ import annotations
 
 import base64
+import logging
 import re
 from io import BytesIO
 from urllib.parse import quote, unquote, urlsplit
@@ -48,6 +49,7 @@ from apps.storage.services import (
 
 DAV_NS = 'DAV:'
 NSMAP = {'d': DAV_NS}
+logger = logging.getLogger(__name__)
 
 
 def _dav_response(status: int = 200, body: bytes | str | None = None, content_type: str = 'text/xml; charset=utf-8'):
@@ -175,6 +177,8 @@ class WebDAVView(View):
         try:
             return super().dispatch(request, path)
         except StorageError as exc:
+            if exc.status >= 500:
+                logger.error('WebDAV storage error %s (%s): %s', exc.status, exc.code, exc)
             return _dav_response(exc.status, str(exc), content_type='text/plain')
         except ValueError as exc:
             return _dav_response(400, str(exc), content_type='text/plain')

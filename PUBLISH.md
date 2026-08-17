@@ -176,6 +176,7 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 | `AWS_S3_ADDRESSING_STYLE` | `path` (MinIO) or `virtual` (AWS). Empty = path if endpoint is set. |
 | `SENTRY_DSN`            | Sentry error reporting.                                               |
 | `SENTRY_ENVIRONMENT`    | e.g. `staging`, `production`.                                         |
+| `LOG_LEVEL`             | `DEBUG`, `INFO`, `WARNING`, … (default `DEBUG` when `DEBUG=true`, else `INFO`). |
 
 With Postgres:
 
