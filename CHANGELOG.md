@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+<!---
+## [Unreleased] - yyyy-mm-dd
+
+### ✨ Feature – for new features
+### 🛠 Improvements – for general improvements
+### 🚨 Changed – for changes in existing functionality
+### ⚠️ Deprecated – for soon-to-be removed features
+### 📚 Documentation – for documentation update
+### 🗑 Removed – for removed features
+### 🐛 Bug Fixes – for any bug fixes
+### 🔒 Security – in case of vulnerabilities
+### 🏗 Chore – for tidying code
+
+See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
+-->
+
 ## [0.1.0] - 2026-08-17
 
-Initial release of `storage-service`: a Django object-storage backend for ShellUI with Supabase-compatible `/storage/v1/*` APIs, JWT auth via identity-service, one company bucket with access grants and share links, WebDAV, quotas, Prometheus metrics, and Docker.
+### ✨ Feature
+
+- Initial release of `storage-service`.
+- Added **Supabase-compatible** Storage REST API under `/storage/v1/*` (upload, download, list with folders, move/copy, signed URLs).
+- Added **one bucket per company** with files **private to the creator** by default; share via **access grants** (user / company / folder / object). Nested items inherit the parent folder's permissions.
+- Added **share links** — secret capability URLs with expiry and/or max downloads.
+- Added JWT authentication via identity-service JWKS (`IDENTITY_JWKS_URL`).
+- Added pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**.
+- Added company total quota and optional per-user quota.
+- Added WebDAV at `/dav/` for third-party file clients.
+- Added Prometheus metrics (`GET /storage/v1/metrics`, `GET /storage/v1/metrics/all`).
+- Added Django signals on upload/delete (including Markdown sidecar extraction).
+
+### 🛠 Improvements
+
+- Added OpenAPI documentation (Swagger + ReDoc) and a simple home page.
+- Added Django admin with upload statistics (documents, MIME breakdown, quotas, recent files).
+- Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin.
+- MIME type detection and per-bucket allow-lists.
+- CORS for local ShellUI (`http://localhost:4000`), admin, and extra origins.
+
+### 🚨 Changed
+
+- Local setup uses `uv sync` / `uv run` (`pyproject.toml` + `uv.lock`).
+- Docker installs with `uv sync --frozen`.
+
+### 📚 Documentation
+
+- Added topic guides for authentication, quotas, metrics, downloads, clients, access control, sharing, signals, and admin statistics.
