@@ -12,7 +12,7 @@ The published site is [https://storage.docs.shellui.com](https://storage.docs.sh
 - **[Authentication (JWKS)](authentication.md)** — verifying identity-service tokens.
 - **[Quotas](quotas.md)** — company totals and optional per-user limits.
 - **[Metrics (Prometheus)](metrics.md)** — `GET /storage/v1/metrics` and `/metrics/all`.
-- **[Downloads](downloads.md)** — signed redirects, `X-Accel-Redirect`, and streaming.
+- **[Downloads](downloads.md)** — Django streaming and optional signed URLs.
 - **[Third-party clients](clients.md)** — connecting WebDAV or S3-compatible apps.
 - **[Access control](access.md)** — one company bucket, access grants, connector mounts.
 - **[Share links](sharing.md)** — time- or download-limited capability URLs.

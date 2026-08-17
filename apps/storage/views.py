@@ -106,7 +106,6 @@ class HealthView(APIView):
                 'status': 'ok',
                 'version': settings.VERSION,
                 'storage_backend': settings.STORAGE_BACKEND,
-                'download_mode': settings.DOWNLOAD_MODE,
                 'identity_jwks_url': settings.IDENTITY_JWKS_URL,
             }
         )

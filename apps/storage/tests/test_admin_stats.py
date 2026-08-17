@@ -15,7 +15,6 @@ from apps.storage.stats import build_storage_stats, human_bytes
 
 @override_settings(
     STORAGE_BACKEND='filesystem',
-    DOWNLOAD_MODE='stream',
     MEDIA_ROOT='/tmp/shellui-storage-admin-stats',
     DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
 )

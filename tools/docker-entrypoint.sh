@@ -14,39 +14,9 @@ fi
 
 runuser -u appuser -- python manage.py migrate --noinput
 
-python3 /app/tools/nginx/render-conf.py /etc/nginx/conf.d/storage.conf
-nginx -t
-
-runuser -u appuser -- gunicorn \
-  --bind 127.0.0.1:8001 \
-  --pid /tmp/gunicorn.pid \
+exec runuser -u appuser -- gunicorn \
+  --bind 0.0.0.0:8000 \
   --workers "${GUNICORN_WORKERS:-2}" \
   --threads "${GUNICORN_THREADS:-2}" \
   --timeout "${GUNICORN_TIMEOUT:-120}" \
-  config.wsgi:application &
-GUNICORN_PID=$!
-
-python -c "
-import socket, sys, time
-for _ in range(50):
-    try:
-        socket.create_connection(('127.0.0.1', 8001), 1).close()
-        sys.exit(0)
-    except OSError:
-        time.sleep(0.1)
-sys.stderr.write('Gunicorn did not become ready on 127.0.0.1:8001\n')
-sys.exit(1)
-"
-
-nginx -g 'daemon off;' &
-NGINX_PID=$!
-
-shutdown() {
-  nginx -s quit 2>/dev/null || true
-  kill "${GUNICORN_PID}" 2>/dev/null || true
-}
-trap shutdown TERM INT
-
-wait "${NGINX_PID}"
-shutdown
-wait || true
+  config.wsgi:application

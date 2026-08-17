@@ -16,7 +16,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - MIME type detection and per-bucket allow-lists
 - Nested folder listing (prefix-based, same shape as Supabase)
 - WebDAV at `/dav/` for third-party file clients (quotas + signals apply)
-- Download offload: signed S3 redirect, NGINX `X-Accel-Redirect`, or Django stream
+- Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
 - CORS for local ShellUI (`http://localhost:4000`), admin, and extra origins
@@ -99,20 +99,16 @@ AWS_S3_REGION_NAME=us-east-1
 AWS_S3_ADDRESSING_STYLE=path                # path for MinIO; virtual for AWS
 ```
 
-These `AWS_*` values are shared by **Django** (uploads via django-storages) and **nginx** in the Docker image (X-Accel-Redirect fetches from the same bucket). In Compose, point the endpoint at the MinIO service hostname:
+These `AWS_*` values are used by Django (django-storages) for uploads and streamed downloads. In Compose, point the endpoint at the MinIO service hostname:
 
 ```bash
 AWS_S3_ENDPOINT_URL=http://minio:9000
 docker compose --profile s3 up --build
 ```
 
-## Download strategies
+## Downloads
 
-| Mode | When to use |
-|------|-------------|
-| `redirect` | 302 to a signed object URL — when the **browser** can reach S3 (set `DOWNLOAD_MODE=redirect`) |
-| `xaccel` (auto in Docker) | NGINX serves bytes after Django authorizes — local disk or S3/MinIO via the same `AWS_*` env |
-| `stream` | Django streams the file — use for `runserver` without nginx |
+Object `GET` streams through Django. Optional signed URLs: `POST /storage/v1/object/sign/{bucket}/{path}`.
 
 See [docs/downloads.md](docs/downloads.md).
 
@@ -154,7 +150,7 @@ Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (
 - [Share links](docs/sharing.md)
 - [Quotas](docs/quotas.md)
 - [Metrics (Prometheus)](docs/metrics.md)
-- [Downloads & nginx](docs/downloads.md)
+- [Downloads](docs/downloads.md)
 - [Third-party clients (WebDAV / S3)](docs/clients.md)
 - [Signals](docs/signals.md)
 

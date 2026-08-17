@@ -26,7 +26,7 @@ services:
       JWT_ALGORITHMS: "${JWT_ALGORITHMS:-RS256}"
       JWKS_CACHE_TTL: "${JWKS_CACHE_TTL:-900}"
       STORAGE_BACKEND: "${STORAGE_BACKEND:-filesystem}"
-      # S3 / MinIO / R2 — same vars for Django (django-storages) and nginx (X-Accel-Redirect).
+      # S3 / MinIO / R2 — django-storages (uploads and streamed downloads).
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       AWS_STORAGE_BUCKET_NAME: "${AWS_STORAGE_BUCKET_NAME:-}"
@@ -35,12 +35,7 @@ services:
       AWS_S3_CUSTOM_DOMAIN: "${AWS_S3_CUSTOM_DOMAIN:-}"
       AWS_S3_SIGNATURE_VERSION: "${AWS_S3_SIGNATURE_VERSION:-s3v4}"
       AWS_S3_ADDRESSING_STYLE: "${AWS_S3_ADDRESSING_STYLE:-}"
-      NGINX_RESOLVER: "${NGINX_RESOLVER:-127.0.0.11 8.8.8.8}"
       STORAGE_KEY_PREFIX: "${STORAGE_KEY_PREFIX:-shellui}"
-      DOWNLOAD_MODE: "${DOWNLOAD_MODE:-auto}"
-      # Image includes nginx; leave true so filesystem downloads use X-Accel-Redirect.
-      X_ACCEL_REDIRECT_ENABLED: "${X_ACCEL_REDIRECT_ENABLED:-true}"
-      X_ACCEL_REDIRECT_PREFIX: "${X_ACCEL_REDIRECT_PREFIX:-/protected/}"
       SIGNED_URL_EXPIRES: "${SIGNED_URL_EXPIRES:-3600}"
       DEFAULT_COMPANY_QUOTA_BYTES: "${DEFAULT_COMPANY_QUOTA_BYTES:-10G}"
       DEFAULT_USER_QUOTA_BYTES: "${DEFAULT_USER_QUOTA_BYTES:-0}"

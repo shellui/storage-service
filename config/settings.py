@@ -338,26 +338,8 @@ STORAGES = {
     },
 }
 
-# ---------------------------------------------------------------------------
-# Download strategy
-#   auto     — S3 → signed redirect; filesystem + nginx → xaccel; else stream
-#   redirect — HTTP 302 to a signed URL (best for S3, works without nginx)
-#   xaccel   — NGINX X-Accel-Redirect (great for local disk or nginx→S3 proxy)
-#   stream   — stream bytes through Django (always works, uses app bandwidth)
-# ---------------------------------------------------------------------------
-DOWNLOAD_MODE = os.getenv('DOWNLOAD_MODE', 'auto').strip().lower()
-if DOWNLOAD_MODE not in {'auto', 'redirect', 'xaccel', 'stream'}:
-    raise ImproperlyConfigured(
-        f'DOWNLOAD_MODE must be auto|redirect|xaccel|stream. Got: {DOWNLOAD_MODE!r}'
-    )
-X_ACCEL_REDIRECT_ENABLED = os.getenv('X_ACCEL_REDIRECT_ENABLED', 'false').strip().lower() in {
-    '1',
-    'true',
-    'yes',
-    'on',
-}
-# Internal nginx location prefix, e.g. /protected/ → alias to MEDIA_ROOT/objects/
-X_ACCEL_REDIRECT_PREFIX = os.getenv('X_ACCEL_REDIRECT_PREFIX', '/protected/').strip() or '/protected/'
+# Authenticated GET streams bytes through Django. Signed URLs (S3) are still
+# issued by POST /storage/v1/object/sign/...
 SIGNED_URL_EXPIRES = _env_int('SIGNED_URL_EXPIRES', 3600)
 
 # ---------------------------------------------------------------------------

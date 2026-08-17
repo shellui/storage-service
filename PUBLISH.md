@@ -13,7 +13,7 @@ Publishing is **manual** — there is no CI workflow for Docker Hub yet.
 | Listen port | `8000` (Compose maps host `${STORAGE_SERVICE_PORT:-8001}`)             |
 | Data volume | `/app/data` (SQLite `db.sqlite3` + filesystem blobs under `media/`)    |
 
-The image contains application code, collected static files, and **nginx** (public port 8000) in front of Gunicorn. Secrets and runtime configuration are supplied via environment variables at container start (see `.env.example`). Filesystem downloads use `X-Accel-Redirect` (`X_ACCEL_REDIRECT_ENABLED=true`).
+The image contains application code and collected static files. Gunicorn listens on port **8000**. Secrets and runtime configuration are supplied via environment variables at container start (see `.env.example`). Object downloads stream through Django.
 
 ## Pre-release checklist
 
@@ -151,7 +151,7 @@ docker run -d \
   shellui/storage-service:0.1.0
 ```
 
-The entrypoint runs migrations on start, then starts Gunicorn (loopback) and nginx (port 8000) as the public process.
+The entrypoint runs migrations on start, then starts Gunicorn on port 8000.
 
 Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and `IDENTITY_JWKS_URL`, then `docker compose up --build`.
 
@@ -171,11 +171,9 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and `IDENTITY_
 | ----------------------- | --------------------------------------------------------------------- |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
-| `AWS_*`                 | Shared by Django and nginx when `STORAGE_BACKEND=s3`.                 |
+| `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |
 | `AWS_S3_ENDPOINT_URL`   | MinIO/R2 origin (e.g. `http://minio:9000`). Omit for AWS.             |
 | `AWS_S3_ADDRESSING_STYLE` | `path` (MinIO) or `virtual` (AWS). Empty = path if endpoint is set. |
-| `DOWNLOAD_MODE`         | `auto` (default): S3 → signed redirect; filesystem → `xaccel` in the image. |
-| `X_ACCEL_REDIRECT_ENABLED` | Default `true` in the image (nginx included). Keep `false` for `runserver`. |
 | `SENTRY_DSN`            | Sentry error reporting.                                               |
 | `SENTRY_ENVIRONMENT`    | e.g. `staging`, `production`.                                         |
 
