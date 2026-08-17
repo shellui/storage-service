@@ -91,15 +91,21 @@ class StorageAccessGrantAdmin(admin.ModelAdmin):
         'permission',
         'subject_type',
         'subject_id',
-        'bucket_name',
+        'bucket',
         'resource_type',
-        'resource_id',
+        'resource_path_display',
         'company_id',
         'created_at',
     )
     list_filter = ('effect', 'permission', 'subject_type', 'resource_type', 'company_id')
-    search_fields = ('subject_id', 'resource_id', 'bucket_name', 'notes')
+    search_fields = ('subject_id', 'bucket__name', 'object__name', 'notes')
     readonly_fields = ('id', 'created_at', 'updated_at')
+    raw_id_fields = ('bucket', 'object')
+    list_select_related = ('bucket', 'object')
+
+    @admin.display(description='Resource')
+    def resource_path_display(self, obj):
+        return obj.resource_path()
 
 
 @admin.register(ObjectShareLink, site=storage_admin_site)

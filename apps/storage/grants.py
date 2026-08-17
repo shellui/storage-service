@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from django.db.models import Q
@@ -16,8 +17,25 @@ from .access import (
     get_accessible_bucket,
     serialize_grant,
 )
-from .models import StorageAccessGrant
-from .services import StorageError, require_company_id
+from .models import StorageAccessGrant, folder_placeholder_path
+from .services import StorageError, ensure_folder_marker, require_company_id
+
+
+def _resolve_object(bucket, resource_id: str):
+    from .models import StorageObject
+
+    try:
+        uid = uuid.UUID(resource_id)
+    except ValueError:
+        uid = None
+    if uid is not None:
+        obj = StorageObject.objects.filter(bucket=bucket, id=uid).first()
+        if obj:
+            return obj
+    obj = StorageObject.objects.filter(bucket=bucket, name=resource_id).first()
+    if not obj:
+        raise StorageError('Object not found', status=404, code='object_not_found')
+    return obj
 
 
 def _parse_expires_at(value) -> datetime | None:
@@ -65,7 +83,7 @@ def _assert_can_manage_resource(
     *,
     bucket_name: str,
     resource_type: str,
-    resource_id: str,
+    resource_path: str,
     admin: bool = False,
 ) -> None:
     # Owners/staff can always manage grants (needed after a company-wide deny).
@@ -77,7 +95,7 @@ def _assert_can_manage_resource(
     if resource_type == StorageAccessGrant.ResourceType.BUCKET:
         assert_can_access_bucket(principal, bucket, write=not admin, admin=admin)
         return
-    assert_can_access_path(principal, bucket, resource_id, write=not admin, admin=admin)
+    assert_can_access_path(principal, bucket, resource_path, write=not admin, admin=admin)
 
 
 def create_grant(*, principal, data: dict) -> StorageAccessGrant:
@@ -113,7 +131,7 @@ def create_grant(*, principal, data: dict) -> StorageAccessGrant:
         bucket_name = str(data.get('bucket') or COMPANY_BUCKET_NAME).strip() or COMPANY_BUCKET_NAME
 
     # Ensure the target bucket exists / is accessible at least for read.
-    get_accessible_bucket(principal, bucket_name)
+    bucket = get_accessible_bucket(principal, bucket_name)
 
     need_admin = effect == StorageAccessGrant.Effect.DENY or permission == (
         StorageAccessGrant.Permission.ADMIN
@@ -122,7 +140,7 @@ def create_grant(*, principal, data: dict) -> StorageAccessGrant:
         principal,
         bucket_name=bucket_name,
         resource_type=resource_type,
-        resource_id=resource_id,
+        resource_path=resource_id,
         admin=need_admin,
     )
 
@@ -142,13 +160,23 @@ def create_grant(*, principal, data: dict) -> StorageAccessGrant:
             path=resource_id,
         )
 
+    target = None
+    if resource_type == StorageAccessGrant.ResourceType.OBJECT:
+        target = _resolve_object(bucket, resource_id)
+    elif resource_type == StorageAccessGrant.ResourceType.FOLDER:
+        target = ensure_folder_marker(
+            bucket,
+            resource_id,
+            owner_id=int(principal.user_id),
+        )
+
     return StorageAccessGrant.objects.create(
         company_id=company_id,
-        bucket_name=bucket_name,
+        bucket=bucket,
+        object=target,
         subject_type=subject_type,
         subject_id=subject_id,
         resource_type=resource_type,
-        resource_id=resource_id,
         permission=permission,
         effect=effect,
         created_by_id=int(principal.user_id),
@@ -165,13 +193,34 @@ def list_grants(
     bucket: str | None = None,
 ) -> list[dict]:
     company_id = require_company_id(principal)
-    qs = StorageAccessGrant.objects.filter(company_id=company_id).order_by('-created_at')
+    qs = (
+        StorageAccessGrant.objects.select_related('bucket', 'object')
+        .filter(company_id=company_id)
+        .order_by('-created_at')
+    )
     if resource_type:
         qs = qs.filter(resource_type=resource_type)
-    if resource_id:
-        qs = qs.filter(resource_id=resource_id.strip().strip('/'))
     if bucket:
-        qs = qs.filter(Q(bucket_name=bucket) | Q(bucket_name='', resource_id=bucket))
+        qs = qs.filter(bucket__name=bucket)
+    if resource_id:
+        rid = resource_id.strip().strip('/')
+        if resource_type == StorageAccessGrant.ResourceType.FOLDER:
+            qs = qs.filter(object__name=folder_placeholder_path(rid))
+        elif resource_type == StorageAccessGrant.ResourceType.OBJECT:
+            object_q = Q(object__name=rid)
+            try:
+                object_q |= Q(object_id=uuid.UUID(rid))
+            except ValueError:
+                pass
+            qs = qs.filter(object_q)
+        elif resource_type == StorageAccessGrant.ResourceType.BUCKET:
+            qs = qs.filter(bucket__name=rid, object__isnull=True)
+        else:
+            qs = qs.filter(
+                Q(object__name=rid)
+                | Q(object__name=folder_placeholder_path(rid))
+                | Q(bucket__name=rid, object__isnull=True)
+            )
 
     if not (
         getattr(principal, 'is_company_owner', False) or getattr(principal, 'is_staff', False)
@@ -226,7 +275,9 @@ def list_grants_effective(
 def delete_grant(*, principal, grant_id: str) -> None:
     company_id = require_company_id(principal)
     try:
-        grant = StorageAccessGrant.objects.get(id=grant_id, company_id=company_id)
+        grant = StorageAccessGrant.objects.select_related('bucket', 'object').get(
+            id=grant_id, company_id=company_id
+        )
     except (StorageAccessGrant.DoesNotExist, ValueError) as exc:
         raise StorageError('Grant not found', status=404, code='grant_not_found') from exc
 
@@ -243,18 +294,15 @@ def delete_grant(*, principal, grant_id: str) -> None:
             code='grant_delete_denied',
         )
 
-    bucket_name = (grant.bucket_name or '').strip() or (
-        grant.resource_id
-        if grant.resource_type == StorageAccessGrant.ResourceType.BUCKET
-        else COMPANY_BUCKET_NAME
-    )
+    bucket_name = grant.bucket.name
+    resource_path = grant.resource_path()
 
     if not is_admin:
         _assert_can_manage_resource(
             principal,
             bucket_name=bucket_name,
             resource_type=grant.resource_type,
-            resource_id=grant.resource_id,
+            resource_path=resource_path,
             admin=grant.effect == StorageAccessGrant.Effect.DENY,
         )
 
@@ -273,7 +321,7 @@ def delete_grant(*, principal, grant_id: str) -> None:
         assert_can_open_to_company(
             company_id=company_id,
             bucket_name=bucket_name,
-            path=grant.resource_id,
+            path=resource_path,
         )
 
     grant.delete()

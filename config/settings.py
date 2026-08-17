@@ -338,6 +338,10 @@ STORAGES = {
     },
 }
 
+# manage.py test never uses the configured S3 bucket or data/media.
+# Blobs go to a temp dir that is deleted when the suite finishes.
+TEST_RUNNER = 'config.test_runner.IsolatedMediaDiscoverRunner'
+
 # Authenticated GET streams bytes through Django. Signed URLs (S3) are still
 # issued by POST /storage/v1/object/sign/...
 SIGNED_URL_EXPIRES = _env_int('SIGNED_URL_EXPIRES', 3600)

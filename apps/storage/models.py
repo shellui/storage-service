@@ -7,7 +7,28 @@ import uuid
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
+
+# Virtual folders are a StorageObject whose name ends with this marker.
+FOLDER_PLACEHOLDER_NAME = '.emptyFolderPlaceholder'
+
+
+def folder_placeholder_path(folder_path: str) -> str:
+    folder = (folder_path or '').strip().strip('/')
+    if not folder:
+        return FOLDER_PLACEHOLDER_NAME
+    return f'{folder}/{FOLDER_PLACEHOLDER_NAME}'
+
+
+def folder_path_from_placeholder(object_name: str) -> str:
+    name = (object_name or '').strip().strip('/')
+    suffix = f'/{FOLDER_PLACEHOLDER_NAME}'
+    if name == FOLDER_PLACEHOLDER_NAME:
+        return ''
+    if name.endswith(suffix):
+        return name[: -len(suffix)]
+    return name
 
 
 class BucketKind(models.TextChoices):
@@ -173,6 +194,12 @@ class StorageAccessGrant(models.Model):
     """
     Fine-grained sharing inside a company (invite / provide / block).
 
+    ``bucket`` is always set. ``object`` points at the file (object grants) or
+    the folder marker ``…/.emptyFolderPlaceholder`` (folder grants); bucket
+    grants leave it null. Deleting the linked row cascades the grant.
+
+    The API still exposes ``resource_id`` as a path, derived via ``resource_path()``.
+
     Evaluation order:
     1. effect=deny for matching subject + resource
     2. effect=allow for matching subject + resource
@@ -203,11 +230,19 @@ class StorageAccessGrant(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company_id = models.PositiveIntegerField(db_index=True)
-    bucket_name = models.SlugField(
-        max_length=100,
+    bucket = models.ForeignKey(
+        Bucket,
+        on_delete=models.CASCADE,
+        related_name='access_grants',
+    )
+    # File grants point at the file. Folder grants point at the folder marker
+    # object (``.emptyFolderPlaceholder``). Bucket grants leave this null.
+    object = models.ForeignKey(
+        'StorageObject',
+        on_delete=models.CASCADE,
+        null=True,
         blank=True,
-        default='',
-        help_text='Bucket this grant applies to. Empty means company bucket for folder/object grants.',
+        related_name='access_grants',
     )
     subject_type = models.CharField(max_length=16, choices=SubjectType.choices)
     subject_id = models.CharField(
@@ -215,10 +250,6 @@ class StorageAccessGrant(models.Model):
         help_text='User id, group id, or company id depending on subject_type.',
     )
     resource_type = models.CharField(max_length=16, choices=ResourceType.choices)
-    resource_id = models.CharField(
-        max_length=1024,
-        help_text='Bucket name, folder prefix, or object path / UUID.',
-    )
     permission = models.CharField(max_length=16, choices=Permission.choices)
     effect = models.CharField(
         max_length=8,
@@ -233,17 +264,38 @@ class StorageAccessGrant(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['company_id', 'resource_type', 'resource_id']),
+            models.Index(fields=['company_id', 'resource_type']),
             models.Index(fields=['company_id', 'subject_type', 'subject_id']),
+            models.Index(fields=['bucket', 'resource_type']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                name='storage_grant_object_matches_type',
+                condition=(
+                    Q(resource_type='bucket', object__isnull=True)
+                    | Q(resource_type__in=['folder', 'object'], object__isnull=False)
+                ),
+            ),
         ]
         verbose_name = 'storage access grant'
         verbose_name_plural = 'storage access grants'
+
+    def resource_path(self) -> str:
+        """Path or bucket name returned on the API as ``resource_id``."""
+        if self.resource_type == self.ResourceType.BUCKET:
+            return self.bucket.name if self.bucket_id else ''
+        if self.object_id is None:
+            return ''
+        name = self.object.name or ''
+        if self.resource_type == self.ResourceType.FOLDER:
+            return folder_path_from_placeholder(name)
+        return name.strip().strip('/')
 
     def __str__(self) -> str:
         return (
             f'{self.effect} {self.permission} '
             f'{self.subject_type}:{self.subject_id} → '
-            f'{self.resource_type}:{self.resource_id}'
+            f'{self.resource_type}:{self.resource_path()}'
         )
 
 

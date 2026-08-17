@@ -17,7 +17,6 @@ from apps.storage.tests.test_storage import make_token
     ALLOW_JWT_HS256_FALLBACK=True,
     IDENTITY_JWKS_URL='http://jwks.test/.well-known/jwks.json',
     DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
-    MEDIA_ROOT='/tmp/shellui-storage-test-metrics',
 )
 class StorageMetricsAPITests(TestCase):
     def setUp(self):

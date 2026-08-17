@@ -17,7 +17,14 @@ from django.utils import timezone
 
 from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.mime import guess_mime_type, mime_allowed, safe_object_path
-from apps.storage.models import Bucket, BucketKind, CompanyQuota, StorageObject, UserQuota
+from apps.storage.models import (
+    Bucket,
+    BucketKind,
+    CompanyQuota,
+    StorageObject,
+    UserQuota,
+    folder_placeholder_path,
+)
 from apps.storage.quotas import QuotaExceeded, assert_can_store
 from apps.storage.services import upload_object
 
@@ -127,7 +134,6 @@ class QuotaTests(TestCase):
     ALLOW_JWT_HS256_FALLBACK=True,
     IDENTITY_JWKS_URL='http://jwks.test/.well-known/jwks.json',
     DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
-    MEDIA_ROOT='/tmp/shellui-storage-test-media',
 )
 class StorageAPITests(TestCase):
     def setUp(self):
@@ -143,6 +149,29 @@ class StorageAPITests(TestCase):
         response = self.client.get('/storage/v1/health')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'ok')
+
+    def test_uploads_do_not_write_into_dev_media_root(self):
+        from django.conf import settings as django_settings
+
+        from apps.storage.backends import is_s3_backend
+
+        self.assertFalse(is_s3_backend())
+        wrapped = getattr(default_storage, '_wrapped', default_storage)
+        self.assertNotIn('s3', type(wrapped).__module__)
+
+        response = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/isolated.txt',
+            data=b'tmp',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        obj = StorageObject.objects.get(name='isolated.txt')
+        blob = (Path(default_storage.location) / obj.storage_key).resolve()
+        self.assertTrue(blob.is_file())
+        dev_media = (Path(django_settings.BASE_DIR) / 'data' / 'media').resolve()
+        self.assertFalse(str(blob).startswith(str(dev_media)))
+        self.assertTrue(str(blob).startswith(str(Path(django_settings.MEDIA_ROOT).resolve())))
 
     def test_list_buckets_provisions_company_only(self):
         response = self.client.get('/storage/v1/bucket', **self.auth)
@@ -248,6 +277,110 @@ class StorageAPITests(TestCase):
         self.assertEqual(other_list.status_code, 200)
         self.assertNotIn('solo.txt', [r['name'] for r in other_list.json()])
 
+    def test_delete_file_removes_object_grants(self):
+        from apps.storage.models import StorageAccessGrant
+
+        upload = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/gone.txt',
+            data=b'bye',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertEqual(upload.status_code, 200)
+        obj = StorageObject.objects.get(name='gone.txt')
+        self.assertGreater(
+            StorageAccessGrant.objects.filter(
+                resource_type='object',
+                object=obj,
+            ).count(),
+            0,
+        )
+
+        deleted = self.client.delete(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/gone.txt',
+            **self.auth,
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(
+            StorageAccessGrant.objects.filter(
+                resource_type='object',
+                object_id=obj.id,
+            ).exists()
+        )
+
+    def test_delete_file_keeps_parent_folder_grants(self):
+        from apps.storage.models import StorageAccessGrant
+
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/keep-folder/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        nested = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/keep-folder/note.txt',
+            data=b'n',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertEqual(nested.status_code, 200)
+        folder_grants = StorageAccessGrant.objects.filter(
+            resource_type='folder',
+            object__name=folder_placeholder_path('keep-folder'),
+        )
+        self.assertGreater(folder_grants.count(), 0)
+
+        deleted = self.client.delete(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/keep-folder/note.txt',
+            **self.auth,
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertTrue(
+            StorageAccessGrant.objects.filter(
+                resource_type='folder',
+                object__name=folder_placeholder_path('keep-folder'),
+            ).exists()
+        )
+
+    def test_delete_folder_prefix_removes_folder_grants(self):
+        from apps.storage.models import StorageAccessGrant
+
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/drop-me/.emptyFolderPlaceholder',
+            data=b'',
+            content_type='application/octet-stream',
+            **self.auth,
+        )
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/drop-me/a.txt',
+            data=b'a',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertTrue(
+            StorageAccessGrant.objects.filter(
+                resource_type='folder',
+                object__name=folder_placeholder_path('drop-me'),
+            ).exists()
+        )
+
+        deleted = self.client.delete(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'drop-me'},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(
+            StorageAccessGrant.objects.filter(
+                resource_type='folder',
+                object__name=folder_placeholder_path('drop-me'),
+            ).exists()
+        )
+        self.assertFalse(
+            StorageAccessGrant.objects.filter(object__name__startswith='drop-me/').exists()
+        )
+
     def test_empty_folder_placeholder_is_private(self):
         upload = self.client.post(
             f'/storage/v1/object/{COMPANY_BUCKET_NAME}/projects/.emptyFolderPlaceholder',
@@ -329,12 +462,12 @@ class StorageAPITests(TestCase):
 
         object_grants = StorageAccessGrant.objects.filter(
             resource_type='object',
-            resource_id='vault/secret.txt',
+            object__name='vault/secret.txt',
         )
         self.assertEqual(object_grants.count(), 0)
         folder_grants = StorageAccessGrant.objects.filter(
             resource_type='folder',
-            resource_id='vault',
+            object__name=folder_placeholder_path('vault'),
         )
         self.assertEqual(folder_grants.count(), 2)
 
@@ -402,7 +535,10 @@ class StorageAPITests(TestCase):
         self.assertEqual(nested.status_code, 200)
 
         team_grants = list(
-            StorageAccessGrant.objects.filter(resource_type='folder', resource_id='vault/team')
+            StorageAccessGrant.objects.filter(
+                resource_type='folder',
+                object__name=folder_placeholder_path('vault/team'),
+            )
         )
         # deny company + allow user 1 + allow user 2 (copied from parent)
         self.assertEqual(len(team_grants), 3)
@@ -459,7 +595,7 @@ class StorageAPITests(TestCase):
 
         deny = StorageAccessGrant.objects.get(
             resource_type='folder',
-            resource_id='vault/team',
+            object__name=folder_placeholder_path('vault/team'),
             effect='deny',
             subject_type='company',
         )
@@ -492,7 +628,10 @@ class StorageAPITests(TestCase):
         self.assertEqual(allow_company.json().get('error'), 'parent_folder_private')
 
         # Opening the parent first, then the nested folder, works.
-        for g in StorageAccessGrant.objects.filter(resource_type='folder', resource_id='vault'):
+        for g in StorageAccessGrant.objects.filter(
+            resource_type='folder',
+            object__name=folder_placeholder_path('vault'),
+        ):
             self.client.delete(f'/storage/v1/access/grant/{g.id}', **self.auth)
         # Parent no longer private — nested make-public should succeed.
         resp2 = self.client.delete(
@@ -799,7 +938,8 @@ class StorageAPITests(TestCase):
         body = renamed.json()
         self.assertEqual(body['from'], 'reports')
         self.assertEqual(body['to'], 'archives')
-        self.assertEqual(body['moved'], 2)
+        # q1.txt, nested/q2.txt, plus the folder marker created for the grant.
+        self.assertEqual(body['moved'], 3)
         # Includes auto-private grants on the folder tree, plus our deny/allow.
         self.assertGreaterEqual(body['grants_updated'], 2)
 
@@ -908,7 +1048,7 @@ class StorageAPITests(TestCase):
         )
         self.assertEqual(upload.status_code, 200)
         StorageAccessGrant.objects.filter(
-            resource_id='My Report.pdf',
+            object__name='My Report.pdf',
             subject_type='company',
             effect='deny',
         ).delete()
@@ -981,7 +1121,7 @@ class StorageAPITests(TestCase):
         )
         StorageAccessGrant.objects.filter(
             resource_type='object',
-            resource_id='open.txt',
+            object__name='open.txt',
             subject_type='company',
             effect='deny',
         ).delete()

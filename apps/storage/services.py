@@ -9,17 +9,21 @@ from django.conf import settings
 from django.core.files.base import ContentFile, File
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from .access import access_summary, path_access_summary
 from .backends import build_storage_key, content_etag, delete_storage_key, is_s3_backend
 from .mime import mime_allowed, normalize_mime_type, safe_object_path
-from .models import Bucket, StorageAccessGrant, StorageObject
+from .models import (
+    Bucket,
+    FOLDER_PLACEHOLDER_NAME,
+    StorageAccessGrant,
+    StorageObject,
+    folder_placeholder_path,
+)
 from .quotas import QuotaExceeded, assert_can_store, apply_usage_delta
 from .signals import storage_object_deleted, storage_object_uploaded
-
-FOLDER_PLACEHOLDER_NAME = '.emptyFolderPlaceholder'
 
 
 class StorageError(Exception):
@@ -333,10 +337,8 @@ def upload_object(
     from .access import apply_default_private_on_create
 
     apply_default_private_on_create(
-        company_id=bucket.company_id,
+        instance=obj,
         user_id=owner_id,
-        bucket=bucket,
-        path=object_name,
     )
     storage_object_uploaded.send(
         sender=StorageObject,
@@ -345,6 +347,32 @@ def upload_object(
         request=request,
     )
     return obj
+
+
+def ensure_folder_marker(bucket: Bucket, folder_path: str, *, owner_id: int | None) -> StorageObject:
+    """Return the folder placeholder object, creating it if needed (no auto grants)."""
+    name = folder_placeholder_path(folder_path)
+    existing = StorageObject.objects.filter(bucket=bucket, name=name).first()
+    if existing:
+        return existing
+    object_id = uuid.uuid4()
+    storage_key = build_storage_key(
+        company_id=bucket.company_id,
+        bucket_name=bucket.name,
+        object_name=name,
+        object_id=object_id,
+    )
+    _save_blob(storage_key, b'')
+    return StorageObject.objects.create(
+        id=object_id,
+        bucket=bucket,
+        name=name,
+        company_id=bucket.company_id,
+        owner_id=owner_id,
+        size=0,
+        storage_key=storage_key,
+        mime_type='application/octet-stream',
+    )
 
 
 @transaction.atomic
@@ -485,43 +513,6 @@ def delete_under_prefix(bucket: Bucket, folder_path: str, *, request=None) -> li
     return deleted
 
 
-def _rewrite_grants_for_prefix_rename(
-    *,
-    company_id: int,
-    bucket_name: str,
-    old_prefix: str,
-    new_prefix: str,
-) -> int:
-    """Update folder/object grants whose resource_id is the renamed prefix or under it."""
-    old_prefix = (old_prefix or '').strip('/')
-    new_prefix = (new_prefix or '').strip('/')
-    if not old_prefix or old_prefix == new_prefix:
-        return 0
-
-    qs = StorageAccessGrant.objects.filter(
-        company_id=company_id,
-        resource_type__in={
-            StorageAccessGrant.ResourceType.FOLDER,
-            StorageAccessGrant.ResourceType.OBJECT,
-        },
-    ).filter(Q(bucket_name=bucket_name) | Q(bucket_name=''))
-
-    updated = 0
-    for grant in qs:
-        rid = (grant.resource_id or '').strip().strip('/')
-        if not rid:
-            continue
-        if rid == old_prefix:
-            grant.resource_id = new_prefix
-            grant.save(update_fields=['resource_id', 'updated_at'])
-            updated += 1
-        elif rid.startswith(old_prefix + '/'):
-            grant.resource_id = new_prefix + rid[len(old_prefix) :]
-            grant.save(update_fields=['resource_id', 'updated_at'])
-            updated += 1
-    return updated
-
-
 @transaction.atomic
 def rename_folder(
     *,
@@ -532,7 +523,7 @@ def rename_folder(
     """
     Rename/move a virtual folder by rewriting every object name under the prefix.
 
-    Also rewrites folder/object access grants that target the old prefix.
+    Folder/object grants stay attached via FK; resource_path() follows the new names.
     """
     src = safe_object_path(source_path).strip('/')
     dst = safe_object_path(dest_path).strip('/')
@@ -579,12 +570,9 @@ def rename_folder(
         obj.save(update_fields=['name', 'updated_at'])
         moved.append(new_name)
 
-    grants_updated = _rewrite_grants_for_prefix_rename(
-        company_id=int(bucket.company_id),
-        bucket_name=bucket.name,
-        old_prefix=src,
-        new_prefix=dst,
-    )
+    grants_updated = StorageAccessGrant.objects.filter(
+        object_id__in=[o.pk for o in objs]
+    ).count()
     return {
         'from': src,
         'to': dst,
@@ -624,6 +612,7 @@ def move_object(
     obj.name = dest_name
     obj.updated_at = timezone.now()
     obj.save(update_fields=['bucket', 'name', 'updated_at'])
+    StorageAccessGrant.objects.filter(object=obj).update(bucket=dest_bucket)
     return obj
 
 
@@ -683,10 +672,8 @@ def copy_object(
     from .access import apply_default_private_on_create
 
     apply_default_private_on_create(
-        company_id=dest_bucket.company_id,
+        instance=obj,
         user_id=obj.owner_id,
-        bucket=dest_bucket,
-        path=dest_name,
     )
     storage_object_uploaded.send(
         sender=StorageObject,

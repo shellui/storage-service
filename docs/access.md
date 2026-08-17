@@ -44,16 +44,20 @@ To share, create additional `allow` grants (user / group / company) via the API.
 
 ## Access grants (`StorageAccessGrant`)
 
-Grants are the invite / provide / block layer:
+Grants are the invite / provide / block layer. They are stored with **foreign keys**, not path strings:
 
 | Field | Values |
 |-------|--------|
 | Subject | `user`, `group` (stored; not evaluated until identity exposes groups), `company` |
-| Resource | `bucket`, `folder` (prefix), `object` (path or UUID) |
+| Resource | `bucket` (`object` is null), `folder` (FK to `…/.emptyFolderPlaceholder`), `object` (FK to the file) |
 | Permission | `read`, `write`, `admin` |
 | Effect | `allow`, `deny` |
 
-Folder and object grants are scoped with `bucket` (defaults to `company`).
+`bucket` is always set (defaults to `company` on create). Deleting a file, folder marker, or bucket **cascades** its grants. Folder rename updates the marker's `name`; the FK stays put, so `resource_id` in the API follows the new path.
+
+The REST payload still uses `resource_id` as a path (or bucket name). Creating a folder grant on a path that has no marker yet creates `…/.emptyFolderPlaceholder` first.
+
+Folders were originally virtual prefixes with no row unless a placeholder existed, which is why grants started as `bucket_name` + `resource_id` strings. Binding folder grants to the placeholder object is what makes cascade-on-delete and rename-without-rewrite work.
 
 ### Evaluation order
 

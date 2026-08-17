@@ -23,7 +23,15 @@ from __future__ import annotations
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Bucket, BucketKind, StorageAccessGrant, StorageObject
+from .models import (
+    Bucket,
+    BucketKind,
+    FOLDER_PLACEHOLDER_NAME,
+    StorageAccessGrant,
+    StorageObject,
+    folder_path_from_placeholder,
+    folder_placeholder_path,
+)
 
 
 COMPANY_BUCKET_NAME = 'company'
@@ -201,11 +209,8 @@ def _folder_matches(prefix: str, path: str) -> bool:
 
 
 def _grant_bucket_name(grant: StorageAccessGrant) -> str:
-    name = (grant.bucket_name or '').strip()
-    if name:
-        return name
-    if grant.resource_type == StorageAccessGrant.ResourceType.BUCKET:
-        return (grant.resource_id or '').strip()
+    if grant.bucket_id:
+        return grant.bucket.name
     return COMPANY_BUCKET_NAME
 
 
@@ -216,27 +221,25 @@ def _resource_matches_grant(
     path: str | None,
     object_id: str | None = None,
 ) -> bool:
-    if _grant_bucket_name(grant) not in {'', '*', bucket.name}:
+    if grant.bucket_id != bucket.id:
         return False
 
     path = _normalize_path(path)
-    rid = (grant.resource_id or '').strip()
 
     if grant.resource_type == StorageAccessGrant.ResourceType.BUCKET:
-        return rid in {'', '*', bucket.name, str(bucket.id)}
+        return True
 
     if grant.resource_type == StorageAccessGrant.ResourceType.FOLDER:
-        if path is None:
-            # Bucket-level check: folder grants do not change bare bucket access.
+        if path is None or grant.object_id is None:
             return False
-        return _folder_matches(rid, path)
+        return _folder_matches(folder_path_from_placeholder(grant.object.name), path)
 
     if grant.resource_type == StorageAccessGrant.ResourceType.OBJECT:
-        if path is None and object_id is None:
+        if grant.object_id is None:
             return False
-        if object_id and rid == str(object_id):
+        if object_id and str(grant.object_id) == str(object_id):
             return True
-        return bool(path) and _normalize_path(rid) == path
+        return bool(path) and _normalize_path(grant.object.name) == path
 
     return False
 
@@ -259,8 +262,10 @@ def _subject_matches(grant: StorageAccessGrant, principal) -> bool:
 
 def _active_grants_qs(*, company_id: int):
     now = timezone.now()
-    return StorageAccessGrant.objects.filter(company_id=company_id).filter(
-        Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+    return (
+        StorageAccessGrant.objects.select_related('bucket', 'object')
+        .filter(company_id=company_id)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
     )
 
 
@@ -308,7 +313,8 @@ def _grant_specificity(grant: StorageAccessGrant, *, path: str | None) -> tuple[
     if grant.resource_type == StorageAccessGrant.ResourceType.OBJECT:
         resource_score = 1000
     elif grant.resource_type == StorageAccessGrant.ResourceType.FOLDER:
-        depth = len(_normalize_path(grant.resource_id).split('/')) if grant.resource_id else 0
+        folder_path = folder_path_from_placeholder(grant.object.name) if grant.object_id else ''
+        depth = len(_normalize_path(folder_path).split('/')) if folder_path else 0
         resource_score = 100 + depth
     else:
         resource_score = 1
@@ -525,7 +531,7 @@ def serialize_grant(grant: StorageAccessGrant) -> dict:
         'subject_type': grant.subject_type,
         'subject_id': grant.subject_id,
         'resource_type': grant.resource_type,
-        'resource_id': grant.resource_id,
+        'resource_id': grant.resource_path(),
         'permission': grant.permission,
         'effect': grant.effect,
         'created_by_id': grant.created_by_id,
@@ -539,8 +545,6 @@ def serialize_grant(grant: StorageAccessGrant) -> dict:
 
 
 AUTO_PRIVATE_NOTES = 'auto: private by default'
-# Keep in sync with services.FOLDER_PLACEHOLDER_NAME (avoid circular import).
-_FOLDER_PLACEHOLDER_NAME = '.emptyFolderPlaceholder'
 
 
 def _ancestor_folder_prefixes(path: str) -> list[str]:
@@ -560,13 +564,14 @@ def _folder_grants_for_prefixes(
 ) -> list[StorageAccessGrant]:
     if not folder_prefixes:
         return []
+    names = [folder_placeholder_path(prefix) for prefix in folder_prefixes]
     return list(
         _active_grants_qs(company_id=company_id)
         .filter(
             resource_type=StorageAccessGrant.ResourceType.FOLDER,
-            resource_id__in=folder_prefixes,
+            object__name__in=names,
+            bucket__name=bucket_name,
         )
-        .filter(Q(bucket_name=bucket_name) | Q(bucket_name='') | Q(bucket_name='*'))
     )
 
 
@@ -593,7 +598,7 @@ def _nearest_ancestor_folder_grants(
         return None, []
     by_prefix: dict[str, list[StorageAccessGrant]] = {}
     for g in grants:
-        by_prefix.setdefault(g.resource_id, []).append(g)
+        by_prefix.setdefault(folder_path_from_placeholder(g.object.name), []).append(g)
     # ancestors are root→leaf; prefer deepest (nearest parent).
     for prefix in reversed(ancestors):
         if prefix in by_prefix:
@@ -623,7 +628,7 @@ def nearest_private_ancestor_folder(
         folder_prefixes=ancestors,
     )
     private_prefixes = {
-        g.resource_id
+        folder_path_from_placeholder(g.object.name)
         for g in grants
         if g.effect == StorageAccessGrant.Effect.DENY
         and g.subject_type == StorageAccessGrant.SubjectType.COMPANY
@@ -659,17 +664,10 @@ def assert_can_open_to_company(
         code='parent_folder_private',
     )
 
-def _resource_grants_exist(
-    *,
-    company_id: int,
-    bucket_name: str,
-    resource_type: str,
-    resource_id: str,
-) -> bool:
+def _resource_grants_exist(*, target: StorageObject, resource_type: str) -> bool:
     return (
-        _active_grants_qs(company_id=company_id)
-        .filter(resource_type=resource_type, resource_id=resource_id)
-        .filter(Q(bucket_name=bucket_name) | Q(bucket_name='') | Q(bucket_name='*'))
+        _active_grants_qs(company_id=int(target.company_id))
+        .filter(resource_type=resource_type, object=target, bucket=target.bucket)
         .exists()
     )
 
@@ -677,22 +675,20 @@ def _resource_grants_exist(
 def _copy_folder_grants(
     *,
     source_grants: list[StorageAccessGrant],
-    company_id: int,
     user_id: int,
-    bucket_name: str,
-    target_folder: str,
+    target: StorageObject,
 ) -> list[StorageAccessGrant]:
-    """Materialize parent folder ACL onto a new folder path."""
+    """Materialize parent folder ACL onto a new folder marker object."""
     created: list[StorageAccessGrant] = []
     for src in source_grants:
         created.append(
             StorageAccessGrant.objects.create(
-                company_id=int(company_id),
-                bucket_name=bucket_name,
+                company_id=int(target.company_id),
+                bucket=target.bucket,
+                object=target,
                 subject_type=src.subject_type,
                 subject_id=src.subject_id,
                 resource_type=StorageAccessGrant.ResourceType.FOLDER,
-                resource_id=target_folder,
                 permission=src.permission,
                 effect=src.effect,
                 created_by_id=int(user_id),
@@ -705,10 +701,8 @@ def _copy_folder_grants(
 
 def ensure_default_private_access(
     *,
-    company_id: int,
     user_id: int,
-    bucket: Bucket,
-    path: str,
+    target: StorageObject,
     resource_type: str,
 ) -> list[StorageAccessGrant]:
     """
@@ -721,8 +715,7 @@ def ensure_default_private_access(
       - ``deny`` + ``read`` for the company (blocks company-wide default access)
       - ``allow`` + ``admin`` for the creating user (so they can share later)
     """
-    path = _normalize_path(path)
-    if not path or user_id is None:
+    if user_id is None:
         return []
 
     if resource_type not in {
@@ -731,38 +724,36 @@ def ensure_default_private_access(
     }:
         return []
 
-    bucket_name = bucket.name
-    if _resource_grants_exist(
-        company_id=int(company_id),
-        bucket_name=bucket_name,
-        resource_type=resource_type,
-        resource_id=path,
-    ):
+    path = (
+        folder_path_from_placeholder(target.name)
+        if resource_type == StorageAccessGrant.ResourceType.FOLDER
+        else _normalize_path(target.name)
+    )
+    if not path:
+        return []
+
+    if _resource_grants_exist(target=target, resource_type=resource_type):
         return []
 
     nearest, parent_grants = _nearest_ancestor_folder_grants(
-        company_id=int(company_id),
-        bucket_name=bucket_name,
+        company_id=int(target.company_id),
+        bucket_name=target.bucket.name,
         path=path,
     )
     if nearest and parent_grants:
         if resource_type == StorageAccessGrant.ResourceType.FOLDER:
-            # Materialize parent ACL on the new folder so it "matches parent".
             return _copy_folder_grants(
                 source_grants=parent_grants,
-                company_id=int(company_id),
                 user_id=int(user_id),
-                bucket_name=bucket_name,
-                target_folder=path,
+                target=target,
             )
-        # Nested file: inherit parent folder grants via evaluation (no copy).
         return []
 
     common = dict(
-        company_id=int(company_id),
-        bucket_name=bucket_name,
+        company_id=int(target.company_id),
+        bucket=target.bucket,
+        object=target,
         resource_type=resource_type,
-        resource_id=path,
         created_by_id=int(user_id),
         notes=AUTO_PRIVATE_NOTES,
     )
@@ -770,7 +761,7 @@ def ensure_default_private_access(
         StorageAccessGrant.objects.create(
             **common,
             subject_type=StorageAccessGrant.SubjectType.COMPANY,
-            subject_id=str(int(company_id)),
+            subject_id=str(int(target.company_id)),
             permission=StorageAccessGrant.Permission.READ,
             effect=StorageAccessGrant.Effect.DENY,
         ),
@@ -787,10 +778,8 @@ def ensure_default_private_access(
 
 def apply_default_private_on_create(
     *,
-    company_id: int,
+    instance: StorageObject,
     user_id: int | None,
-    bucket: Bucket,
-    path: str,
     is_folder: bool = False,
 ) -> list[StorageAccessGrant]:
     """
@@ -803,30 +792,23 @@ def apply_default_private_on_create(
     if user_id is None:
         return []
 
-    path = _normalize_path(path)
-    if not path:
+    path = _normalize_path(instance.name)
+    if not path or path == FOLDER_PLACEHOLDER_NAME:
         return []
 
-    if path == _FOLDER_PLACEHOLDER_NAME:
-        return []
-
-    placeholder_suffix = f'/{_FOLDER_PLACEHOLDER_NAME}'
+    placeholder_suffix = f'/{FOLDER_PLACEHOLDER_NAME}'
     if is_folder or path.endswith(placeholder_suffix):
-        folder_path = path[: -len(placeholder_suffix)] if path.endswith(placeholder_suffix) else path
+        folder_path = folder_path_from_placeholder(path)
         if not folder_path:
             return []
         return ensure_default_private_access(
-            company_id=int(company_id),
             user_id=int(user_id),
-            bucket=bucket,
-            path=folder_path,
+            target=instance,
             resource_type=StorageAccessGrant.ResourceType.FOLDER,
         )
 
     return ensure_default_private_access(
-        company_id=int(company_id),
         user_id=int(user_id),
-        bucket=bucket,
-        path=path,
+        target=instance,
         resource_type=StorageAccessGrant.ResourceType.OBJECT,
     )
