@@ -84,12 +84,7 @@ def root(request):
         'swagger_url': reverse('swagger-ui'),
         'redoc_url': reverse('redoc'),
         'schema_url': reverse('schema'),
-        'admin_url': reverse('admin:index'),
         'version': settings.VERSION,
         'setup_done': request.GET.get('setup') == 'done',
-        'storage_backend': settings.STORAGE_BACKEND,
-        'webdav_enabled': settings.WEBDAV_ENABLED,
-        'webdav_url': settings.WEBDAV_PATH_PREFIX.rstrip('/') + '/',
-        'jwks_url': settings.IDENTITY_JWKS_URL,
     }
     return render(request, 'home.html', context)

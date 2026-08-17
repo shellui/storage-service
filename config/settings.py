@@ -171,9 +171,9 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'ShellUI Storage API',
+    'TITLE': 'Shellui Storage API',
     'DESCRIPTION': (
-        'Supabase-compatible object storage API for ShellUI. '
+        'Object storage API for Shellui. '
         'Authenticate with a Bearer JWT issued by identity-service. '
         'Use **Authorize** and enter `Bearer <token>` or paste the raw JWT.'
     ),

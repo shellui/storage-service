@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ShellUI Storage</title>
+  <title>Shellui Storage</title>
   <style>
     :root {
       color-scheme: light;
@@ -113,14 +113,6 @@
     a { color: #1d4ed8; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .tiny { font-size: 0.82rem; color: var(--muted); margin-top: 0.8rem; }
-    .meta {
-      margin-top: 1rem;
-      padding-top: 0.8rem;
-      border-top: 1px solid var(--border);
-      font-size: 0.82rem;
-      color: var(--muted);
-      line-height: 1.45;
-    }
     .site-footer {
       padding: 0.6rem 1rem 1rem;
       text-align: center;
@@ -145,7 +137,7 @@
 <body>
   <div class="page">
   <main class="card">
-    <h1>ShellUI Storage</h1>
+    <h1>Shellui Storage</h1>
     {% if show_setup_form %}
       <p>Create the initial administrator account. This setup is available only once and disappears permanently after the first user is created.</p>
 
@@ -202,27 +194,16 @@
       {% if setup_done %}
         <div class="success">Initial user created successfully. Setup is now locked.</div>
       {% endif %}
-      <p>This service exposes a Supabase-compatible storage API. Explore the OpenAPI documentation using:</p>
+      <p>Object storage for Shellui. Explore the API documentation using:</p>
       <ul class="links">
-        <li><a href="{{ admin_url }}">Admin · upload statistics</a></li>
         <li><a href="{{ swagger_url }}">Swagger UI</a></li>
         <li><a href="{{ redoc_url }}">ReDoc</a></li>
       </ul>
-      <div class="meta">
-        Backend: <strong>{{ storage_backend }}</strong>
-        {% if webdav_enabled %}
-          · WebDAV: <a href="{{ webdav_url }}">{{ webdav_url }}</a>
-        {% endif %}
-        <div style="margin-top:0.45rem;word-break:break-all">
-          JWKS: <a href="{{ jwks_url }}">{{ jwks_url }}</a>
-          <span class="tiny">(from <code>IDENTITY_JWKS_URL</code>)</span>
-        </div>
-      </div>
     {% endif %}
   </main>
   </div>
   <footer class="site-footer">
-    <a href="{{ schema_url }}">OpenAPI</a><span class="sep">·</span><a href="{{ jwks_url }}">JWKS</a><span class="sep">·</span>v{{ version }}
+    <a href="{{ schema_url }}">OpenAPI</a><span class="sep">·</span>v{{ version }}
   </footer>
 </body>
 </html>

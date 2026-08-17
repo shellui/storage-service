@@ -25,7 +25,7 @@ If both are set, `IDENTITY_JWKS_URL` wins. If neither is set, the default is `ht
 
 Docker Compose passes `IDENTITY_JWKS_URL` from `.env` (default inside Compose: `http://host.docker.internal:8000/.well-known/jwks.json` so the container can reach identity on the host).
 
-The home page and `GET /storage/v1/health` show the resolved JWKS URL so you can confirm what the process is using.
+`GET /storage/v1/health` shows the resolved JWKS URL so you can confirm what the process is using.
 
 ## Configuration reference
 

@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.1.1] - 2026-08-18
+
+### 🛠 Improvements
+
+- Remove some informations from homepage to keep it minimalist
+
+### 🐛 Bug Fixes
+
+- Fix issues loading JWKS_URL.
+
 ## [0.1.0] - 2026-08-17
 
 ### ✨ Feature
