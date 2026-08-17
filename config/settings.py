@@ -4,6 +4,7 @@ Django settings for ShellUI storage-service.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -349,12 +350,41 @@ SIGNED_URL_EXPIRES = _env_int('SIGNED_URL_EXPIRES', 3600)
 # ---------------------------------------------------------------------------
 # Identity / JWKS authentication
 #
-# Customize via env (pick one):
-#   IDENTITY_JWKS_URL=https://id.shellui.com/.well-known/jwks.json
+# Prefer a local JWKS document in production (no runtime HTTP to identity):
+#   IDENTITY_JWKS_FILE=/app/data/jwks.json
+#   IDENTITY_JWKS={"keys":[...]}
+# Local/dev can still fetch:
 #   IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json
-# or set the identity base URL and the JWKS path is derived:
-#   IDENTITY_SERVICE_URL=https://id.shellui.com
 # ---------------------------------------------------------------------------
+def _parse_jwks_document(raw: str, *, source: str) -> dict:
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ImproperlyConfigured(f'{source} is not valid JSON: {exc}') from exc
+    if not isinstance(document, dict) or not isinstance(document.get('keys'), list):
+        raise ImproperlyConfigured(f'{source} must be a JWKS object with a "keys" array.')
+    if not document['keys']:
+        raise ImproperlyConfigured(f'{source} has an empty "keys" array.')
+    return document
+
+
+def _load_static_jwks() -> tuple[dict | None, str | None, str | None]:
+    """Return (document, source, file_path). source is 'file', 'env', or None."""
+    file_path = os.getenv('IDENTITY_JWKS_FILE', '').strip()
+    if file_path:
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        if not path.is_file():
+            raise ImproperlyConfigured(f'IDENTITY_JWKS_FILE not found: {path}')
+        return _parse_jwks_document(path.read_text(encoding='utf-8'), source=str(path)), 'file', str(path)
+
+    raw = os.getenv('IDENTITY_JWKS', '').strip()
+    if raw:
+        return _parse_jwks_document(raw, source='IDENTITY_JWKS'), 'env', None
+    return None, None, None
+
+
 def _resolve_identity_jwks_url() -> str:
     explicit = os.getenv('IDENTITY_JWKS_URL', '').strip()
     if explicit:
@@ -365,16 +395,21 @@ def _resolve_identity_jwks_url() -> str:
     return 'http://localhost:8000/.well-known/jwks.json'
 
 
-IDENTITY_JWKS_URL = _resolve_identity_jwks_url()
+IDENTITY_JWKS_DOCUMENT, IDENTITY_JWKS_SOURCE, IDENTITY_JWKS_FILE = _load_static_jwks()
 IDENTITY_SERVICE_URL = os.getenv('IDENTITY_SERVICE_URL', '').strip().rstrip('/') or None
-if not IDENTITY_JWKS_URL.startswith(('http://', 'https://')):
-    raise ImproperlyConfigured(
-        f'IDENTITY_JWKS_URL must be an absolute http(s) URL. Got: {IDENTITY_JWKS_URL!r}\n'
-        'Examples:\n'
-        '  IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json\n'
-        '  IDENTITY_JWKS_URL=https://id.shellui.com/.well-known/jwks.json\n'
-        'Or set IDENTITY_SERVICE_URL=https://id.shellui.com'
-    )
+if IDENTITY_JWKS_DOCUMENT is not None:
+    IDENTITY_JWKS_URL = os.getenv('IDENTITY_JWKS_URL', '').strip().rstrip('/') or None
+else:
+    IDENTITY_JWKS_URL = _resolve_identity_jwks_url()
+    if not IDENTITY_JWKS_URL.startswith(('http://', 'https://')):
+        raise ImproperlyConfigured(
+            f'IDENTITY_JWKS_URL must be an absolute http(s) URL. Got: {IDENTITY_JWKS_URL!r}\n'
+            'Prefer a local document in production:\n'
+            '  IDENTITY_JWKS_FILE=/app/data/jwks.json\n'
+            '  IDENTITY_JWKS={"keys":[...]}\n'
+            'Or a fetch URL for local/dev:\n'
+            '  IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json'
+        )
 IDENTITY_ISSUER = os.getenv('IDENTITY_ISSUER', '').strip() or None
 IDENTITY_AUDIENCE = os.getenv('IDENTITY_AUDIENCE', '').strip() or None
 JWKS_CACHE_TTL = _env_int('JWKS_CACHE_TTL', 900)

@@ -18,9 +18,10 @@ class IdentityJWKSAuthentication(authentication.BaseAuthentication):
     """
     Verify Bearer JWTs issued by identity-service.
 
-    Production path: fetch public keys from ``IDENTITY_JWKS_URL`` and verify RS256.
-    Local/dev fallback: if JWKS has no keys and ``JWT_HS256_FALLBACK_SECRET`` is set,
-    verify HS256 tokens (matches identity-service DEBUG mode).
+    Production path: verify RS256 with a local JWKS document
+    (``IDENTITY_JWKS_FILE`` / ``IDENTITY_JWKS``) or keys fetched from
+    ``IDENTITY_JWKS_URL``. Local/dev fallback: if JWKS has no keys and
+    ``JWT_HS256_FALLBACK_SECRET`` is set, verify HS256 tokens (identity DEBUG mode).
     """
 
     keyword = 'Bearer'

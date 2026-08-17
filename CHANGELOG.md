@@ -26,6 +26,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🛠 Improvements
 
 - Remove some informations from homepage to keep it minimalist
+- Verify JWTs from a local JWKS file or `IDENTITY_JWKS` env (no runtime HTTP to identity).
 
 ### 🐛 Bug Fixes
 

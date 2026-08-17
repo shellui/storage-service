@@ -10,7 +10,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - **One bucket per company** — new folders/files are **private to the creator** by default; share with **access grants** (user / company / folder / object). Nested items inherit the parent folder's permissions.
 - **Share links** — secret capability URLs with expiry and/or max downloads (no registration; not listed publicly)
 - Reserved **connector** buckets (SharePoint / Dropbox, …) as future **read-only** mounts
-- JWT verification via identity-service JWKS (`IDENTITY_JWKS_URL`)
+- JWT verification via identity-service JWKS (local document or `IDENTITY_JWKS_URL`)
 - Pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**
 - Company total quota + optional per-user quota
 - MIME type detection and per-bucket allow-lists
@@ -59,7 +59,7 @@ Auth header: `Authorization: Bearer <access_token>` from identity-service. Supab
 # Requires https://docs.astral.sh/uv/
 uv sync
 cp .env.example .env
-# Set SECRET_KEY; point IDENTITY_JWKS_URL at identity-service
+# Set SECRET_KEY; local identity JWKS URL is already in .env.example
 uv run python manage.py migrate
 uv run python manage.py runserver 8001
 ```
@@ -70,17 +70,20 @@ Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package
 
 ### Identity wiring
 
-Tokens come from identity-service. Point storage at its JWKS with an env var:
+Tokens come from identity-service. In production, **copy the public JWKS once** (do not fetch `id.shellui.com` from a sibling container):
 
 ```bash
-# Local
+# From your laptop
+curl -sS https://id.shellui.com/.well-known/jwks.json
+
+# Coolify / production — paste the JSON
+IDENTITY_JWKS={"keys":[...]}
+
+# Or a file on the data volume
+IDENTITY_JWKS_FILE=/app/data/jwks.json
+
+# Local/dev — fetch from identity-service
 IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json
-
-# Production
-IDENTITY_JWKS_URL=https://id.shellui.com/.well-known/jwks.json
-
-# Or only the base URL (path /.well-known/jwks.json is appended):
-IDENTITY_SERVICE_URL=https://id.shellui.com
 ```
 
 Copy `.env.example` → `.env` and change the value there (Compose and `runserver` both load it).
