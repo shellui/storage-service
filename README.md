@@ -1,6 +1,6 @@
 # storage-service
 
-`storage-service` is a Django backend that provides **Supabase-compatible** object storage APIs for ShellUI (`/storage/v1/*`).
+`storage-service` is a Django backend that provides **Supabase-compatible** object storage APIs for Shellui (`/storage/v1/*`).
 
 It authenticates with JWTs issued by [identity-service](https://github.com/shellui/identity-service) (JWKS / RS256), stores blobs in **S3** (or local filesystem), enforces **per-company** and optional **per-user** quotas, exposes **WebDAV** for third-party file clients, and fires Django **signals** on upload/delete (including Markdown sidecar extraction).
 
@@ -19,7 +19,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
-- CORS for local ShellUI (`http://localhost:4000`), admin, and extra origins
+- CORS for local Shellui (`http://localhost:4000`), admin, and extra origins
 
 ## Project structure
 
@@ -115,7 +115,7 @@ Object `GET` streams through Django. Optional signed URLs: `POST /storage/v1/obj
 
 See [docs/downloads.md](docs/downloads.md).
 
-## ShellUI frontend (future connector)
+## Shellui frontend (future connector)
 
 Mirror Supabase Storage so one client can target either backend:
 

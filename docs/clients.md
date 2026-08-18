@@ -1,8 +1,8 @@
 # Third-party clients (WebDAV & S3)
 
-You can browse and sync files with any compatible **WebDAV** or **S3** client. ShellUI does not endorse a particular app — use whatever your team already prefers.
+You can browse and sync files with any compatible **WebDAV** or **S3** client. Shellui does not endorse a particular app — use whatever your team already prefers.
 
-## WebDAV (recommended for ShellUI)
+## WebDAV (recommended for Shellui)
 
 Goes through `storage-service` — **quotas, MIME rules, and upload signals apply**.
 
@@ -34,6 +34,6 @@ Point an S3-compatible client at your bucket (AWS, MinIO, R2, …):
 | Access Key ID | `AWS_ACCESS_KEY_ID` |
 | Secret Access Key | `AWS_SECRET_ACCESS_KEY` |
 
-**Trade-off:** direct S3 bypasses ShellUI quotas and Django signals. Prefer WebDAV when those matter; use S3 for bulk or operational access to the raw store.
+**Trade-off:** direct S3 bypasses Shellui quotas and Django signals. Prefer WebDAV when those matter; use S3 for bulk or operational access to the raw store.
 
 Auth for WebDAV is the same JWT-as-password (or `Authorization: Bearer`) pattern described in [authentication.md](authentication.md).

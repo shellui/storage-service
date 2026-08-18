@@ -5,8 +5,8 @@ const darkCodeTheme = require("prism-react-renderer").themes.dracula;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: "ShellUI storage-service",
-  tagline: "Supabase-compatible storage backend for ShellUI",
+  title: "Shellui storage-service",
+  tagline: "Supabase-compatible storage backend for Shellui",
   favicon: "img/favicon.ico",
   headTags: [
     {
@@ -69,7 +69,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: "ShellUI storage-service",
+        title: "Shellui storage-service",
         items: [
           {
             type: "docSidebar",
@@ -81,7 +81,7 @@ const config = {
       },
       footer: {
         style: "light",
-        copyright: `Copyright © ${new Date().getFullYear()} ShellUI storage-service.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Shellui storage-service.`,
       },
       prism: {
         theme: lightCodeTheme,

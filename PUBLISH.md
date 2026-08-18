@@ -163,7 +163,7 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 | `IDENTITY_JWKS` or `IDENTITY_JWKS_FILE` | Public JWKS JSON (preferred in production; no HTTP to identity).          |
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
-| `CORS_ALLOWED_ORIGINS` | ShellUI / admin front-end origins.                                                      |
+| `CORS_ALLOWED_ORIGINS` | Shellui / admin front-end origins.                                                      |
 
 ### Optional runtime env vars
 

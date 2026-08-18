@@ -31,7 +31,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 📚 Documentation
 
 - Document how to read storage-service logs locally and in Docker/Coolify.
-- Add ShellUI brand favicon (ICO + PNG sizes) to the Docusaurus docs site.
+- Add Shellui brand favicon (ICO + PNG sizes) to the Docusaurus docs site.
 
 ## [0.1.1] - 2026-08-18
 
@@ -65,7 +65,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - Added Django admin with upload statistics (documents, MIME breakdown, quotas, recent files).
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin.
 - MIME type detection and per-bucket allow-lists.
-- CORS for local ShellUI (`http://localhost:4000`), admin, and extra origins.
+- CORS for local Shellui (`http://localhost:4000`), admin, and extra origins.
 
 ### 🚨 Changed
 
