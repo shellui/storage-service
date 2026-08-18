@@ -7,6 +7,35 @@ const darkCodeTheme = require("prism-react-renderer").themes.dracula;
 const config = {
   title: "ShellUI storage-service",
   tagline: "Supabase-compatible storage backend for ShellUI",
+  favicon: "img/favicon.ico",
+  headTags: [
+    {
+      tagName: "link",
+      attributes: {
+        rel: "icon",
+        type: "image/png",
+        sizes: "32x32",
+        href: "/img/favicon-32x32.png",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "icon",
+        type: "image/png",
+        sizes: "16x16",
+        href: "/img/favicon-16x16.png",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/img/apple-touch-icon.png",
+      },
+    },
+  ],
   url: "https://storage.docs.shellui.com",
   baseUrl: "/",
   onBrokenLinks: "throw",

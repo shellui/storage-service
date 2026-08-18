@@ -31,6 +31,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 📚 Documentation
 
 - Document how to read storage-service logs locally and in Docker/Coolify.
+- Add ShellUI brand favicon (ICO + PNG sizes) to the Docusaurus docs site.
 
 ## [0.1.1] - 2026-08-18
 
