@@ -1,7 +1,7 @@
 // @ts-check
 
 const lightCodeTheme = require("prism-react-renderer").themes.github;
-const darkCodeTheme = require("prism-react-renderer").themes.dracula;
+const darkCodeTheme = require("prism-react-renderer").themes.vsDark;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -68,20 +68,63 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      colorMode: {
+        defaultMode: "light",
+        disableSwitch: false,
+        respectPrefersColorScheme: true,
+      },
       navbar: {
-        title: "Shellui storage-service",
+        title: "storage-service",
+        hideOnScroll: false,
+        logo: {
+          alt: "Shellui documentation",
+          src: "img/shellui_documentation_logo.png",
+          href: "/",
+          height: 22,
+          width: 202,
+        },
         items: [
           {
             type: "docSidebar",
             sidebarId: "tutorialSidebar",
             position: "left",
             label: "Documentation",
+            className: "navbar__docs-link",
+          },
+          {
+            href: "https://shellui.com",
+            label: "Website",
+            position: "right",
           },
         ],
       },
       footer: {
         style: "light",
-        copyright: `Copyright © ${new Date().getFullYear()} Shellui storage-service.`,
+        links: [
+          {
+            title: "Docs",
+            items: [
+              {
+                label: "Introduction",
+                to: "/",
+              },
+            ],
+          },
+          {
+            title: "Resources",
+            items: [
+              {
+                label: "Shellui.com",
+                href: "https://shellui.com",
+              },
+              {
+                label: "GitHub",
+                href: "https://github.com/shellui/storage-service",
+              },
+            ],
+          },
+        ],
+        copyright: `Copyright © ${new Date().getFullYear()} Shellui.`,
       },
       prism: {
         theme: lightCodeTheme,
