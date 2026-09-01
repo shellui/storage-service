@@ -30,6 +30,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 📚 Documentation
 
+- Sync embedded Swagger UI and ReDoc light/dark mode with shellui appearance (native Swagger UI dark mode and Redoc presets).
 - Document how to read storage-service logs locally and in Docker/Coolify.
 - Add Shellui brand favicon (ICO + PNG sizes) to the Docusaurus docs site.
 

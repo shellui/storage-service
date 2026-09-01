@@ -9,34 +9,76 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;700&family=Roboto:wght@300;400;700&display=swap">
     <style>
-      {# Redoc doesn't change outer page styles. #}
-      :root { color-scheme: light; }
-      html, body {
-        margin: 0;
-        padding: 0;
-        background: #ffffff;
-        color: #111827;
-      }
+      html, body { margin: 0; padding: 0; }
     </style>
     {% endblock head %}
   </head>
   <body>
     {% block body %}
-    <script type="module">
-      import { init } from "https://esm.sh/@shellui/sdk@0.2.0?bundle";
-      await init();
-    </script>
-    {% if settings %}
     <div id="redoc-container"></div>
     <script src="{{ redoc_standalone }}"></script>
-    <script>
-      const redocSettings = {{ settings|safe }};
-      Redoc.init("{{ schema_url }}", redocSettings, document.getElementById('redoc-container'))
+    <script type="module">
+      import { init, shellui } from "https://esm.sh/@shellui/sdk@0.2.0?bundle";
+
+      const REDOC_LIGHT_THEME = {
+        typography: {
+          fontFamily: "Roboto, sans-serif",
+          headings: { fontFamily: "Montserrat, sans-serif" },
+        },
+      };
+
+      const REDOC_DARK_THEME = {
+        colors: {
+          primary: { main: "#61affe" },
+          text: { primary: "#eaeaea", secondary: "#bfbfbf" },
+          border: { dark: "#545454", light: "#32329f" },
+          responses: {
+            success: { color: "#49cc90", backgroundColor: "rgba(73, 204, 144, 0.12)" },
+            error: { color: "#f93e3e", backgroundColor: "rgba(249, 62, 62, 0.12)" },
+          },
+        },
+        sidebar: {
+          backgroundColor: "#1b1b1b",
+          textColor: "#eaeaea",
+        },
+        rightPanel: {
+          backgroundColor: "#263238",
+        },
+        typography: {
+          fontFamily: "Roboto, sans-serif",
+          headings: { fontFamily: "Montserrat, sans-serif" },
+        },
+      };
+
+      const getRedocTheme = (appearance) => {
+        const mode = appearance?.mode === "dark" ? "dark" : "light";
+        document.documentElement.style.colorScheme = mode;
+        return mode === "dark" ? REDOC_DARK_THEME : REDOC_LIGHT_THEME;
+      };
+
+      const schemaUrl = "{{ schema_url|escapejs }}";
+      const redocSettings = {{ settings|default:"{}"|safe }};
+
+      const renderRedoc = (appearance) => {
+        Redoc.init(
+          schemaUrl,
+          {
+            ...redocSettings,
+            theme: getRedocTheme(appearance),
+          },
+          document.getElementById("redoc-container"),
+        );
+      };
+
+      const handleSettingsMessage = (message) => {
+        renderRedoc(message?.payload?.settings?.appearance ?? null);
+      };
+
+      await init();
+      renderRedoc(shellui.initialSettings?.appearance ?? null);
+      shellui.addMessageListener("SHELLUI_SETTINGS", handleSettingsMessage);
+      shellui.addMessageListener("SHELLUI_SETTINGS_UPDATED", handleSettingsMessage);
     </script>
-    {% else %}
-    <redoc spec-url="{{ schema_url }}"></redoc>
-    <script src="{{ redoc_standalone }}"></script>
-    {% endif %}
     {% endblock body %}
   </body>
 </html>

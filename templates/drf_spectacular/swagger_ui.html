@@ -10,7 +10,7 @@
     <style>
       html { box-sizing: border-box; overflow-y: scroll; }
       *, *:after, *:before { box-sizing: inherit; }
-      body { background: #fafafa; margin: 0; }
+      body { margin: 0; }
     </style>
     {% endblock head %}
   </head>
@@ -20,14 +20,25 @@
     <script type="module">
       import { init, shellui } from "https://esm.sh/@shellui/sdk@0.2.0?bundle";
 
-      await init();
-      window.__shelluiAccessToken = shellui.initialSettings?.accessToken ?? null;
-      window.__applyShellUIAccessToken?.(window.__shelluiAccessToken);
-      shellui.addMessageListener("SHELLUI_SETTINGS", (message) => {
+      const applyDocsColorMode = (appearance) => {
+        const mode = appearance?.mode === "dark" ? "dark" : "light";
+        document.documentElement.classList.toggle("dark-mode", mode === "dark");
+        document.documentElement.style.colorScheme = mode;
+      };
+
+      const handleSettingsMessage = (message) => {
+        applyDocsColorMode(message?.payload?.settings?.appearance ?? null);
         const token = message?.payload?.settings?.accessToken ?? null;
         window.__shelluiAccessToken = token;
         window.__applyShellUIAccessToken?.(token);
-      });
+      };
+
+      await init();
+      applyDocsColorMode(shellui.initialSettings?.appearance ?? null);
+      window.__shelluiAccessToken = shellui.initialSettings?.accessToken ?? null;
+      window.__applyShellUIAccessToken?.(window.__shelluiAccessToken);
+      shellui.addMessageListener("SHELLUI_SETTINGS", handleSettingsMessage);
+      shellui.addMessageListener("SHELLUI_SETTINGS_UPDATED", handleSettingsMessage);
     </script>
     <script src="{{ swagger_ui_bundle }}"></script>
     <script src="{{ swagger_ui_standalone }}"></script>
