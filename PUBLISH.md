@@ -17,24 +17,38 @@ The image contains application code and collected static files. Gunicorn listens
 
 ## Pre-release checklist
 
-Complete these steps **before** building and pushing a release tag.
+Complete these steps **before** building and pushing a release tag. Prefer the automated script (same checks run on PRs to `main`):
+
+```bash
+./tools/pre-release-check.sh
+```
+
+| Step | What it verifies |
+|------|------------------|
+| Version alignment | `pyproject.toml` version matches a dated `CHANGELOG.md` entry (`## [x.y.z] - YYYY-MM-DD`) and `uv.lock` |
+| Build secrets | `.env` / `*.sqlite3` not tracked; `.gitignore` / `.dockerignore` exclude `.env`; built image has no `/app/.env` |
+| Image smoke test | Container serves `/storage/v1/health` with `status=ok` (uses static `IDENTITY_JWKS`, no live identity) |
+
+Options: `--skip-docker` (version + git hygiene only), `--image TAG`, `--port PORT`.
+
+GitHub Actions: [`.github/workflows/pre-release.yml`](.github/workflows/pre-release.yml) runs this script on every pull request targeting `main` (and via **workflow_dispatch**).
+
+Manual equivalents (if you are not using the script):
 
 ### 1. Version alignment
 
-Ensure these match the release version (e.g. `0.1.0`):
+Ensure these match the release version (e.g. `0.1.1`):
 
 - `version` in `pyproject.toml` (OpenAPI / API metadata via `config.settings.VERSION`)
 - `CHANGELOG.md` entry with date
-- CI green on the release commit (`.github/workflows/ci.yml`)
-- Git tag `v0.1.0` (optional but recommended)
+- Git tag `v0.1.1` (optional but recommended; not enforced by the script)
+- CI green on the release commit (`.github/workflows/ci.yml` + pre-release workflow)
 
 ### 2. No secrets in the build context
 
-Confirm locally:
-
 ```bash
 # .env must not be tracked or copied into the image
-test ! -f .env || grep -q '^\.env$' .gitignore
+test ! -f .env || grep -qE '^\.env$' .gitignore
 
 docker build -t shellui/storage-service:release-check .
 docker run --rm --entrypoint sh shellui/storage-service:release-check \
@@ -45,21 +59,23 @@ docker run --rm --entrypoint sh shellui/storage-service:release-check \
 
 ### 3. Smoke test the image
 
+Covered by `./tools/pre-release-check.sh`. Manual form:
+
 ```bash
 export SECRET_KEY="$(uv run python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")"
+# Prefer a static JWKS document for offline smoke tests (see the script).
 
-VERSION=0.1.0
+VERSION=0.1.1
 docker build -t "shellui/storage-service:${VERSION}" .
 
 docker run --rm -d --name storage-release-smoke -p 18001:8000 \
   -e SECRET_KEY \
   -e ALLOWED_HOSTS=localhost,127.0.0.1 \
-  -e IDENTITY_JWKS_URL=http://host.docker.internal:8000/.well-known/jwks.json \
+  -e STORAGE_BACKEND=filesystem \
+  -e IDENTITY_JWKS \
   "shellui/storage-service:${VERSION}"
 
-# Expect 200 and version 0.1.0
 curl -s http://127.0.0.1:18001/storage/v1/health
-
 docker stop storage-release-smoke
 ```
 

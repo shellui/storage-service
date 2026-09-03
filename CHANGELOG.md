@@ -34,6 +34,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🏗 Chore
 
 - Add GitHub Actions CI on PRs and `main`/`develop`: Django tests, `uv lock --check`, `pip-audit`, gitleaks, lychee link checks, and Docker build.
+- Automate PUBLISH.md pre-release checklist via `./tools/pre-release-check.sh` and `.github/workflows/pre-release.yml` (PRs to `main`).
 - Rename remaining product strings from ShellUI to Shellui.
 
 ### 🛠 Improvements
