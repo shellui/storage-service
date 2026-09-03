@@ -1,5 +1,5 @@
 """
-Django settings for ShellUI storage-service.
+Django settings for Shellui storage-service.
 """
 
 from __future__ import annotations
@@ -303,7 +303,7 @@ if AWS_S3_ADDRESSING_STYLE not in {'path', 'virtual', 'auto'}:
     raise ImproperlyConfigured(
         f'AWS_S3_ADDRESSING_STYLE must be path, virtual, or auto. Got: {AWS_S3_ADDRESSING_STYLE!r}'
     )
-# Prefix inside the bucket for all ShellUI objects (keeps multi-tenant keys tidy).
+# Prefix inside the bucket for all Shellui objects (keeps multi-tenant keys tidy).
 STORAGE_KEY_PREFIX = os.getenv('STORAGE_KEY_PREFIX', 'shellui').strip().strip('/')
 
 if STORAGE_BACKEND == 's3':

@@ -172,7 +172,7 @@ class WebDAVView(View):
             request.webdav_user = _authenticate(request)
         except AuthenticationFailed as exc:
             response = _dav_response(401, str(exc))
-            response['WWW-Authenticate'] = 'Bearer, Basic realm="ShellUI Storage"'
+            response['WWW-Authenticate'] = 'Bearer, Basic realm="Shellui Storage"'
             return response
         try:
             return super().dispatch(request, path)
@@ -222,6 +222,11 @@ class WebDAVView(View):
                     if not can_access_path(principal, bucket, name):
                         return _dav_response(403, 'Forbidden', content_type='text/plain')
                     prefix = name.rstrip('/') + '/'
+                    # Missing path with no descendants is 404 (not an empty collection).
+                    if not StorageObject.objects.filter(
+                        bucket=bucket, name__startswith=prefix
+                    ).exists():
+                        return _dav_response(404, 'Not found', content_type='text/plain')
                     multistatus.append(
                         _prop_xml_for_collection(
                             _href(bucket.name, name, collection=True),

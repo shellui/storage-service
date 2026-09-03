@@ -15,7 +15,7 @@ from .stats import build_storage_stats, human_bytes
 
 
 class StorageAdminSite(admin.AdminSite):
-    site_header = 'ShellUI Storage'
+    site_header = 'Shellui Storage'
     site_title = 'Storage admin'
     index_title = 'Storage administration'
 

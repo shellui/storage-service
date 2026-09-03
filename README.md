@@ -143,6 +143,8 @@ Default host port: `8001`.
 uv run python manage.py test
 ```
 
+Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), and a Docker image build.
+
 ## Logs
 
 Application logs go to **stdout/stderr** (the terminal for `runserver`, container logs in Docker/Coolify). Each line looks like:

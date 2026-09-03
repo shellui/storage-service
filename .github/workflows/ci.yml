@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-only-not-for-production-0123456789abcdef
+      DEBUG: 'true'
+      STORAGE_BACKEND: filesystem
+      IDENTITY_JWKS_URL: http://localhost:8000/.well-known/jwks.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.12.1'
+          python-version: '3.14'
+          enable-cache: true
+          cache-dependency-glob: 'uv.lock'
+
+      - name: Sync dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Verify lockfile
+        run: uv lock --check
+
+      - name: Django system checks
+        run: uv run python manage.py check
+
+      - name: Run tests
+        run: uv run python manage.py test --verbosity=1
+
+  security:
+    name: Security & hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan (gitleaks)
+        run: |
+          set -euo pipefail
+          version=8.28.0
+          install_dir="${RUNNER_TEMP}/gitleaks"
+          mkdir -p "${install_dir}"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" \
+            | tar -xz -C "${install_dir}" gitleaks
+          "${install_dir}/gitleaks" detect --source . --verbose --redact --exit-code 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.12.1'
+          enable-cache: true
+          cache-dependency-glob: 'uv.lock'
+
+      - name: Dependency vulnerabilities (pip-audit)
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt
+
+      - name: Repo hygiene
+        run: |
+          set -euo pipefail
+
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo '::error::.env is tracked by git — remove it from the repository'
+            exit 1
+          fi
+          if tracked_db="$(git ls-files '*.sqlite3')"; then
+            if [ -n "$tracked_db" ]; then
+              echo '::error::SQLite database files must not be tracked'
+              printf '%s\n' "$tracked_db"
+              exit 1
+            fi
+          fi
+
+          if git grep -nIE '\bShellUI\b|\bshellUI\b|\bShellUi\b' -- . \
+              ':(exclude)tools/docusaurus/build' \
+              ':(exclude)tools/docusaurus/node_modules' \
+              ':(exclude).venv'; then
+            echo '::error::Use Shellui (product) or shellui (packages), never ShellUI'
+            exit 1
+          fi
+
+          if git grep -nIE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|BEGIN PRIVATE KEY' -- . \
+              ':(exclude).env.example' \
+              ':(exclude)*.md' \
+              ':(exclude)docs/**'; then
+            echo '::error::Private key material found in tracked files'
+            exit 1
+          fi
+
+  links:
+    name: Markdown links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Link check (lychee)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --config .lychee.toml
+            --verbose
+            --no-progress
+            README.md
+            CHANGELOG.md
+            PUBLISH.md
+            docs
+          fail: true
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: shellui/storage-service:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

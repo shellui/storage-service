@@ -1,0 +1,36 @@
+# Lychee — markdown / docs link checker (CI: .github/workflows/ci.yml)
+# https://github.com/lycheeverse/lychee
+
+#############################  Cache  ##############################
+
+cache = true
+max_cache_age = "2d"
+
+#############################  Runtime  ############################
+
+max_concurrency = 8
+timeout = 20
+# Remotes sometimes rate-limit CI; treat as soft-ok when still reachable.
+accept = ["200", "204", "206", "429"]
+
+#############################  Excludes  ###########################
+
+# Local / placeholder hosts used in docs and README examples
+exclude = [
+  '^https?://localhost(:[0-9]+)?(/|$)',
+  '^https?://127\.0\.0\.1(:[0-9]+)?(/|$)',
+  '^https?://\[::1\](:[0-9]+)?(/|$)',
+  '^https?://([^/]*\.)?example\.com(/|$)',
+  '^https?://id\.example(/|$)',
+  # Angle-bracket placeholders in docs tables
+  '^https?://<',
+]
+
+exclude_path = [
+  'tools/docusaurus/build',
+  'tools/docusaurus/node_modules',
+  '\.venv',
+]
+
+scheme = ['https', 'http']
+include_verbatim = false

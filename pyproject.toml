@@ -1,12 +1,12 @@
 [project]
 name = "storage-service"
 version = "0.1.1"
-description = "Supabase-compatible object storage backend for ShellUI"
+description = "Supabase-compatible object storage backend for Shellui"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "django==6.0.3",
-    "djangorestframework==3.17.1",
+    "django==6.0.8",
+    "djangorestframework==3.17.2",
     "drf-spectacular==0.29.0",
     "django-cors-headers==4.9.0",
     "django-storages[s3]==1.14.6",
@@ -16,11 +16,12 @@ dependencies = [
     "gunicorn==26.0.0",
     "whitenoise==6.12.0",
     "sentry-sdk==2.63.0",
-    "cryptography==46.0.1",
-    "pyjwt==2.10.1",
-    "requests==2.32.5",
+    "cryptography==50.0.0",
+    "pyjwt==2.13.0",
+    "requests==2.33.0",
     "markdown==3.10.2",
     "prometheus-client==0.21.1",
+    "sqlparse==0.6.0",
 ]
 
 [dependency-groups]

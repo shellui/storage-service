@@ -13,8 +13,12 @@ class AuthapiConfig(AppConfig):
 
     def _log_jwks_config(self):
         import logging
+        import sys
 
         from django.conf import settings
+
+        if not _is_long_running_server_process(sys.argv):
+            return
 
         logger = logging.getLogger(__name__)
         document = getattr(settings, 'IDENTITY_JWKS_DOCUMENT', None)
@@ -36,3 +40,15 @@ class AuthapiConfig(AppConfig):
                 settings.DEBUG or getattr(settings, 'ALLOW_JWT_HS256_FALLBACK', False)
             ),
         )
+
+
+def _is_long_running_server_process(argv: list[str]) -> bool:
+    """Emit startup diagnostics only when serving HTTP, not one-off CLI commands."""
+    if not argv:
+        return False
+    prog = argv[0].replace('\\', '/')
+    if 'gunicorn' in prog or 'uwsgi' in prog:
+        return True
+    if prog.endswith('manage.py') and len(argv) >= 2:
+        return argv[1] == 'runserver' or argv[1].startswith('runserver')
+    return False

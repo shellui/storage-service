@@ -23,6 +23,19 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
+### 🔒 Security
+
+- Bump dependencies to clear `pip-audit` findings: Django `6.0.8`, cryptography `50.0.0`, djangorestframework `3.17.2`, requests `2.33.0`, PyJWT `2.13.0`, sqlparse `0.6.0`.
+
+### 🐛 Bug Fixes
+
+- WebDAV `PROPFIND` on a missing path returns **404** instead of an empty `207` collection.
+
+### 🏗 Chore
+
+- Add GitHub Actions CI on PRs and `main`/`develop`: Django tests, `uv lock --check`, `pip-audit`, gitleaks, lychee link checks, and Docker build.
+- Rename remaining product strings from ShellUI to Shellui.
+
 ### 🛠 Improvements
 
 - Log JWT/JWKS verification failures with algorithm, key id, issuer/audience, and loaded JWKS kids (token values are never logged). API 401s include a `request_id` matching `X-Request-ID`.
