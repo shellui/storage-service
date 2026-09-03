@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [Unreleased]
+## [0.2.0] - 2026-09-03
 
 ### 🔒 Security
 
@@ -34,7 +34,8 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🏗 Chore
 
 - Add GitHub Actions CI on PRs and `main`/`develop`: Django tests, `uv lock --check`, `pip-audit`, gitleaks, lychee link checks, and Docker build.
-- Rename remaining product strings from ShellUI to Shellui.
+- Automate PUBLISH.md pre-release checklist via `./tools/pre-release-check.sh` and `.github/workflows/pre-release.yml` (PRs to `main`).
+- Align remaining product strings with Shellui brand spelling.
 
 ### 🛠 Improvements
 
