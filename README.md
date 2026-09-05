@@ -19,7 +19,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
-- CORS for local Shellui (`http://localhost:4000`), admin, and extra origins
+- CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`); auth is Bearer JWT — do not list every hosting preview origin in env
 
 ## Project structure
 

@@ -163,7 +163,6 @@ docker run -d \
   -e SECRET_KEY='replace-with-generated-key' \
   -e ALLOWED_HOSTS='storage.example.com' \
   -e CSRF_TRUSTED_ORIGINS='https://storage.example.com' \
-  -e CORS_ALLOWED_ORIGINS='https://app.example.com,https://admin.shellui.com' \
   -e IDENTITY_JWKS='{"keys":[...]}' \
   shellui/storage-service:0.2.0
 ```
@@ -180,12 +179,13 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 | `IDENTITY_JWKS` or `IDENTITY_JWKS_FILE` | Public JWKS JSON (preferred in production; no HTTP to identity).          |
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
-| `CORS_ALLOWED_ORIGINS` | Shellui / admin front-end origins.                                                      |
 
 ### Optional runtime env vars
 
 | Variable                | Notes                                                                 |
 | ----------------------- | --------------------------------------------------------------------- |
+| `CORS_ALLOW_ALL_ORIGINS` | Default `true` (permissive API CORS; Bearer JWT is the auth boundary). Set `false` to lock down. |
+| `CORS_ALLOWED_ORIGINS`  | Used when `CORS_ALLOW_ALL_ORIGINS=false`; Shellui / admin front-end origins. |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
 | `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |

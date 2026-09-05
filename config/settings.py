@@ -451,6 +451,16 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
 WEBDAV_ENABLED = os.getenv('WEBDAV_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 WEBDAV_PATH_PREFIX = os.getenv('WEBDAV_PATH_PREFIX', '/dav').strip() or '/dav'
 
+# API auth is Bearer JWT (not cookies). Permissive CORS matches Supabase-style
+# gateways so random hosting preview origins work without per-slug allowlists.
+# Set CORS_ALLOW_ALL_ORIGINS=false and CORS_ALLOWED_ORIGINS for lock-down installs.
+# Token delivery stays strict via identity OAuth redirect allowlist (not CORS).
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'true').strip().lower() in {
+    '1',
+    'true',
+    'yes',
+    'on',
+}
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:4000',
     'http://127.0.0.1:4000',
@@ -465,7 +475,7 @@ for _origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(','):
     if _origin and _origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(_origin)
 
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False
 # Public HTTPS origins (admin.shellui.com) calling http://localhost:8001.
 # Browsers send Access-Control-Request-Private-Network on the OPTIONS preflight.
 CORS_ALLOW_PRIVATE_NETWORK = os.getenv(
