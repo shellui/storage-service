@@ -10,7 +10,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - **One bucket per company** — new folders/files are **private to the creator** by default; share with **access grants** (user / company / folder / object). Nested items inherit the parent folder's permissions.
 - **Share links** — secret capability URLs with expiry and/or max downloads (no registration; not listed publicly)
 - Reserved **connector** buckets (SharePoint / Dropbox, …) as future **read-only** mounts
-- JWT verification via identity-service JWKS (local document or `IDENTITY_JWKS_URL`)
+- JWT verification via identity-service JWKS (`IDENTITY_SERVICE_URL` → `/.well-known/jwks.json`, or a local document / explicit `IDENTITY_JWKS_URL`)
 - Pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**
 - Company total quota + optional per-user quota
 - MIME type detection and per-bucket allow-lists
@@ -82,8 +82,10 @@ IDENTITY_JWKS={"keys":[...]}
 # Or a file on the data volume
 IDENTITY_JWKS_FILE=/app/data/jwks.json
 
-# Local/dev — fetch from identity-service
-IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json
+# Local/dev — identity base URL; JWKS is derived automatically
+IDENTITY_SERVICE_URL=http://localhost:8000
+# Optional override if JWKS is on a different host:
+# IDENTITY_JWKS_URL=http://host.docker.internal:8000/.well-known/jwks.json
 ```
 
 Copy `.env.example` → `.env` and change the value there (Compose and `runserver` both load it).

@@ -28,11 +28,18 @@ When either is set, storage never calls identity at runtime. After identity rota
 
 ## Local/dev: fetch from identity
 
+Set the identity base URL; JWKS is derived automatically:
+
 ```bash
-IDENTITY_JWKS_URL=http://localhost:8000/.well-known/jwks.json
+IDENTITY_SERVICE_URL=http://localhost:8000
+# → fetches http://localhost:8000/.well-known/jwks.json
 ```
 
-From Docker on the host, use `http://host.docker.internal:8000/.well-known/jwks.json`.
+Override only when JWKS is on a different host:
+
+```bash
+IDENTITY_JWKS_URL=http://host.docker.internal:8000/.well-known/jwks.json
+```
 
 If `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` is set, it wins and the URL is ignored.
 
@@ -42,8 +49,8 @@ If `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` is set, it wins and the URL is ignore
 |----------|---------|
 | `IDENTITY_JWKS_FILE` | Path to a JWKS JSON file (production, preferred with a volume) |
 | `IDENTITY_JWKS` | JWKS JSON inline (production, easy in Coolify) |
-| `IDENTITY_JWKS_URL` | Fetch URL for local/dev only |
-| `IDENTITY_SERVICE_URL` | Identity base URL; JWKS path is derived if `IDENTITY_JWKS_URL` is empty and no local document is set |
+| `IDENTITY_SERVICE_URL` | Identity base URL; derives `{url}/.well-known/jwks.json` when no local document / explicit JWKS URL |
+| `IDENTITY_JWKS_URL` | Optional fetch URL override (different host than `IDENTITY_SERVICE_URL`) |
 | `IDENTITY_ISSUER` | Optional `iss` claim check |
 | `IDENTITY_AUDIENCE` | Optional `aud` claim check |
 | `JWKS_CACHE_TTL` | Seconds to cache a **fetched** JWKS (default `900`; unused for local documents) |
