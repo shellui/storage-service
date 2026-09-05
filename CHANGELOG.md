@@ -5,12 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [Unreleased] - yyyy-mm-dd
-
-### 🚨 Changed
-
-- **Permissive API CORS:** default `CORS_ALLOW_ALL_ORIGINS=true` with `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT auth). Hosted preview origins no longer need per-slug `CORS_ALLOWED_ORIGINS` entries.
-
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
@@ -26,6 +20,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
+
+## [0.3.0] - 2026-09-04
+
+### 🚨 Changed
+
+- **Permissive API CORS:** default `CORS_ALLOW_ALL_ORIGINS=true` with `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT auth). Hosted preview origins no longer need per-slug `CORS_ALLOWED_ORIGINS` entries.
 
 ## [0.2.0] - 2026-09-03
 
