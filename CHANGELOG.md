@@ -5,20 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [Unreleased] - 2026-09-18
-
-### 🔒 Security
-
-- **M-01 CORS:** Allow `CORS_ALLOW_ALL_ORIGINS=true` in production when `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT). Startup fails if allow-all and credentials are both enabled. Document multi-tenant CORS model; do not require static customer origin lists.
-- **M-03 JWT iss/aud:** Require `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` when `DEBUG=false`, aligned with identity-service 0.5.0+ (`JWT_ISSUER` / `JWT_AUDIENCE`).
-- **M-12 env hygiene:** `.env.example` uses placeholders only (no insecure literal secrets).
-- **M-22 signed URLs:** Document that filesystem “signed” URLs are not cryptographically signed; use S3 in production and do not expose `/media/` publicly.
-- **M-23 admin:** Document cross-tenant admin isolation; optional `DJANGO_ADMIN_ENABLED=false` for API pods; MFA and network-lock guidance.
-- **Transport / Postgres:** HSTS and secure cookies when `DEBUG=false`; `POSTGRES_SSL_REQUIRE` defaults to `true` with `false` escape for internal databases.
-
-### 📚 Documentation
-
-- Add [Production security](docs/security.md) guide.
+## [Unreleased]
 
 <!---
 ## [Unreleased] - yyyy-mm-dd
@@ -36,10 +23,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [Unreleased]
+## [0.3.0] - 2026-09-18
 
 ### 🔒 Security
 
+- **M-01 CORS:** Allow `CORS_ALLOW_ALL_ORIGINS=true` in production when `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT). Startup fails if allow-all and credentials are both enabled. Document multi-tenant CORS model; do not require static customer origin lists.
+- **M-03 JWT iss/aud:** Require `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` when `DEBUG=false`, aligned with identity-service 0.5.0+ (`JWT_ISSUER` / `JWT_AUDIENCE`).
+- **M-12 env hygiene:** `.env.example` uses placeholders only (no insecure literal secrets).
+- **M-22 signed URLs:** Document that filesystem “signed” URLs are not cryptographically signed; use S3 in production and do not expose `/media/` publicly.
+- **M-23 admin:** Document cross-tenant admin isolation; optional `DJANGO_ADMIN_ENABLED=false` for API pods; MFA and network-lock guidance.
+- **Transport / Postgres:** HSTS and secure cookies when `DEBUG=false`; `POSTGRES_SSL_REQUIRE` defaults to `true` with `false` escape for internal databases.
 - **Prefix stats ACL (M-20):** `GET /storage/v1/object/prefix/{bucket}` now omits objects the caller cannot read, matching list ACL filtering — no metadata leak on private prefixes.
 - **Signed URL TTL cap (M-21):** Client `expiresIn` / `expires_in` is capped to `SIGNED_URL_EXPIRES` (default 3600s); unset values use that setting instead of a hardcoded default.
 - **Health endpoint (M-24):** Anonymous `GET /storage/v1/health` returns only `status` and `version`; storage backend and JWKS fields require a valid Bearer token.
@@ -47,6 +40,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 📚 Documentation
 
+- Add [Production security](docs/security.md) guide.
 - Add `./tools/prod-config-check.sh` post-deploy smoke test for live HTTPS deployments (README + PUBLISH.md).
 
 ## [0.2.1] - 2026-09-07
