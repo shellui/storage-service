@@ -212,6 +212,8 @@ chmod +x prod-config-check.sh
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
 
+First superuser: run `python manage.py createsuperuser` inside the container (or exec), or set a one-time `SETUP_TOKEN` and open `/?setup_token=<token>` — the public home form is disabled when `DEBUG=false` and no token is provided.
+
 ### Optional runtime env vars
 
 | Variable                | Notes                                                                 |
@@ -226,6 +228,7 @@ chmod +x prod-config-check.sh
 | `SENTRY_DSN`            | Sentry error reporting.                                               |
 | `SENTRY_ENVIRONMENT`    | e.g. `staging`, `production`.                                         |
 | `LOG_LEVEL`             | `DEBUG`, `INFO`, `WARNING`, … (default `DEBUG` when `DEBUG=true`, else `INFO`). |
+| `SETUP_TOKEN`           | One-time token for web superuser bootstrap when `DEBUG=false`; prefer `createsuperuser`. |
 
 With Postgres:
 
@@ -252,6 +255,7 @@ With S3:
 | HS256 JWT fallback      | Refused when `DEBUG=false` unless explicitly allowed |
 | SQLite / blob files     | Excluded from image; use volume or S3 + Postgres    |
 | Public object downloads | Disabled; use share links for anonymous access      |
+| First-run bootstrap     | Home superuser form disabled when `DEBUG=false` without `SETUP_TOKEN` |
 
 Do not commit `.env` or real AWS keys to git. Do not pass secrets as Docker build args unless you accept they may appear in image history.
 

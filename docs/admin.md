@@ -4,11 +4,13 @@ The Django admin at `/admin/` includes an **upload statistics** dashboard for op
 
 ## Access
 
-1. Create the one-time superuser from the service home page (first visit only), or:
+1. Create the first superuser:
 
 ```bash
 uv run python manage.py createsuperuser
 ```
+
+With `DEBUG=true` (local default), the home page also shows a one-time web form on first visit. In production (`DEBUG=false`), the form is hidden unless you set `SETUP_TOKEN` and open `/?setup_token=<token>` once.
 
 2. Open `http://localhost:8001/admin/` and sign in.
 3. Full report: `http://localhost:8001/admin/statistics/`

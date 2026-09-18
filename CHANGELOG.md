@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased] - 2026-09-18
+
+### 🔒 Security
+
+- Gate public first-run superuser bootstrap at `/`: disabled when `DEBUG=false` unless a valid `SETUP_TOKEN` is provided (query param, hidden form field, or `X-Setup-Token` header). Production installs should use `manage.py createsuperuser` or a one-time `SETUP_TOKEN` URL.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
