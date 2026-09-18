@@ -2,6 +2,7 @@
 const sidebars = {
   tutorialSidebar: [
     "index",
+    "security",
     "authentication",
     "access",
     "sharing",

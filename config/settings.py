@@ -81,6 +81,13 @@ def _env_int(name, default):
         raise ImproperlyConfigured(f'{name} must be an integer. Got: {raw!r}') from exc
 
 
+def _env_bool(name, default: bool) -> bool:
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return default
+    return raw.lower() in {'1', 'true', 'yes', 'on'}
+
+
 def _env_bytes(name, default):
     """Parse byte sizes: bare int, or suffixes K/M/G/T (binary, 1024-based)."""
     raw = os.getenv(name, '').strip()
@@ -235,12 +242,14 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 POSTGRES_DATABASE_URL = os.getenv('POSTGRES_DATABASE_URL', '').strip()
 
+POSTGRES_SSL_REQUIRE = _env_bool('POSTGRES_SSL_REQUIRE', not DEBUG)
+
 if POSTGRES_DATABASE_URL:
     DATABASES = {
         'default': dj_database_url.parse(
             POSTGRES_DATABASE_URL,
             conn_max_age=600,
-            ssl_require=False,
+            ssl_require=POSTGRES_SSL_REQUIRE,
         )
     }
 else:
@@ -454,16 +463,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
 WEBDAV_ENABLED = os.getenv('WEBDAV_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 WEBDAV_PATH_PREFIX = os.getenv('WEBDAV_PATH_PREFIX', '/dav').strip() or '/dav'
 
-# API auth is Bearer JWT (not cookies). Permissive CORS matches Supabase-style
-# gateways so random hosting preview origins work without per-slug allowlists.
-# Set CORS_ALLOW_ALL_ORIGINS=false and CORS_ALLOWED_ORIGINS for lock-down installs.
-# Token delivery stays strict via identity OAuth redirect allowlist (not CORS).
-CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'true').strip().lower() in {
-    '1',
-    'true',
-    'yes',
-    'on',
-}
+# API auth is Bearer JWT (not cookies). Multi-tenant shells call /storage/v1/* from
+# unknown browser origins, so permissive CORS is intentional when credentials are off
+# (Supabase-style). Token delivery stays strict via identity OAuth redirect allowlist.
+# Optional lock-down: CORS_ALLOW_ALL_ORIGINS=false + CORS_ALLOWED_ORIGINS.
+CORS_ALLOW_ALL_ORIGINS = _env_bool('CORS_ALLOW_ALL_ORIGINS', True)
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:4000',
     'http://127.0.0.1:4000',
@@ -478,7 +482,13 @@ for _origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(','):
     if _origin and _origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(_origin)
 
-CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_CREDENTIALS = _env_bool('CORS_ALLOW_CREDENTIALS', False)
+
+if CORS_ALLOW_ALL_ORIGINS and CORS_ALLOW_CREDENTIALS:
+    raise ImproperlyConfigured(
+        'CORS_ALLOW_ALL_ORIGINS=true with CORS_ALLOW_CREDENTIALS=true is unsafe — '
+        'use explicit CORS_ALLOWED_ORIGINS when credentials are enabled.'
+    )
 # Public HTTPS origins (admin.shellui.com) calling http://localhost:8001.
 # Browsers send Access-Control-Request-Private-Network on the OPTIONS preflight.
 CORS_ALLOW_PRIVATE_NETWORK = os.getenv(
@@ -504,6 +514,34 @@ CORS_ALLOW_HEADERS = list(
     }
 )
 CORS_EXPOSE_HEADERS = ['X-Request-ID']
+
+# HTTPS / cookie hardening (production defaults; override via env for local HTTP).
+SECURE_SSL_REDIRECT = _env_bool('SECURE_SSL_REDIRECT', not DEBUG)
+SECURE_HSTS_SECONDS = _env_int('SECURE_HSTS_SECONDS', 31536000 if not DEBUG else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not DEBUG)
+SECURE_HSTS_PRELOAD = _env_bool('SECURE_HSTS_PRELOAD', False)
+SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+
+# Django admin exposes cross-tenant data — disable on internet-facing API pods when
+# operators use a separate admin ingress with MFA / network restrictions.
+DJANGO_ADMIN_ENABLED = _env_bool('DJANGO_ADMIN_ENABLED', True)
+
+if not DEBUG:
+    _production_config_errors = []
+    if not IDENTITY_ISSUER:
+        _production_config_errors.append(
+            'IDENTITY_ISSUER is required when DEBUG=false. '
+            'Set to identity-service JWT_ISSUER (identity 0.5.0+), '
+            'e.g. https://id.shellui.com.'
+        )
+    if not IDENTITY_AUDIENCE:
+        _production_config_errors.append(
+            'IDENTITY_AUDIENCE is required when DEBUG=false. '
+            'Set to identity-service JWT_AUDIENCE (identity 0.5.0+), typically shellui.'
+        )
+    if _production_config_errors:
+        raise ImproperlyConfigured('\n'.join(_production_config_errors))
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

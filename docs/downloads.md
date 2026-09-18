@@ -16,7 +16,14 @@ Anonymous downloads use [share links](sharing.md) (`GET /storage/v1/share/link/{
 
 ## Signed URLs
 
-`POST /storage/v1/object/sign/{bucket}/{path}` still returns a time-limited URL (S3 query-string auth, or the media URL on filesystem). That is optional for clients that fetch the bucket directly. Object `GET` does not redirect to it.
+`POST /storage/v1/object/sign/{bucket}/{path}` returns a time-limited URL for clients that fetch directly from object storage. Object `GET` does not redirect to it.
+
+| Backend | URL type | Production use |
+|---------|----------|------------------|
+| **S3** | Cryptographically signed pre-signed URL (query-string auth) | Recommended |
+| **Filesystem** | Plain `/media/objects/...` path — **not signed** | Dev/local only; do not expose `/media/` publicly |
+
+See [Production security](security.md) for filesystem media exposure guidance.
 
 ```bash
 STORAGE_BACKEND=s3
