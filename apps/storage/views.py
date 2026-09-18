@@ -137,21 +137,25 @@ def _error_message(message: str, *, status_code: int = 400, code: str = 'Error')
 
 class HealthView(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []
 
     @extend_schema(tags=['health'], responses={200: HealthSerializer})
     def get(self, request):
         from django.conf import settings
 
-        return Response(
-            {
-                'status': 'ok',
-                'version': settings.VERSION,
-                'storage_backend': settings.STORAGE_BACKEND,
-                'identity_jwks_source': settings.IDENTITY_JWKS_SOURCE or 'url',
-                'identity_jwks_url': settings.IDENTITY_JWKS_URL,
-            }
-        )
+        payload = {
+            'status': 'ok',
+            'version': settings.VERSION,
+        }
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'is_authenticated', False):
+            payload.update(
+                {
+                    'storage_backend': settings.STORAGE_BACKEND,
+                    'identity_jwks_source': settings.IDENTITY_JWKS_SOURCE or 'url',
+                    'identity_jwks_url': settings.IDENTITY_JWKS_URL,
+                }
+            )
+        return Response(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +548,7 @@ class ObjectPrefixView(APIView):
             prefix = request.query_params.get('prefix') or ''
             if prefix:
                 safe_object_path(prefix)
-            return Response(summarize_prefix(bucket, prefix))
+            return Response(summarize_prefix(bucket, prefix, principal=request.user))
         except StorageError as exc:
             return _error(exc)
         except ValueError as exc:
@@ -676,10 +680,14 @@ class ObjectSignView(APIView):
 
     def post(self, request, bucket_id, object_path=''):
         try:
+            from django.conf import settings
+
             data = request.data if isinstance(request.data, dict) else {}
             # Supabase also supports batch sign with path in body
             path = object_path or data.get('path') or ''
-            expires = int(data.get('expiresIn') or data.get('expires_in') or 3600)
+            expires = int(
+                data.get('expiresIn') or data.get('expires_in') or settings.SIGNED_URL_EXPIRES
+            )
             _bucket, obj = get_accessible_object(request.user, bucket_id, path)
             url = build_signed_url(obj, expires_in=expires)
         except StorageError as exc:

@@ -148,7 +148,21 @@ class StorageAPITests(TestCase):
     def test_health_public(self):
         response = self.client.get('/storage/v1/health')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['status'], 'ok')
+        body = response.json()
+        self.assertEqual(body['status'], 'ok')
+        self.assertIn('version', body)
+        self.assertNotIn('storage_backend', body)
+        self.assertNotIn('identity_jwks_source', body)
+        self.assertNotIn('identity_jwks_url', body)
+
+    def test_health_authenticated_includes_details(self):
+        response = self.client.get('/storage/v1/health', **self.auth)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['status'], 'ok')
+        self.assertIn('storage_backend', body)
+        self.assertIn('identity_jwks_source', body)
+        self.assertIn('identity_jwks_url', body)
 
     def test_uploads_do_not_write_into_dev_media_root(self):
         from django.conf import settings as django_settings
@@ -878,6 +892,68 @@ class StorageAPITests(TestCase):
         names = [row['name'] for row in listing.json()]
         self.assertIn('keep.txt', names)
         self.assertNotIn('reports', names)
+
+    def test_prefix_stats_respects_path_acl(self):
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/reports/q1.txt',
+            data=b'q1',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/reports/nested/q2.txt',
+            data=b'q2',
+            content_type='text/plain',
+            **self.auth,
+        )
+
+        owner_stats = self.client.get(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}?prefix=reports',
+            **self.auth,
+        )
+        self.assertEqual(owner_stats.status_code, 200)
+        self.assertEqual(owner_stats.json()['file_count'], 2)
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        other_stats = self.client.get(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}?prefix=reports',
+            **other_auth,
+        )
+        self.assertEqual(other_stats.status_code, 200)
+        self.assertEqual(other_stats.json()['file_count'], 0)
+        self.assertEqual(other_stats.json()['object_count'], 0)
+        self.assertEqual(other_stats.json()['total_bytes'], 0)
+
+    @override_settings(SIGNED_URL_EXPIRES=3600, STORAGE_BACKEND='s3')
+    def test_signed_url_ttl_capped(self):
+        from unittest.mock import MagicMock
+
+        from apps.storage.downloads import build_signed_url
+
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/signed.txt',
+            data=b'signed',
+            content_type='text/plain',
+            **self.auth,
+        )
+        obj = StorageObject.objects.get(name='signed.txt')
+
+        with patch('apps.storage.downloads.default_storage') as mock_storage:
+            mock_storage.url = MagicMock(return_value='https://signed.example/object')
+            build_signed_url(obj, expires_in=999_999)
+            mock_storage.url.assert_called_once_with(obj.storage_key, expire=3600)
+
+        with patch('apps.storage.downloads.default_storage') as mock_storage:
+            mock_storage.url = MagicMock(return_value='https://signed.example/object')
+            response = self.client.post(
+                f'/storage/v1/object/sign/{COMPANY_BUCKET_NAME}/signed.txt',
+                {'expiresIn': 999_999},
+                format='json',
+                **self.auth,
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('signedURL', response.json())
+            mock_storage.url.assert_called_once_with(obj.storage_key, expire=3600)
 
     def test_folder_rename_moves_objects_and_grants(self):
         self.client.post(

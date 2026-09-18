@@ -9,7 +9,6 @@ from django.conf import settings
 from django.core.files.base import ContentFile, File
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Count, Sum
 from django.utils import timezone
 
 from .access import access_summary, path_access_summary
@@ -476,20 +475,30 @@ def objects_under_prefix(bucket: Bucket, folder_path: str):
     return StorageObject.objects.filter(bucket=bucket, name__startswith=_prefix_filter(folder_path))
 
 
-def summarize_prefix(bucket: Bucket, folder_path: str) -> dict:
+def summarize_prefix(bucket: Bucket, folder_path: str, *, principal=None) -> dict:
     """
     Stats for objects under a folder prefix.
 
     ``file_count`` excludes empty-folder placeholders so the UI can report how many
     real files will be removed.
+
+    When ``principal`` is provided, objects the principal cannot read are omitted
+    (same ACL filtering as ``list_objects``).
     """
+    from .access import can_access_path
+
     qs = objects_under_prefix(bucket, folder_path)
-    totals = qs.aggregate(object_count=Count('id'), total_bytes=Sum('size'))
-    object_count = totals['object_count'] or 0
-    total_bytes = totals['total_bytes'] or 0
+    object_count = 0
+    total_bytes = 0
     placeholder_count = 0
-    for name in qs.values_list('name', flat=True):
-        if name == FOLDER_PLACEHOLDER_NAME or name.endswith(f'/{FOLDER_PLACEHOLDER_NAME}'):
+    for obj in qs.iterator(chunk_size=500):
+        if principal is not None and not can_access_path(
+            principal, bucket, obj.name, object_id=str(obj.id)
+        ):
+            continue
+        object_count += 1
+        total_bytes += obj.size or 0
+        if obj.name == FOLDER_PLACEHOLDER_NAME or obj.name.endswith(f'/{FOLDER_PLACEHOLDER_NAME}'):
             placeholder_count += 1
     file_count = max(0, object_count - placeholder_count)
     return {

@@ -27,3 +27,5 @@ AWS_S3_ENDPOINT_URL=http://minio:9000   # omit for AWS
 AWS_S3_ADDRESSING_STYLE=path            # path for MinIO; virtual for AWS
 SIGNED_URL_EXPIRES=3600
 ```
+
+Client `expiresIn` / `expires_in` on sign requests is capped to this value; larger values are silently reduced.
