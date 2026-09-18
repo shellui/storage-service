@@ -64,7 +64,7 @@ uv run python manage.py migrate
 uv run python manage.py runserver 8001
 ```
 
-Open `http://localhost:8001/` for Swagger / ReDoc. Create the one-time admin user from the home page if you need Django admin (quotas, grants, share links).
+Open `http://localhost:8001/` for Swagger / ReDoc. With `DEBUG=true` (local default), create the one-time admin user from the home page if you need Django admin (quotas, grants, share links). In production (`DEBUG=false`), use `uv run python manage.py createsuperuser`, or set `SETUP_TOKEN` and open `/?setup_token=<token>` once for the web form.
 
 Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package with `uv add <name>`; refresh the lock with `uv lock`.
 
