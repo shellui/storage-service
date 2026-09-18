@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Add `./tools/prod-config-check.sh` post-deploy smoke test for live HTTPS deployments (README + PUBLISH.md).
+
 ## [0.2.1] - 2026-09-07
 
 ### 🚨 Changed

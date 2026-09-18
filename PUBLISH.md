@@ -171,6 +171,38 @@ The entrypoint runs migrations on start, then starts Gunicorn on port 8000.
 
 Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JWKS (`IDENTITY_JWKS` or `IDENTITY_JWKS_FILE`), then `docker compose up --build`.
 
+### Post-deploy production config check
+
+Quick copy-paste commands and exit-code notes: [README — Post-deploy prod check](README.md#post-deploy-prod-check).
+
+After deploying a release, run the smoke script against the live HTTPS storage URL:
+
+```bash
+./tools/prod-config-check.sh https://files.shellui.com
+```
+
+The script prints explicit `PASS:` / `FAIL:` / `WARN:` / `INFO:` lines and exits non-zero if any hard check fails. It verifies HTTPS reachability, public `GET /storage/v1/health` (200 JSON with `status=ok`), that protected `/storage/v1/*` routes return 401/403 (not 500) without a Bearer token, that `/` is not an open superuser signup form, permissive CORS for preview origins, identity JWKS wiring notes (via health + checklist), and security headers (HSTS warn-only).
+
+Optional environment:
+
+| Variable                   | Default                                      |
+| -------------------------- | -------------------------------------------- |
+| `CORS_PROBE_ORIGIN`        | `https://example-preview-slug.shellui.app`   |
+| `EXPECTED_IDENTITY_ISSUER` | unset (printed as INFO checklist)            |
+| `EXPECTED_IDENTITY_AUDIENCE` | `shellui`                                  |
+
+Full JWT upload/download flows cannot be verified without identity-service tokens — the script prints guidance for `IDENTITY_JWKS` / `IDENTITY_JWKS_FILE` and `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`.
+
+**Coolify / internal Postgres:** storage parses `POSTGRES_DATABASE_URL` with `ssl_require=false` by default. If boot still fails with SSL errors against an internal Docker Postgres, set `POSTGRES_SSL_REQUIRE=false` in orchestration (same gotcha as identity-service 0.5.0).
+
+One-off without a full clone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shellui/storage-service/develop/tools/prod-config-check.sh -o prod-config-check.sh
+chmod +x prod-config-check.sh
+./prod-config-check.sh https://files.shellui.com
+```
+
 ### Required runtime env vars (production)
 
 | Variable            | Notes                                                                                      |
