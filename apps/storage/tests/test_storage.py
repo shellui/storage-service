@@ -893,6 +893,162 @@ class StorageAPITests(TestCase):
         self.assertIn('keep.txt', names)
         self.assertNotIn('reports', names)
 
+    def test_bulk_delete_enforces_path_acl(self):
+        """Bulk delete must check write ACL per path (fail closed on deny)."""
+        for name in ('owned/a.txt', 'owned/b.txt'):
+            resp = self.client.post(
+                f'/storage/v1/object/{COMPANY_BUCKET_NAME}/{name}',
+                data=b'x',
+                content_type='text/plain',
+                **self.auth,
+            )
+            self.assertEqual(resp.status_code, 200)
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        denied = self.client.delete(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}',
+            ['owned/a.txt', 'owned/b.txt'],
+            format='json',
+            **other_auth,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json().get('error'), 'path_access_denied')
+        self.assertTrue(
+            StorageObject.objects.filter(name__startswith='owned/').exists()
+        )
+
+        deleted = self.client.delete(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}',
+            ['owned/a.txt', 'owned/b.txt'],
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(len(deleted.json()), 2)
+        self.assertFalse(StorageObject.objects.filter(name__startswith='owned/').exists())
+
+    def test_prefix_delete_enforces_path_acl(self):
+        """Prefix delete must check write ACL on every object under the prefix."""
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/private/q1.txt',
+            data=b'q1',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/private/nested/q2.txt',
+            data=b'q2',
+            content_type='text/plain',
+            **self.auth,
+        )
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        denied = self.client.delete(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'private'},
+            format='json',
+            **other_auth,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json().get('error'), 'path_access_denied')
+        self.assertEqual(
+            StorageObject.objects.filter(name__startswith='private/').count(),
+            2,
+        )
+
+        deleted = self.client.delete(
+            f'/storage/v1/object/prefix/{COMPANY_BUCKET_NAME}',
+            {'prefix': 'private'},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()['count'], 2)
+        self.assertFalse(
+            StorageObject.objects.filter(name__startswith='private/').exists()
+        )
+
+    def test_bucket_empty_enforces_path_acl(self):
+        """Empty bucket must fail closed when any object is not writable."""
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/user1-only.txt',
+            data=b'mine',
+            content_type='text/plain',
+            **self.auth,
+        )
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/user2-only.txt',
+            data=b'theirs',
+            content_type='text/plain',
+            **other_auth,
+        )
+
+        denied = self.client.post(
+            f'/storage/v1/bucket/{COMPANY_BUCKET_NAME}/empty',
+            **other_auth,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json().get('error'), 'path_access_denied')
+        self.assertEqual(StorageObject.objects.count(), 2)
+
+        denied_owner = self.client.post(
+            f'/storage/v1/bucket/{COMPANY_BUCKET_NAME}/empty',
+            **self.auth,
+        )
+        self.assertEqual(denied_owner.status_code, 403)
+        self.assertEqual(denied_owner.json().get('error'), 'path_access_denied')
+        self.assertEqual(StorageObject.objects.count(), 2)
+
+        self.client.delete(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/user2-only.txt',
+            **other_auth,
+        )
+        emptied = self.client.post(
+            f'/storage/v1/bucket/{COMPANY_BUCKET_NAME}/empty',
+            **self.auth,
+        )
+        self.assertEqual(emptied.status_code, 200)
+        self.assertFalse(StorageObject.objects.exists())
+
+    def test_bulk_delete_allows_grantee_write_access(self):
+        """Grantees with write access may bulk-delete shared private paths."""
+        upload = self.client.post(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}/shared.txt',
+            data=b'secret',
+            content_type='text/plain',
+            **self.auth,
+        )
+        self.assertEqual(upload.status_code, 200)
+
+        other_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(user_id=2)}'}
+        grant = self.client.post(
+            '/storage/v1/access/grant',
+            {
+                'bucket': COMPANY_BUCKET_NAME,
+                'subject_type': 'user',
+                'subject_id': '2',
+                'resource_type': 'object',
+                'resource_id': 'shared.txt',
+                'permission': 'write',
+                'effect': 'allow',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(grant.status_code, 201)
+
+        deleted = self.client.delete(
+            f'/storage/v1/object/{COMPANY_BUCKET_NAME}',
+            ['shared.txt'],
+            format='json',
+            **other_auth,
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(
+            StorageObject.objects.filter(name='shared.txt').exists()
+        )
+
     def test_prefix_stats_respects_path_acl(self):
         self.client.post(
             f'/storage/v1/object/{COMPANY_BUCKET_NAME}/reports/q1.txt',

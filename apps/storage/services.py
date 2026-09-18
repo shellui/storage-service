@@ -399,8 +399,16 @@ def delete_object(obj: StorageObject, *, request=None) -> None:
 
 
 @transaction.atomic
-def delete_paths(bucket: Bucket, paths: list[str], *, request=None) -> list[str]:
-    deleted: list[str] = []
+def delete_paths(
+    bucket: Bucket,
+    paths: list[str],
+    *,
+    principal,
+    request=None,
+) -> list[str]:
+    from .access import assert_can_access_path
+
+    to_delete: list[tuple[str, StorageObject]] = []
     for raw in paths:
         try:
             name = safe_object_path(raw)
@@ -409,6 +417,17 @@ def delete_paths(bucket: Bucket, paths: list[str], *, request=None) -> list[str]
         obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
         if not obj:
             continue
+        assert_can_access_path(
+            principal,
+            bucket,
+            name,
+            write=True,
+            object_id=str(obj.id),
+        )
+        to_delete.append((name, obj))
+
+    deleted: list[str] = []
+    for name, obj in to_delete:
         delete_object(obj, request=request)
         deleted.append(name)
     return deleted
@@ -511,15 +530,49 @@ def summarize_prefix(bucket: Bucket, folder_path: str, *, principal=None) -> dic
 
 
 @transaction.atomic
-def delete_under_prefix(bucket: Bucket, folder_path: str, *, request=None) -> list[str]:
+def delete_under_prefix(
+    bucket: Bucket,
+    folder_path: str,
+    *,
+    principal,
+    request=None,
+) -> list[str]:
     """Delete every object under a folder prefix (recursive folder delete)."""
+    from .access import assert_can_access_path
+
     objs = list(objects_under_prefix(bucket, folder_path))
+    for obj in objs:
+        assert_can_access_path(
+            principal,
+            bucket,
+            obj.name,
+            write=True,
+            object_id=str(obj.id),
+        )
+
     deleted: list[str] = []
     for obj in objs:
-        name = obj.name
         delete_object(obj, request=request)
-        deleted.append(name)
+        deleted.append(obj.name)
     return deleted
+
+
+@transaction.atomic
+def empty_bucket(bucket: Bucket, *, principal, request=None) -> None:
+    """Remove every object in a bucket after path-level write ACL checks."""
+    from .access import assert_can_access_path
+
+    objs = list(bucket.files.all())
+    for obj in objs:
+        assert_can_access_path(
+            principal,
+            bucket,
+            obj.name,
+            write=True,
+            object_id=str(obj.id),
+        )
+    for obj in objs:
+        delete_object(obj, request=request)
 
 
 @transaction.atomic
