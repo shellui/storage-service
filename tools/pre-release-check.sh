@@ -224,10 +224,7 @@ import json, sys
 doc = json.load(sys.stdin)
 assert doc.get("status") == "ok", doc
 path = sys.argv[1]
-print(
-    "OK: %s → status=ok version=%s backend=%s"
-    % (path, doc.get("version"), doc.get("storage_backend"))
-)
+print("OK: %s → status=ok version=%s" % (path, doc.get("version")))
 ' "${HEALTH_PATH}"
 
 log "Pre-release check passed for ${VERSION}"

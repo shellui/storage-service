@@ -24,7 +24,7 @@ IDENTITY_JWKS_FILE=/app/data/jwks.json
 
 When either is set, storage never calls identity at runtime. After identity rotates signing keys, update the JSON and restart storage.
 
-`GET /storage/v1/health` reports `identity_jwks_source` as `env`, `file`, or `url`.
+`GET /storage/v1/health` is public and returns `status` and `version` only. With a valid Bearer JWT, the same endpoint also reports `identity_jwks_source` (`env`, `file`, or `url`), `identity_jwks_url`, and `storage_backend`.
 
 ## Local/dev: fetch from identity
 
