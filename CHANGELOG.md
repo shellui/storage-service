@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 🔒 Security
+
+- REST bulk delete, prefix delete, and bucket-empty now enforce path-level write ACL on every target (same as single-object delete and WebDAV), closing a gap where company bucket write access could delete another user's private files.
+
 ## [0.2.1] - 2026-09-07
 
 ### 🚨 Changed

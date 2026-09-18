@@ -77,6 +77,7 @@ from .services import (
     delete_object,
     delete_paths,
     delete_under_prefix,
+    empty_bucket,
     list_objects,
     move_object,
     rename_folder,
@@ -251,8 +252,7 @@ class BucketEmptyView(APIView):
     def post(self, request, bucket_id):
         try:
             bucket = get_accessible_bucket(request.user, bucket_id, write=True)
-            for obj in list(bucket.files.all()):
-                delete_object(obj, request=request)
+            empty_bucket(bucket, principal=request.user, request=request)
         except StorageError as exc:
             return _error(exc)
         return Response(True)
@@ -519,7 +519,12 @@ class ObjectDeleteManyView(APIView):
                 paths = paths.get('prefixes') or paths.get('paths') or []
             if not isinstance(paths, list):
                 return _error_message('Expected a JSON array of object paths')
-            deleted = delete_paths(bucket, [str(p) for p in paths], request=request)
+            deleted = delete_paths(
+                bucket,
+                [str(p) for p in paths],
+                principal=request.user,
+                request=request,
+            )
         except StorageError as exc:
             return _error(exc)
         return Response([{'name': name} for name in deleted])
@@ -591,7 +596,12 @@ class ObjectPrefixView(APIView):
             if not str(prefix).strip('/'):
                 return _error_message('prefix is required (refusing to delete the whole bucket)')
             safe_object_path(prefix)
-            deleted = delete_under_prefix(bucket, prefix, request=request)
+            deleted = delete_under_prefix(
+                bucket,
+                prefix,
+                principal=request.user,
+                request=request,
+            )
         except StorageError as exc:
             return _error(exc)
         except ValueError as exc:
