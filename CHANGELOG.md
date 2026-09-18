@@ -40,6 +40,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 🔒 Security
 
+- **H-10 bulk/prefix/empty delete ACL:** REST bulk delete, prefix delete, and bucket-empty now enforce path-level write ACL on every target (same as single-object delete and WebDAV), closing a gap where company bucket write access could delete another user's private files.
 - **Prefix stats ACL (M-20):** `GET /storage/v1/object/prefix/{bucket}` now omits objects the caller cannot read, matching list ACL filtering — no metadata leak on private prefixes.
 - **Signed URL TTL cap (M-21):** Client `expiresIn` / `expires_in` is capped to `SIGNED_URL_EXPIRES` (default 3600s); unset values use that setting instead of a hardcoded default.
 - **Health endpoint (M-24):** Anonymous `GET /storage/v1/health` returns only `status` and `version`; storage backend and JWKS fields require a valid Bearer token.
