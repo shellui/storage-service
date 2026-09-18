@@ -28,6 +28,11 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - **Prefix stats ACL (M-20):** `GET /storage/v1/object/prefix/{bucket}` now omits objects the caller cannot read, matching list ACL filtering — no metadata leak on private prefixes.
 - **Signed URL TTL cap (M-21):** Client `expiresIn` / `expires_in` is capped to `SIGNED_URL_EXPIRES` (default 3600s); unset values use that setting instead of a hardcoded default.
 - **Health endpoint (M-24):** Anonymous `GET /storage/v1/health` returns only `status` and `version`; storage backend and JWKS fields require a valid Bearer token.
+- Gate public first-run superuser bootstrap at `/`: disabled when `DEBUG=false` unless a valid `SETUP_TOKEN` is provided (query param, hidden form field, or `X-Setup-Token` header). Production installs should use `manage.py createsuperuser` or a one-time `SETUP_TOKEN` URL.
+
+### 📚 Documentation
+
+- Add `./tools/prod-config-check.sh` post-deploy smoke test for live HTTPS deployments (README + PUBLISH.md).
 
 ## [0.2.1] - 2026-09-07
 

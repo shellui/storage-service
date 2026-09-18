@@ -64,7 +64,7 @@ uv run python manage.py migrate
 uv run python manage.py runserver 8001
 ```
 
-Open `http://localhost:8001/` for Swagger / ReDoc. Create the one-time admin user from the home page if you need Django admin (quotas, grants, share links).
+Open `http://localhost:8001/` for Swagger / ReDoc. With `DEBUG=true` (local default), create the one-time admin user from the home page if you need Django admin (quotas, grants, share links). In production (`DEBUG=false`), use `uv run python manage.py createsuperuser`, or set `SETUP_TOKEN` and open `/?setup_token=<token>` once for the web form.
 
 Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package with `uv add <name>`; refresh the lock with `uv lock`.
 
@@ -156,6 +156,26 @@ Pull requests **to `main`** also run the pre-release checklist ([`.github/workfl
 ## Releases (Docker Hub)
 
 See [PUBLISH.md](PUBLISH.md) for the pre-release checklist (automated via `./tools/pre-release-check.sh`), tagging conventions, and steps to build, push, and deploy `shellui/storage-service` on Docker Hub.
+
+### Post-deploy prod check
+
+After a production deploy, run [`tools/prod-config-check.sh`](tools/prod-config-check.sh) against the live **storage API** URL (e.g. `https://files.shellui.com`).
+
+```bash
+# From a checkout of storage-service (develop/main)
+./tools/prod-config-check.sh https://files.shellui.com
+
+# Or one-off without a full clone:
+curl -fsSL https://raw.githubusercontent.com/shellui/storage-service/develop/tools/prod-config-check.sh -o prod-config-check.sh
+chmod +x prod-config-check.sh
+./prod-config-check.sh https://files.shellui.com
+```
+
+The script prints `PASS:` / `FAIL:` / `WARN:` / `INFO:` lines and exits **0** when all hard checks pass, **non-zero** if any `FAIL:` occurs.
+
+**Coolify / internal Postgres:** if the container fails at boot with Postgres SSL errors against an internal Docker database, storage parses `POSTGRES_DATABASE_URL` with `ssl_require=false` by default; if your orchestration still enforces TLS, set `POSTGRES_SSL_REQUIRE=false` (same pattern as [identity-service](https://github.com/shellui/identity-service)).
+
+Full check list, optional env vars (`CORS_PROBE_ORIGIN`, `EXPECTED_IDENTITY_ISSUER`), and deploy context: [PUBLISH.md — Post-deploy production config check](PUBLISH.md#post-deploy-production-config-check).
 
 ## Logs
 
