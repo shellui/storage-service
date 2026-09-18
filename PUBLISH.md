@@ -179,10 +179,10 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 
 Quick copy-paste commands and exit-code notes: [README — Post-deploy prod check](README.md#post-deploy-prod-check).
 
-After deploying a release, run the smoke script against the live HTTPS storage URL:
+After deploying a release, run the smoke script against the live **storage API** host (`https://storage.shellui.com`), not the Files SPA at `files.shellui.com` (GitHub Pages):
 
 ```bash
-./tools/prod-config-check.sh https://files.shellui.com
+./tools/prod-config-check.sh https://storage.shellui.com
 ```
 
 The script prints explicit `PASS:` / `FAIL:` / `WARN:` / `INFO:` lines and exits non-zero if any hard check fails. It verifies HTTPS reachability, public `GET /storage/v1/health` (200 JSON with `status=ok`), that protected `/storage/v1/*` routes return 401/403 (not 500) without a Bearer token, that `/` is not an open superuser signup form, permissive CORS for preview origins, identity JWKS wiring notes (via health + checklist), and security headers (HSTS warn-only).
@@ -204,7 +204,7 @@ One-off without a full clone:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/shellui/storage-service/develop/tools/prod-config-check.sh -o prod-config-check.sh
 chmod +x prod-config-check.sh
-./prod-config-check.sh https://files.shellui.com
+./prod-config-check.sh https://storage.shellui.com
 ```
 
 ### Required runtime env vars (production)
