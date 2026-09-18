@@ -27,7 +27,7 @@ Complete these steps **before** building and pushing a release tag. Prefer the a
 |------|------------------|
 | Version alignment | `pyproject.toml` version matches a dated `CHANGELOG.md` entry (`## [x.y.z] - YYYY-MM-DD`) and `uv.lock` |
 | Build secrets | `.env` / `*.sqlite3` not tracked; `.gitignore` / `.dockerignore` exclude `.env`; built image has no `/app/.env` |
-| Image smoke test | Container serves `/storage/v1/health` with `status=ok` (uses static `IDENTITY_JWKS`, no live identity) |
+| Image smoke test | Container serves `/storage/v1/health` with `status=ok` (static `IDENTITY_JWKS` + prod security defaults) |
 
 Options: `--skip-docker` (version + git hygiene only), `--image TAG`, `--port PORT`.
 
@@ -73,6 +73,10 @@ docker run --rm -d --name storage-release-smoke -p 18001:8000 \
   -e ALLOWED_HOSTS=localhost,127.0.0.1 \
   -e STORAGE_BACKEND=filesystem \
   -e IDENTITY_JWKS \
+  -e IDENTITY_ISSUER=https://pre-release.test \
+  -e IDENTITY_AUDIENCE=shellui \
+  -e SECURE_SSL_REDIRECT=false \
+  -e POSTGRES_SSL_REQUIRE=false \
   "shellui/storage-service:${VERSION}"
 
 curl -s http://127.0.0.1:18001/storage/v1/health
