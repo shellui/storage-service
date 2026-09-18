@@ -163,16 +163,16 @@ See [PUBLISH.md](PUBLISH.md) for the pre-release checklist (automated via `./too
 
 ### Post-deploy prod check
 
-After a production deploy, run [`tools/prod-config-check.sh`](tools/prod-config-check.sh) against the live **storage API** URL (e.g. `https://files.shellui.com`).
+After a production deploy, run [`tools/prod-config-check.sh`](tools/prod-config-check.sh) against the live **storage API** host (`https://storage.shellui.com`), not the Files SPA at `files.shellui.com` (GitHub Pages).
 
 ```bash
 # From a checkout of storage-service (develop/main)
-./tools/prod-config-check.sh https://files.shellui.com
+./tools/prod-config-check.sh https://storage.shellui.com
 
 # Or one-off without a full clone:
 curl -fsSL https://raw.githubusercontent.com/shellui/storage-service/develop/tools/prod-config-check.sh -o prod-config-check.sh
 chmod +x prod-config-check.sh
-./prod-config-check.sh https://files.shellui.com
+./prod-config-check.sh https://storage.shellui.com
 ```
 
 The script prints `PASS:` / `FAIL:` / `WARN:` / `INFO:` lines and exits **0** when all hard checks pass, **non-zero** if any `FAIL:` occurs.

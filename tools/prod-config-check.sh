@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Post-deploy production configuration smoke test for storage-service.
-# Run against a live HTTPS deployment (storage API host, e.g. files.shellui.com).
+# Run against a live HTTPS deployment (storage API host: storage.shellui.com).
+# Do not use files.shellui.com — that host is the Files SPA (GitHub Pages), not this API.
 #
 # Usage:
-#   ./tools/prod-config-check.sh https://files.shellui.com
+#   ./tools/prod-config-check.sh https://storage.shellui.com
 #
 # Optional env:
 #   CORS_PROBE_ORIGIN    Origin for CORS preflight (default: random preview-style origin)
