@@ -9,7 +9,6 @@ from django.conf import settings
 from django.core.files.base import ContentFile, File
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Count, Sum
 from django.utils import timezone
 
 from .access import access_summary, path_access_summary
@@ -400,8 +399,16 @@ def delete_object(obj: StorageObject, *, request=None) -> None:
 
 
 @transaction.atomic
-def delete_paths(bucket: Bucket, paths: list[str], *, request=None) -> list[str]:
-    deleted: list[str] = []
+def delete_paths(
+    bucket: Bucket,
+    paths: list[str],
+    *,
+    principal,
+    request=None,
+) -> list[str]:
+    from .access import assert_can_access_path
+
+    to_delete: list[tuple[str, StorageObject]] = []
     for raw in paths:
         try:
             name = safe_object_path(raw)
@@ -410,6 +417,17 @@ def delete_paths(bucket: Bucket, paths: list[str], *, request=None) -> list[str]
         obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
         if not obj:
             continue
+        assert_can_access_path(
+            principal,
+            bucket,
+            name,
+            write=True,
+            object_id=str(obj.id),
+        )
+        to_delete.append((name, obj))
+
+    deleted: list[str] = []
+    for name, obj in to_delete:
         delete_object(obj, request=request)
         deleted.append(name)
     return deleted
@@ -476,20 +494,30 @@ def objects_under_prefix(bucket: Bucket, folder_path: str):
     return StorageObject.objects.filter(bucket=bucket, name__startswith=_prefix_filter(folder_path))
 
 
-def summarize_prefix(bucket: Bucket, folder_path: str) -> dict:
+def summarize_prefix(bucket: Bucket, folder_path: str, *, principal=None) -> dict:
     """
     Stats for objects under a folder prefix.
 
     ``file_count`` excludes empty-folder placeholders so the UI can report how many
     real files will be removed.
+
+    When ``principal`` is provided, objects the principal cannot read are omitted
+    (same ACL filtering as ``list_objects``).
     """
+    from .access import can_access_path
+
     qs = objects_under_prefix(bucket, folder_path)
-    totals = qs.aggregate(object_count=Count('id'), total_bytes=Sum('size'))
-    object_count = totals['object_count'] or 0
-    total_bytes = totals['total_bytes'] or 0
+    object_count = 0
+    total_bytes = 0
     placeholder_count = 0
-    for name in qs.values_list('name', flat=True):
-        if name == FOLDER_PLACEHOLDER_NAME or name.endswith(f'/{FOLDER_PLACEHOLDER_NAME}'):
+    for obj in qs.iterator(chunk_size=500):
+        if principal is not None and not can_access_path(
+            principal, bucket, obj.name, object_id=str(obj.id)
+        ):
+            continue
+        object_count += 1
+        total_bytes += obj.size or 0
+        if obj.name == FOLDER_PLACEHOLDER_NAME or obj.name.endswith(f'/{FOLDER_PLACEHOLDER_NAME}'):
             placeholder_count += 1
     file_count = max(0, object_count - placeholder_count)
     return {
@@ -502,15 +530,49 @@ def summarize_prefix(bucket: Bucket, folder_path: str) -> dict:
 
 
 @transaction.atomic
-def delete_under_prefix(bucket: Bucket, folder_path: str, *, request=None) -> list[str]:
+def delete_under_prefix(
+    bucket: Bucket,
+    folder_path: str,
+    *,
+    principal,
+    request=None,
+) -> list[str]:
     """Delete every object under a folder prefix (recursive folder delete)."""
+    from .access import assert_can_access_path
+
     objs = list(objects_under_prefix(bucket, folder_path))
+    for obj in objs:
+        assert_can_access_path(
+            principal,
+            bucket,
+            obj.name,
+            write=True,
+            object_id=str(obj.id),
+        )
+
     deleted: list[str] = []
     for obj in objs:
-        name = obj.name
         delete_object(obj, request=request)
-        deleted.append(name)
+        deleted.append(obj.name)
     return deleted
+
+
+@transaction.atomic
+def empty_bucket(bucket: Bucket, *, principal, request=None) -> None:
+    """Remove every object in a bucket after path-level write ACL checks."""
+    from .access import assert_can_access_path
+
+    objs = list(bucket.files.all())
+    for obj in objs:
+        assert_can_access_path(
+            principal,
+            bucket,
+            obj.name,
+            write=True,
+            object_id=str(obj.id),
+        )
+    for obj in objs:
+        delete_object(obj, request=request)
 
 
 @transaction.atomic

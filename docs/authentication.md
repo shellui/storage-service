@@ -24,7 +24,7 @@ IDENTITY_JWKS_FILE=/app/data/jwks.json
 
 When either is set, storage never calls identity at runtime. After identity rotates signing keys, update the JSON and restart storage.
 
-`GET /storage/v1/health` reports `identity_jwks_source` as `env`, `file`, or `url`.
+`GET /storage/v1/health` is public and returns `status` and `version` only. With a valid Bearer JWT, the same endpoint also reports `identity_jwks_source` (`env`, `file`, or `url`), `identity_jwks_url`, and `storage_backend`.
 
 ## Local/dev: fetch from identity
 
@@ -51,8 +51,8 @@ If `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` is set, it wins and the URL is ignore
 | `IDENTITY_JWKS` | JWKS JSON inline (production, easy in Coolify) |
 | `IDENTITY_SERVICE_URL` | Identity base URL; derives `{url}/.well-known/jwks.json` when no local document / explicit JWKS URL |
 | `IDENTITY_JWKS_URL` | Optional fetch URL override (different host than `IDENTITY_SERVICE_URL`) |
-| `IDENTITY_ISSUER` | Optional `iss` claim check |
-| `IDENTITY_AUDIENCE` | Optional `aud` claim check |
+| `IDENTITY_ISSUER` | **Required when `DEBUG=false`.** Must match identity-service `JWT_ISSUER` (0.5.0+), e.g. `https://id.shellui.com` |
+| `IDENTITY_AUDIENCE` | **Required when `DEBUG=false`.** Must match identity-service `JWT_AUDIENCE` (0.5.0+), typically `shellui` |
 | `JWKS_CACHE_TTL` | Seconds to cache a **fetched** JWKS (default `900`; unused for local documents) |
 | `JWKS_TIMEOUT` | Seconds to wait for a JWKS HTTP response (default `15`; connect cap `5`) |
 | `JWKS_RETRIES` | Extra JWKS fetch attempts after timeout / 5xx (default `2`; 4xx is not retried) |
@@ -87,7 +87,7 @@ Look for `JWT` on the `apps.authapi.authentication` / `apps.authapi.jwks_client`
 | Log field | What it tells you |
 |-----------|-------------------|
 | `alg` / `kid` | Token header. `HS256` with no fallback means identity is in DEBUG mode — set `JWT_HS256_FALLBACK_SECRET`. `kid` missing from `jwks_kids` means storage's JWKS is stale; recopy `IDENTITY_JWKS`. |
-| `iss` / `aud` / `exp` | Unverified claims (signature not trusted). Mismatch against `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE` if those are set. |
+| `iss` / `aud` / `exp` | Unverified claims (signature not trusted). In production, `iss`/`aud` must match `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`. |
 | `jwks_source` / `jwks_kids` | Where keys were loaded (`env`, `file`, or `url`) and which `kid`s storage currently has. |
 | `request_id` / `[req=…]` | Correlate one HTTP call. The 401 JSON includes `request_id`; the same value is in `X-Request-ID`. |
 

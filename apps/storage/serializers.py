@@ -17,9 +17,9 @@ class ErrorSerializer(serializers.Serializer):
 class HealthSerializer(serializers.Serializer):
     status = serializers.CharField()
     version = serializers.CharField()
-    storage_backend = serializers.CharField()
-    identity_jwks_source = serializers.CharField()
-    identity_jwks_url = serializers.CharField(allow_null=True)
+    storage_backend = serializers.CharField(required=False)
+    identity_jwks_source = serializers.CharField(required=False)
+    identity_jwks_url = serializers.CharField(required=False, allow_null=True)
 
 
 class BucketAccessSerializer(serializers.Serializer):

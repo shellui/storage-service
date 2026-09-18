@@ -151,6 +151,9 @@
 
       <form method="post" novalidate>
         {% csrf_token %}
+        {% if setup_token %}
+          <input type="hidden" name="setup_token" value="{{ setup_token }}">
+        {% endif %}
         <div class="row">
           <label for="{{ form.username.id_for_label }}">Username</label>
           {{ form.username }}
@@ -194,7 +197,13 @@
       {% if setup_done %}
         <div class="success">Initial user created successfully. Setup is now locked.</div>
       {% endif %}
-      <p>Object storage for Shellui. Explore the API documentation using:</p>
+      {% if bootstrap_blocked %}
+        <p>No administrator account exists yet. Public bootstrap is disabled in this environment. Create the first superuser with:</p>
+        <p class="tiny"><code>uv run python manage.py createsuperuser</code></p>
+        <p class="tiny">Alternatively, set <code>SETUP_TOKEN</code> and open <code>/?setup_token=&lt;token&gt;</code> for a one-time web setup.</p>
+      {% else %}
+        <p>Object storage for Shellui. Explore the API documentation using:</p>
+      {% endif %}
       <ul class="links">
         <li><a href="{{ swagger_url }}">Swagger UI</a></li>
         <li><a href="{{ redoc_url }}">ReDoc</a></li>

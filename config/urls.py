@@ -15,7 +15,6 @@ from . import views
 
 urlpatterns = [
     path('', views.root, name='root'),
-    path('admin/', storage_admin_site.urls),
     path('storage/v1/', include('apps.storage.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path(
@@ -29,6 +28,9 @@ urlpatterns = [
         name='redoc',
     ),
 ]
+
+if settings.DJANGO_ADMIN_ENABLED:
+    urlpatterns.insert(1, path('admin/', storage_admin_site.urls))
 
 if settings.WEBDAV_ENABLED:
     urlpatterns.append(

@@ -198,10 +198,16 @@ trap cleanup EXIT
 export SECRET_KEY="${SECRET_KEY:-$(uv run python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')}"
 export IDENTITY_JWKS="${IDENTITY_JWKS:-$(make_smoke_jwks)}"
 [[ -n "${IDENTITY_JWKS}" ]] || fail 'failed to build smoke IDENTITY_JWKS'
+export IDENTITY_ISSUER="${IDENTITY_ISSUER:-https://pre-release.test}"
+export IDENTITY_AUDIENCE="${IDENTITY_AUDIENCE:-shellui}"
 
 docker run --rm -d --name "${CONTAINER_NAME}" -p "${HOST_PORT}:8000" \
   -e SECRET_KEY \
   -e IDENTITY_JWKS \
+  -e IDENTITY_ISSUER \
+  -e IDENTITY_AUDIENCE \
+  -e SECURE_SSL_REDIRECT=false \
+  -e POSTGRES_SSL_REQUIRE=false \
   -e STORAGE_BACKEND=filesystem \
   -e ALLOWED_HOSTS=localhost,127.0.0.1 \
   "${IMAGE_TAG}" >/dev/null
@@ -217,17 +223,21 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
-[[ "${ready}" -eq 1 ]] || fail "service did not become ready on ${HEALTH_PATH} (last body: ${body:-empty})"
+if [[ "${ready}" -ne 1 ]]; then
+  printf 'ERROR: service did not become ready on %s (last body: %s)\n' \
+    "${HEALTH_PATH}" "${body:-empty}" >&2
+  printf '\n--- docker logs (%s) ---\n' "${CONTAINER_NAME}" >&2
+  docker logs "${CONTAINER_NAME}" 2>&1 >&2 || true
+  printf '--- end docker logs ---\n' >&2
+  exit 1
+fi
 
 printf '%s' "${body}" | python3 -c '
 import json, sys
 doc = json.load(sys.stdin)
 assert doc.get("status") == "ok", doc
 path = sys.argv[1]
-print(
-    "OK: %s → status=ok version=%s backend=%s"
-    % (path, doc.get("version"), doc.get("storage_backend"))
-)
+print("OK: %s → status=ok version=%s" % (path, doc.get("version")))
 ' "${HEALTH_PATH}"
 
 log "Pre-release check passed for ${VERSION}"
