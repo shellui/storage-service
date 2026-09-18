@@ -45,7 +45,11 @@ def build_download_response(
 
 def build_signed_url(obj: StorageObject, expires_in: int | None = None) -> str:
     """Return a URL clients can use to fetch the object (signed when using S3)."""
-    expires_in = expires_in or settings.SIGNED_URL_EXPIRES
+    max_expires = settings.SIGNED_URL_EXPIRES
+    if expires_in is None:
+        expires_in = max_expires
+    else:
+        expires_in = max(1, min(int(expires_in), max_expires))
     try:
         if is_s3_backend() and hasattr(default_storage, 'url'):
             try:

@@ -1,4 +1,4 @@
-"""CORS: preview origins must be allowed without per-slug env entries."""
+"""CORS: Bearer JWT + allow-all origins (no credentials)."""
 
 from django.test import Client, TestCase, override_settings
 

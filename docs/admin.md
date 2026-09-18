@@ -2,13 +2,24 @@
 
 The Django admin at `/admin/` includes an **upload statistics** dashboard for operators.
 
+**Security:** Admin is **cross-tenant** — it lists all companies' buckets, objects, and quotas. For production:
+
+- Set `DJANGO_ADMIN_ENABLED=false` on public API pods and run admin on a separate internal deployment.
+- Restrict admin to a private network, VPN, or IP allowlist.
+- Enforce MFA on operator accounts via your identity provider.
+- Prefer `manage.py createsuperuser` over the home-page bootstrap when `DEBUG=false`.
+
+See [Production security](security.md) for the full hardening checklist.
+
 ## Access
 
-1. Create the one-time superuser from the service home page (first visit only), or:
+1. Create the first superuser:
 
 ```bash
 uv run python manage.py createsuperuser
 ```
+
+With `DEBUG=true` (local default), the home page also shows a one-time web form on first visit. In production (`DEBUG=false`), the form is hidden unless you set `SETUP_TOKEN` and open `/?setup_token=<token>` once.
 
 2. Open `http://localhost:8001/admin/` and sign in.
 3. Full report: `http://localhost:8001/admin/statistics/`

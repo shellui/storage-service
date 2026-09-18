@@ -171,22 +171,61 @@ The entrypoint runs migrations on start, then starts Gunicorn on port 8000.
 
 Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JWKS (`IDENTITY_JWKS` or `IDENTITY_JWKS_FILE`), then `docker compose up --build`.
 
+### Post-deploy production config check
+
+Quick copy-paste commands and exit-code notes: [README — Post-deploy prod check](README.md#post-deploy-prod-check).
+
+After deploying a release, run the smoke script against the live HTTPS storage URL:
+
+```bash
+./tools/prod-config-check.sh https://files.shellui.com
+```
+
+The script prints explicit `PASS:` / `FAIL:` / `WARN:` / `INFO:` lines and exits non-zero if any hard check fails. It verifies HTTPS reachability, public `GET /storage/v1/health` (200 JSON with `status=ok`), that protected `/storage/v1/*` routes return 401/403 (not 500) without a Bearer token, that `/` is not an open superuser signup form, permissive CORS for preview origins, identity JWKS wiring notes (via health + checklist), and security headers (HSTS warn-only).
+
+Optional environment:
+
+| Variable                   | Default                                      |
+| -------------------------- | -------------------------------------------- |
+| `CORS_PROBE_ORIGIN`        | `https://example-preview-slug.shellui.app`   |
+| `EXPECTED_IDENTITY_ISSUER` | unset (printed as INFO checklist)            |
+| `EXPECTED_IDENTITY_AUDIENCE` | `shellui`                                  |
+
+Full JWT upload/download flows cannot be verified without identity-service tokens — the script prints guidance for `IDENTITY_JWKS` / `IDENTITY_JWKS_FILE` and `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`.
+
+**Coolify / internal Postgres:** storage parses `POSTGRES_DATABASE_URL` with `ssl_require=false` by default. If boot still fails with SSL errors against an internal Docker Postgres, set `POSTGRES_SSL_REQUIRE=false` in orchestration (same gotcha as identity-service 0.5.0).
+
+One-off without a full clone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shellui/storage-service/develop/tools/prod-config-check.sh -o prod-config-check.sh
+chmod +x prod-config-check.sh
+./prod-config-check.sh https://files.shellui.com
+```
+
 ### Required runtime env vars (production)
 
 | Variable            | Notes                                                                                      |
 | ------------------- | ------------------------------------------------------------------------------------------ |
 | `SECRET_KEY`        | Required; Django sessions/CSRF. Generate with `get_random_secret_key()`.                   |
 | `IDENTITY_JWKS` or `IDENTITY_JWKS_FILE` | Public JWKS JSON (preferred in production; no HTTP to identity).          |
+| `IDENTITY_ISSUER`   | Required when `DEBUG=false`; must match identity `JWT_ISSUER` (0.5.0+).                   |
+| `IDENTITY_AUDIENCE` | Required when `DEBUG=false`; must match identity `JWT_AUDIENCE` (typically `shellui`).      |
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
+
+First superuser: run `python manage.py createsuperuser` inside the container (or exec), or set a one-time `SETUP_TOKEN` and open `/?setup_token=<token>` — the public home form is disabled when `DEBUG=false` and no token is provided.
 
 ### Optional runtime env vars
 
 | Variable                | Notes                                                                 |
 | ----------------------- | --------------------------------------------------------------------- |
 | `CORS_ALLOW_ALL_ORIGINS` | Default `true` (permissive API CORS; Bearer JWT is the auth boundary). Set `false` to lock down. |
+| `CORS_ALLOW_CREDENTIALS` | Default `false`. Must not be `true` when allow-all is enabled.          |
 | `CORS_ALLOWED_ORIGINS`  | Used when `CORS_ALLOW_ALL_ORIGINS=false`; Shellui / admin front-end origins. |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
+| `POSTGRES_SSL_REQUIRE`  | Default `true` when `DEBUG=false`; set `false` for internal DB only.  |
+| `DJANGO_ADMIN_ENABLED`  | Default `true`; set `false` on public API pods (see `docs/security.md`). |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
 | `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |
 | `AWS_S3_ENDPOINT_URL`   | MinIO/R2 origin (e.g. `http://minio:9000`). Omit for AWS.             |
@@ -194,6 +233,7 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 | `SENTRY_DSN`            | Sentry error reporting.                                               |
 | `SENTRY_ENVIRONMENT`    | e.g. `staging`, `production`.                                         |
 | `LOG_LEVEL`             | `DEBUG`, `INFO`, `WARNING`, … (default `DEBUG` when `DEBUG=true`, else `INFO`). |
+| `SETUP_TOKEN`           | One-time token for web superuser bootstrap when `DEBUG=false`; prefer `createsuperuser`. |
 
 With Postgres:
 
@@ -217,9 +257,14 @@ With S3:
 | `.env` in image         | Excluded via `.dockerignore`                        |
 | Runtime `SECRET_KEY`    | Must be provided; never baked into the image        |
 | `DEBUG`                 | Defaults to `false` in Dockerfile                   |
+| JWT `iss` / `aud`       | Required when `DEBUG=false` (`IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`) |
+| CORS allow-all          | Allowed when credentials are off; startup fails if both allow-all and credentials |
 | HS256 JWT fallback      | Refused when `DEBUG=false` unless explicitly allowed |
+| Filesystem signed URLs  | Not cryptographically signed; use S3 in production  |
+| Django admin            | Cross-tenant; disable on API pods or restrict network + MFA |
 | SQLite / blob files     | Excluded from image; use volume or S3 + Postgres    |
 | Public object downloads | Disabled; use share links for anonymous access      |
+| First-run bootstrap     | Home superuser form disabled when `DEBUG=false` without `SETUP_TOKEN` |
 
 Do not commit `.env` or real AWS keys to git. Do not pass secrets as Docker build args unless you accept they may appear in image history.
 
