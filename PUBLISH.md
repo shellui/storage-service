@@ -177,6 +177,8 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 | ------------------- | ------------------------------------------------------------------------------------------ |
 | `SECRET_KEY`        | Required; Django sessions/CSRF. Generate with `get_random_secret_key()`.                   |
 | `IDENTITY_JWKS` or `IDENTITY_JWKS_FILE` | Public JWKS JSON (preferred in production; no HTTP to identity).          |
+| `IDENTITY_ISSUER`   | Required when `DEBUG=false`; must match identity `JWT_ISSUER` (0.5.0+).                   |
+| `IDENTITY_AUDIENCE` | Required when `DEBUG=false`; must match identity `JWT_AUDIENCE` (typically `shellui`).      |
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
 
@@ -185,8 +187,11 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 | Variable                | Notes                                                                 |
 | ----------------------- | --------------------------------------------------------------------- |
 | `CORS_ALLOW_ALL_ORIGINS` | Default `true` (permissive API CORS; Bearer JWT is the auth boundary). Set `false` to lock down. |
+| `CORS_ALLOW_CREDENTIALS` | Default `false`. Must not be `true` when allow-all is enabled.          |
 | `CORS_ALLOWED_ORIGINS`  | Used when `CORS_ALLOW_ALL_ORIGINS=false`; Shellui / admin front-end origins. |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
+| `POSTGRES_SSL_REQUIRE`  | Default `true` when `DEBUG=false`; set `false` for internal DB only.  |
+| `DJANGO_ADMIN_ENABLED`  | Default `true`; set `false` on public API pods (see `docs/security.md`). |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
 | `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |
 | `AWS_S3_ENDPOINT_URL`   | MinIO/R2 origin (e.g. `http://minio:9000`). Omit for AWS.             |
@@ -217,7 +222,11 @@ With S3:
 | `.env` in image         | Excluded via `.dockerignore`                        |
 | Runtime `SECRET_KEY`    | Must be provided; never baked into the image        |
 | `DEBUG`                 | Defaults to `false` in Dockerfile                   |
+| JWT `iss` / `aud`       | Required when `DEBUG=false` (`IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`) |
+| CORS allow-all          | Allowed when credentials are off; startup fails if both allow-all and credentials |
 | HS256 JWT fallback      | Refused when `DEBUG=false` unless explicitly allowed |
+| Filesystem signed URLs  | Not cryptographically signed; use S3 in production  |
+| Django admin            | Cross-tenant; disable on API pods or restrict network + MFA |
 | SQLite / blob files     | Excluded from image; use volume or S3 + Postgres    |
 | Public object downloads | Disabled; use share links for anonymous access      |
 

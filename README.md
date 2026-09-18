@@ -19,7 +19,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
-- CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`); auth is Bearer JWT — do not list every hosting preview origin in env
+- CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`, credentials off); auth is Bearer JWT — multi-tenant preview origins work without per-slug env lists (see [docs/security.md](docs/security.md))
 
 ## Project structure
 
@@ -78,6 +78,10 @@ curl -sS https://id.shellui.com/.well-known/jwks.json
 
 # Coolify / production — paste the JSON
 IDENTITY_JWKS={"keys":[...]}
+
+# Required when DEBUG=false (match identity-service 0.5.0+ JWT_ISSUER / JWT_AUDIENCE)
+IDENTITY_ISSUER=https://id.shellui.com
+IDENTITY_AUDIENCE=shellui
 
 # Or a file on the data volume
 IDENTITY_JWKS_FILE=/app/data/jwks.json

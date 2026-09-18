@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased] - 2026-09-18
+
+### 🔒 Security
+
+- **M-01 CORS:** Allow `CORS_ALLOW_ALL_ORIGINS=true` in production when `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT). Startup fails if allow-all and credentials are both enabled. Document multi-tenant CORS model; do not require static customer origin lists.
+- **M-03 JWT iss/aud:** Require `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` when `DEBUG=false`, aligned with identity-service 0.5.0+ (`JWT_ISSUER` / `JWT_AUDIENCE`).
+- **M-12 env hygiene:** `.env.example` uses placeholders only (no insecure literal secrets).
+- **M-22 signed URLs:** Document that filesystem “signed” URLs are not cryptographically signed; use S3 in production and do not expose `/media/` publicly.
+- **M-23 admin:** Document cross-tenant admin isolation; optional `DJANGO_ADMIN_ENABLED=false` for API pods; MFA and network-lock guidance.
+- **Transport / Postgres:** HSTS and secure cookies when `DEBUG=false`; `POSTGRES_SSL_REQUIRE` defaults to `true` with `false` escape for internal databases.
+
+### 📚 Documentation
+
+- Add [Production security](docs/security.md) guide.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
