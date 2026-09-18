@@ -27,7 +27,6 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 🔒 Security
 
-
 - **M-01 CORS:** Allow `CORS_ALLOW_ALL_ORIGINS=true` in production when `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT). Startup fails if allow-all and credentials are both enabled. Document multi-tenant CORS model; do not require static customer origin lists.
 - **M-03 JWT iss/aud:** Require `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` when `DEBUG=false`, aligned with identity-service 0.5.0+ (`JWT_ISSUER` / `JWT_AUDIENCE`).
 - **M-12 env hygiene:** `.env.example` uses placeholders only (no insecure literal secrets).
