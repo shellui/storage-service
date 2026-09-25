@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 

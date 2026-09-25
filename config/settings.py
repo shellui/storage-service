@@ -169,6 +169,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'drf_spectacular',
     'storages',
+    'config.apps.ConfigConfig',
     'apps.authapi',
     'apps.storage',
     'apps.webdav',
@@ -274,6 +275,12 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'static']
+
+if DEBUG:
+    # Local dev: serve assets from STATICFILES_DIRS without collectstatic.
+    WHITENOISE_USE_FINDERS = True
+    WHITENOISE_AUTOREFRESH = True
 
 MEDIA_URL = '/media/'
 _media_root = os.getenv('MEDIA_ROOT', '').strip()
