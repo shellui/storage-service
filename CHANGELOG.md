@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Add root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
