@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Changed
 
 - **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
+- **Docs site (Docusaurus):** Navbar, footer, Shellui SDK theme sync, and desktop menu match identity-service / shellui.com docs chrome; storage-specific URLs and wordmark retained.
+
+### Documentation
+
+- Ported identity-service Docusaurus theme overrides (`tools/docusaurus/src/theme/**`, `shellui-init.js`, favicons) for published docs at `storage.docs.shellui.com`.
 
 <!---
 ## [Unreleased] - yyyy-mm-dd
