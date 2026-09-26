@@ -1,0 +1,67 @@
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 0;
+}
+
+::view-transition-new(root) {
+  z-index: 1;
+  animation: theme-reveal 0.4s ease-in-out forwards;
+}
+
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0% at var(--x, 50%) var(--y, 50%));
+    opacity: 0.7;
+  }
+  to {
+    clip-path: circle(150% at var(--x, 50%) var(--y, 50%));
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+.page-x {
+  @apply px-4 sm:px-6 lg:px-8;
+}
+
+.page-top {
+  @apply pt-20 md:pt-24 lg:pt-32;
+}
+
+.logo-sprite {
+  @apply absolute h-0 w-0 overflow-hidden;
+}
+
+@layer components {
+  .hosting-form label {
+    @apply text-sm font-semibold text-foreground;
+  }
+
+  .hosting-form input {
+    @apply w-full rounded-md border border-border bg-background px-3 py-2.5 text-base text-foreground outline-none focus:border-foreground focus:ring-2 focus:ring-ring/30;
+  }
+
+  .hosting-form .row {
+    @apply mb-3 grid gap-1.5;
+  }
+}

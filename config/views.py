@@ -121,8 +121,31 @@ def root(request):
         'swagger_url': reverse('swagger-ui'),
         'redoc_url': reverse('redoc'),
         'schema_url': reverse('schema'),
+        'health_url': reverse('storage-health'),
+        'admin_url': reverse('admin:index'),
+        'django_admin_enabled': settings.DJANGO_ADMIN_ENABLED,
         'version': settings.VERSION,
         'setup_done': request.GET.get('setup') == 'done',
         'setup_token': _provided_setup_token(request) if bootstrap_allowed and not has_users else '',
+        'website_url': getattr(settings, 'SHELLUI_WEBSITE_URL', 'https://shellui.com'),
+        'docs_url': getattr(settings, 'SHELLUI_DOCS_URL', 'https://docs.shellui.com'),
+        'playground_url': getattr(
+            settings, 'SHELLUI_PLAYGROUND_URL', 'https://playground.shellui.com'
+        ),
+        'storage_docs_url': getattr(
+            settings,
+            'SHELLUI_STORAGE_DOCS_URL',
+            'https://storage.docs.shellui.com',
+        ),
+        'identity_docs_url': getattr(
+            settings,
+            'SHELLUI_IDENTITY_DOCS_URL',
+            'https://identity.docs.shellui.com',
+        ),
+        'github_url': getattr(
+            settings,
+            'SHELLUI_GITHUB_STORAGE_URL',
+            'https://github.com/shellui/storage-service',
+        ),
     }
     return render(request, 'home.html', context)

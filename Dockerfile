@@ -1,4 +1,15 @@
 # syntax=docker/dockerfile:1
+FROM node:22-bookworm-slim AS frontend
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY assets ./assets
+COPY templates ./templates
+RUN npm run build:css
+
 FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -22,6 +33,7 @@ COPY pyproject.toml uv.lock /app/
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . /app
+COPY --from=frontend /app/static/css/site.css /app/static/css/site.css
 
 RUN DEBUG=true \
     SECRET_KEY=build-only-not-for-runtime \
