@@ -5,12 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [Unreleased]
-
-### Changed
-
-- **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
-
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
@@ -26,6 +20,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
+
+## [Unreleased]
+
+### 📚 Documentation
+
+- Add root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
+
+### 🛠 Improvements
+
+- **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
 
 ## [0.3.0] - 2026-09-18
 
