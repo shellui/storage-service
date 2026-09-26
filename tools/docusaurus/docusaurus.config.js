@@ -1,130 +1,131 @@
 // @ts-check
 
-const lightCodeTheme = require("prism-react-renderer").themes.github;
-const darkCodeTheme = require("prism-react-renderer").themes.vsDark;
+const lightCodeTheme = require('prism-react-renderer').themes.github;
+const darkCodeTheme = require('prism-react-renderer').themes.vsDark;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: "Shellui storage-service",
-  tagline: "Supabase-compatible storage backend for Shellui",
-  favicon: "img/favicon.ico",
+  title: 'Shellui storage-service',
+  tagline: 'Supabase-compatible storage backend for Shellui',
+  favicon: 'img/favicon.ico',
   headTags: [
     {
-      tagName: "link",
+      tagName: 'link',
       attributes: {
-        rel: "icon",
-        type: "image/png",
-        sizes: "32x32",
-        href: "/img/favicon-32x32.png",
+        rel: 'icon',
+        type: 'image/png',
+        sizes: '32x32',
+        href: '/img/favicon-32x32.png',
       },
     },
     {
-      tagName: "link",
+      tagName: 'link',
       attributes: {
-        rel: "icon",
-        type: "image/png",
-        sizes: "16x16",
-        href: "/img/favicon-16x16.png",
+        rel: 'icon',
+        type: 'image/png',
+        sizes: '16x16',
+        href: '/img/favicon-16x16.png',
       },
     },
     {
-      tagName: "link",
+      tagName: 'link',
       attributes: {
-        rel: "apple-touch-icon",
-        sizes: "180x180",
-        href: "/img/apple-touch-icon.png",
+        rel: 'apple-touch-icon',
+        sizes: '180x180',
+        href: '/img/apple-touch-icon.png',
       },
     },
   ],
-  url: "https://storage.docs.shellui.com",
-  baseUrl: "/",
-  onBrokenLinks: "throw",
+
+  url: 'https://storage.docs.shellui.com',
+  baseUrl: '/',
+
+  organizationName: 'shellui',
+  projectName: 'storage-service',
+
+  onBrokenLinks: 'throw',
   markdown: {
     hooks: {
-      onBrokenMarkdownLinks: "warn",
+      onBrokenMarkdownLinks: 'warn',
     },
   },
+
+  clientModules: [require.resolve('./src/shellui-init.js')],
+
   i18n: {
-    defaultLocale: "en",
-    locales: ["en"],
+    defaultLocale: 'en',
+    locales: ['en'],
   },
+
   presets: [
     [
-      "classic",
+      'classic',
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
-          path: "../../docs",
-          routeBasePath: "/",
-          sidebarPath: require.resolve("./sidebars.js"),
+          path: '../../docs',
+          routeBasePath: '/',
+          sidebarPath: require.resolve('./sidebars.js'),
+          editUrl:
+            'https://github.com/shellui/storage-service/tree/main/',
         },
         blog: false,
         theme: {
-          customCss: require.resolve("./src/css/custom.css"),
+          customCss: require.resolve('./src/css/custom.css'),
         },
       }),
     ],
   ],
+
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       colorMode: {
-        defaultMode: "light",
+        defaultMode: 'light',
         disableSwitch: false,
         respectPrefersColorScheme: true,
       },
       navbar: {
-        title: "storage-service",
+        title: '',
         hideOnScroll: false,
         logo: {
-          alt: "Shellui documentation",
-          src: "img/shellui_documentation_logo.png",
-          href: "/",
-          height: 22,
-          width: 202,
+          alt: 'Shellui storage-service documentation',
+          src: 'img/shellui_documentation_logo.png',
+          href: '/',
+          height: 28,
+          width: 257,
         },
         items: [
           {
-            type: "docSidebar",
-            sidebarId: "tutorialSidebar",
-            position: "left",
-            label: "Documentation",
-            className: "navbar__docs-link",
+            type: 'docSidebar',
+            sidebarId: 'tutorialSidebar',
+            position: 'left',
+            label: 'Documentation',
+            className: 'navbar__docs-link',
           },
           {
-            href: "https://shellui.com",
-            label: "Website",
-            position: "right",
+            href: 'https://docs.shellui.com',
+            label: 'Shellui docs',
+            position: 'left',
+            className: 'navbar__mobile-only-link',
+          },
+          {
+            href: 'https://shellui.com',
+            label: 'Shellui.com',
+            position: 'left',
+            className: 'navbar__mobile-only-link',
+          },
+          {
+            href: 'https://github.com/shellui/storage-service',
+            label: 'GitHub',
+            position: 'left',
+            className: 'navbar__mobile-only-link',
           },
         ],
       },
       footer: {
-        style: "light",
-        links: [
-          {
-            title: "Docs",
-            items: [
-              {
-                label: "Introduction",
-                to: "/",
-              },
-            ],
-          },
-          {
-            title: "Resources",
-            items: [
-              {
-                label: "Shellui.com",
-                href: "https://shellui.com",
-              },
-              {
-                label: "GitHub",
-                href: "https://github.com/shellui/storage-service",
-              },
-            ],
-          },
-        ],
-        copyright: `Copyright © ${new Date().getFullYear()} Shellui.`,
+        style: 'light',
+        copyright: `© ${new Date().getFullYear()} Shellui. All rights reserved.`,
       },
       prism: {
         theme: lightCodeTheme,

@@ -26,6 +26,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 📚 Documentation
 
 - Add root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
+- Ported identity-service Docusaurus theme overrides (`tools/docusaurus/src/theme/**`, `shellui-init.js`, favicons) for published docs at `storage.docs.shellui.com`.
 
 ### 🛠 Improvements
 
