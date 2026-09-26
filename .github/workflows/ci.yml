@@ -40,6 +40,19 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen --no-dev
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Build landing CSS (Tailwind)
+        run: |
+          npm ci
+          npm run build:css
+          git diff --exit-code static/css/site.css
+
       - name: Verify lockfile
         run: uv lock --check
 

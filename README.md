@@ -60,11 +60,14 @@ Auth header: `Authorization: Bearer <access_token>` from identity-service. Supab
 uv sync
 cp .env.example .env
 # Set SECRET_KEY; local identity JWKS URL is already in .env.example
+npm ci && npm run build:css   # first run only (or skip — runserver rebuilds when DEBUG=true)
 uv run python manage.py migrate
 uv run python manage.py runserver 8001
 ```
 
-Open `http://localhost:8001/` for Swagger / ReDoc. With `DEBUG=true` (local default), create the one-time admin user from the home page if you need Django admin (quotas, grants, share links). In production (`DEBUG=false`), use `uv run python manage.py createsuperuser`, or set `SETUP_TOKEN` and open `/?setup_token=<token>` once for the web form.
+The root landing page (`templates/home.html`) uses Tailwind utilities compiled into `static/css/site.css`. With `DEBUG=true`, **`runserver` runs `npm run build:css` once at startup** (and runs `npm ci` if `node_modules` is missing). For live template/CSS edits, use a second terminal: `npm run watch:css`. Production images and CI build minified CSS before `collectstatic`; Node is not required at runtime.
+
+Open `http://localhost:8001/` for the Shellui Storage homepage, Swagger, and ReDoc. With `DEBUG=true` (local default), create the one-time admin user from the home page if you need Django admin (quotas, grants, share links). In production (`DEBUG=false`), use `uv run python manage.py createsuperuser`, or set `SETUP_TOKEN` and open `/?setup_token=<token>` once for the web form.
 
 Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package with `uv add <name>`; refresh the lock with `uv lock`.
 
