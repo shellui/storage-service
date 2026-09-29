@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from apps.actions.handlers.webhook import WebhookDeliveryError, deliver_webhook_action
 from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
-from apps.actions.webhook_retry import next_attempt_delay_seconds
+from apps.actions.webhook_retry import compute_retry_delay_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -166,11 +166,11 @@ def _apply_delivery_result(
     else:
         row.status = ActionOutbox.STATUS_FAILED
         row.last_error = attempt_error
-        delay = next_attempt_delay_seconds(
+        delay = compute_retry_delay_seconds(
             attempt_number=attempt_number,
             http_status=attempt_meta.get('http_status'),
             retry_after_seconds=attempt_meta.get('retry_after_seconds'),
-            backoff_seconds=_backoff_seconds(attempt_number),
+            base_backoff_seconds=_backoff_seconds(attempt_number),
         )
         row.next_attempt_at = timezone.now() + timedelta(seconds=delay)
     row.save(

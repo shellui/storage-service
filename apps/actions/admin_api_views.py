@@ -14,14 +14,15 @@ from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
 from apps.actions.registry import all_event_types, event_field_doc_dict, get_event_type
 from apps.actions.rule_config import build_webhook_config, mask_config_for_response
 from apps.actions.serializers import ActionRuleCreateSerializer, ActionRuleUpdateSerializer, OpenAPISerializer
+from apps.actions.webhook_signing import generate_webhook_signing_secret
 from apps.actions.webhook_test_send import send_webhook_test_for_rule
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
 
 SUPPORTED_ACTION_KINDS = [ActionRule.ACTION_WEBHOOK]
 
 
-def _action_rule_payload(rule: ActionRule) -> dict:
-    return {
+def _action_rule_payload(rule: ActionRule, *, reveal_secret: bool = False) -> dict:
+    data = {
         'id': rule.pk,
         'company_id': rule.company_id,
         'name': rule.name,
@@ -33,6 +34,11 @@ def _action_rule_payload(rule: ActionRule) -> dict:
         'created_at': rule.created_at.isoformat(),
         'updated_at': rule.updated_at.isoformat(),
     }
+    if reveal_secret:
+        secret = ((rule.config or {}).get('secret') or '').strip()
+        if secret:
+            data['secret'] = secret
+    return data
 
 
 def _delivery_attempt_payload(row: DeliveryAttempt) -> dict:
@@ -192,7 +198,7 @@ class ShellUIAdminActionRuleListCreateView(_ActionsAdminBase):
         if cfg_err:
             return cfg_err
         rule.save()
-        return Response(_action_rule_payload(rule), status=status.HTTP_201_CREATED)
+        return Response(_action_rule_payload(rule, reveal_secret=True), status=status.HTTP_201_CREATED)
 
 
 @extend_schema_view(
@@ -253,6 +259,32 @@ class ShellUIAdminActionRuleDetailView(_ActionsAdminBase):
             return err
         rule.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        tags=['actions-admin'],
+        summary='Rotate webhook signing secret (staff or company owner)',
+        operation_id='api_v1_actions_rules_rotate_secret',
+        responses={
+            200: OpenApiResponse(description='New secret returned once in `secret` field'),
+        },
+    ),
+)
+class ShellUIAdminActionRuleRotateSecretView(_ActionsAdminBase):
+    def post(self, request, pk):
+        _actor, company_id, err = require_staff_or_company_owner(request)
+        if err:
+            return err
+        try:
+            rule = ActionRule.objects.get(pk=pk, company_id=company_id)
+        except ActionRule.DoesNotExist:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        cfg = dict(rule.config or {})
+        cfg['secret'] = generate_webhook_signing_secret()
+        rule.config = cfg
+        rule.save(update_fields=['config', 'updated_at'])
+        return Response(_action_rule_payload(rule, reveal_secret=True))
 
 
 @extend_schema_view(

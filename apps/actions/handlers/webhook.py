@@ -4,9 +4,8 @@ import time
 
 from django.conf import settings
 
-from apps.actions.webhook_body import serialize_webhook_envelope
 from apps.actions.webhook_retry import is_permanent_http_status
-from apps.actions.webhook_signing import sign_webhook_body
+from apps.actions.webhook_signing import encode_webhook_envelope, sign_webhook_body
 from apps.actions.webhook_transport import WebhookHTTPError, post_webhook_url
 
 
@@ -47,15 +46,18 @@ def deliver_webhook_action(
         raise WebhookDeliveryError('Webhook signing secret is not configured.', permanent=True)
     allow_private = _allow_private_webhook_urls(config)
 
-    body = serialize_webhook_envelope(envelope)
-    event_type = str(envelope.get('type') or '')
     webhook_id = envelope.get('id')
+    if not webhook_id:
+        raise WebhookDeliveryError('Envelope id is required for webhook delivery.', permanent=True)
+
+    event_type = envelope.get('type') or ''
+    body = encode_webhook_envelope(envelope)
     headers = {
         'Content-Type': 'application/json; charset=utf-8',
         'User-Agent': 'shellui-storage-actions/1.0',
         'X-Shellui-Event': event_type,
-        'X-Shellui-Delivery-Attempt': str(int(attempt_number)),
-        **sign_webhook_body(secret=secret, body=body, webhook_id=webhook_id),
+        'X-Shellui-Delivery-Attempt': str(max(1, int(attempt_number))),
+        **sign_webhook_body(secret=secret, body=body, webhook_id=str(webhook_id)),
     }
     auth_header = (config.get('authorization_header') or '').strip()
     if auth_header:
@@ -64,7 +66,7 @@ def deliver_webhook_action(
     timeout = float(getattr(settings, 'ACTIONS_WEBHOOK_TIMEOUT_SECONDS', 5.0))
     started = time.monotonic()
     try:
-        status, excerpt, retry_after = post_webhook_url(
+        result = post_webhook_url(
             url,
             body=body,
             headers=headers,
@@ -72,7 +74,7 @@ def deliver_webhook_action(
             allow_private=allow_private,
         )
     except WebhookHTTPError as exc:
-        permanent = is_permanent_http_status(exc.status)
+        permanent = exc.permanent or is_permanent_http_status(exc.status)
         raise WebhookDeliveryError(
             str(exc),
             http_status=exc.status,
@@ -81,15 +83,14 @@ def deliver_webhook_action(
             retry_after_seconds=exc.retry_after_seconds,
         ) from exc
     except OSError as exc:
-        raise WebhookDeliveryError(str(exc), permanent=False) from exc
+        raise WebhookDeliveryError(str(exc)) from exc
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    if status >= 400:
-        permanent = is_permanent_http_status(status)
+    if result.status >= 400:
         raise WebhookDeliveryError(
-            f'Webhook returned HTTP {status}',
-            http_status=status,
-            response_excerpt=excerpt,
-            permanent=permanent,
-            retry_after_seconds=retry_after,
+            f'Webhook returned HTTP {result.status}',
+            http_status=result.status,
+            response_excerpt=result.excerpt,
+            permanent=is_permanent_http_status(result.status),
+            retry_after_seconds=result.retry_after_seconds,
         )
     _ = elapsed_ms

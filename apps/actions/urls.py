@@ -7,6 +7,7 @@ from apps.actions.admin_api_views import (
     ShellUIAdminActionEventsView,
     ShellUIAdminActionRuleDetailView,
     ShellUIAdminActionRuleListCreateView,
+    ShellUIAdminActionRuleRotateSecretView,
     ShellUIAdminActionRuleSendTestView,
 )
 
@@ -22,6 +23,11 @@ urlpatterns = [
         'rules/<int:pk>/send-test',
         ShellUIAdminActionRuleSendTestView.as_view(),
         name='shellui-admin-actions-rule-send-test',
+    ),
+    path(
+        'rules/<int:pk>/rotate-secret',
+        ShellUIAdminActionRuleRotateSecretView.as_view(),
+        name='shellui-admin-actions-rule-rotate-secret',
     ),
     path('deliveries', ShellUIAdminActionDeliveryListView.as_view(), name='shellui-admin-actions-deliveries'),
     path(

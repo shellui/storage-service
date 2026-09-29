@@ -20,7 +20,7 @@ Payloads include object metadata only. They never include file contents, presign
 
 - JSON body: UTF-8, compact keys, `ensure_ascii=False` (non-ASCII paths such as `résumé.pdf` stay unescaped).
 - Verifiers must HMAC the **raw request body bytes**.
-- Signing secret: plain string or Standard Webhooks `whsec_<base64>` (base64 decodes to the HMAC key). New rules can omit `secret` on create to auto-generate `whsec_…`.
+- Signing secret: plain string or Standard Webhooks `whsec_<base64>` (base64 decodes to the HMAC key). New rules can omit `secret` on create to auto-generate `whsec_…`. The plaintext `secret` is returned **only** on `POST /api/v1/actions/rules` (create) and `POST /api/v1/actions/rules/<id>/rotate-secret`. Other responses expose `config.has_secret` and `config.secret_hint` (last four characters).
 - Headers: `webhook-id` (stable across retries), `webhook-timestamp`, `webhook-signature` (`v1,<base64>`), `X-Shellui-Event`, `X-Shellui-Delivery-Attempt`.
 
 Default webhook HTTP timeout: **5 seconds** (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`).
@@ -54,6 +54,7 @@ Options: `--batch-size 50`, `--max-seconds 50`, `--concurrency 4`, `--dry-run`.
 | `GET` / `POST` | `/api/v1/actions/rules` |
 | `GET` / `PATCH` / `DELETE` | `/api/v1/actions/rules/<id>` |
 | `POST` | `/api/v1/actions/rules/<id>/send-test` |
+| `POST` | `/api/v1/actions/rules/<id>/rotate-secret` |
 | `GET` | `/api/v1/actions/deliveries` |
 | `GET` | `/api/v1/actions/deliveries/<uuid>` |
 | `POST` | `/api/v1/actions/deliveries/<uuid>/requeue` |

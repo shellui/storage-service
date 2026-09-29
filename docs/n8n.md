@@ -63,6 +63,18 @@ Verify the **raw request body bytes**, not a pretty-printed re-encoding.
 
 ---
 
+## Reference verifier (Node.js)
+
+The repo ships a small CLI that matches Python signing:
+
+```bash
+node docs/examples/verify-shellui-webhook.mjs "$SECRET" /path/to/raw-body.bin
+```
+
+Set `WEBHOOK_ID`, `WEBHOOK_TIMESTAMP`, and `WEBHOOK_SIGNATURE` in the environment to match the request headers. CI runs this via `apps/actions/tests/test_webhook_node_verifier.py`.
+
+---
+
 ## Verify signature in n8n (Code node)
 
 Add a **Code** node after the Webhook node. Mode: **Run Once for All Items**. Language: **JavaScript**.

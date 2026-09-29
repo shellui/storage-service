@@ -8,6 +8,15 @@ from apps.actions.models import ActionRule
 from apps.actions.webhook_signing import generate_webhook_signing_secret
 
 
+def _secret_hint(secret: str) -> str:
+    s = (secret or '').strip()
+    if not s:
+        return ''
+    if len(s) <= 4:
+        return '****'
+    return s[-4:]
+
+
 def build_webhook_config(
     *,
     existing: dict,
@@ -60,8 +69,10 @@ def build_webhook_config(
 def mask_config_for_response(config: dict, action_kind: str) -> dict:
     cfg = dict(config or {})
     if action_kind == ActionRule.ACTION_WEBHOOK:
+        raw_secret = (config or {}).get('secret') or ''
         cfg.pop('secret', None)
         cfg.pop('authorization_header', None)
-        cfg['secret_set'] = bool((config or {}).get('secret'))
+        cfg['has_secret'] = bool(raw_secret)
+        cfg['secret_hint'] = _secret_hint(str(raw_secret))
         cfg['authorization_header_set'] = bool((config or {}).get('authorization_header'))
     return cfg

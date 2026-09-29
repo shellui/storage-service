@@ -11,12 +11,12 @@ from apps.actions.emit import emit_event
 from apps.actions.handlers.webhook import WebhookDeliveryError
 from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
 from apps.actions.ssrf import SSRFError, validate_webhook_url
-from apps.actions.webhook_body import serialize_webhook_envelope
-from apps.actions.webhook_signing import sign_webhook_body
+from apps.actions.webhook_signing import encode_webhook_envelope, sign_webhook_body
+from apps.actions.webhook_transport import WebhookPostResult
 
 
 def _mock_ok(*_args, **_kwargs):
-    return (200, '', None)
+    return WebhookPostResult(status=200, excerpt='')
 
 
 @override_settings(ACTIONS_WEBHOOK_SYNC_DELIVERY=True)
@@ -95,7 +95,7 @@ class WebhookHandlerTests(TestCase):
         deliver_outbox_row(row.pk)
         mock_post.assert_called_once()
         _args, kwargs = mock_post.call_args
-        self.assertEqual(kwargs['body'], serialize_webhook_envelope(envelope))
+        self.assertEqual(kwargs['body'], encode_webhook_envelope(envelope))
         headers = kwargs['headers']
         self.assertIn('webhook-signature', headers)
         self.assertIn('webhook-id', headers)
@@ -104,7 +104,10 @@ class WebhookHandlerTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(500, 'err', None))
+    @patch(
+        'apps.actions.handlers.webhook.post_webhook_url',
+        return_value=WebhookPostResult(status=500, excerpt='err'),
+    )
     def test_webhook_failure_records_attempt(self, _mock_post):
         row = ActionOutbox.objects.create(
             company_id=self.company_id,
@@ -120,7 +123,10 @@ class WebhookHandlerTests(TestCase):
         self.assertEqual(attempt.http_status, 500)
         self.assertIn('HTTP 500', attempt.error_message)
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(401, 'unauthorized', None))
+    @patch(
+        'apps.actions.handlers.webhook.post_webhook_url',
+        return_value=WebhookPostResult(status=401, excerpt='unauthorized'),
+    )
     def test_permanent_401_goes_dead(self, _mock_post):
         row = ActionOutbox.objects.create(
             company_id=self.company_id,
@@ -165,7 +171,7 @@ class RetryDeliveryTests(TestCase):
             config={'url': 'https://example.com/h', 'secret': 's'},
         )
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(500, '', None))
+    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=WebhookPostResult(status=500, excerpt=''))
     def test_dead_after_max_attempts(self, _mock):
         row = ActionOutbox.objects.create(
             company_id=self.company_id,

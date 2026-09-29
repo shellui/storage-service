@@ -59,7 +59,41 @@ class ActionsAdminApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['action_kind'], 'webhook')
-        self.assertTrue(response.data['config']['secret_set'])
+        self.assertTrue(response.data['config']['has_secret'])
+        self.assertIn('secret', response.data)
+        self.assertTrue(str(response.data['secret']).startswith('whsec_'))
+
+    def test_create_without_secret_returns_generated_secret_once(self):
+        response = self.client.post(
+            self._url('/api/v1/actions/rules'),
+            {
+                'name': 'auto',
+                'event_type': 'storage.object.uploaded',
+                'url': 'https://hooks.example.com/upload',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIn('secret', response.data)
+        listed = self.client.get(self._url('/api/v1/actions/rules'))
+        self.assertNotIn('secret', listed.data['results'][0])
+        self.assertTrue(listed.data['results'][0]['config']['has_secret'])
+
+    def test_rotate_secret_returns_secret_once(self):
+        rule = ActionRule.objects.create(
+            company_id=self.company_id,
+            name='Hook',
+            event_type='storage.object.uploaded',
+            action_kind=ActionRule.ACTION_WEBHOOK,
+            config={'url': 'https://example.com/h', 'secret': 'old-plain-secret'},
+        )
+        response = self.client.post(self._url(f'/api/v1/actions/rules/{rule.pk}/rotate-secret'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('secret', response.data)
+        self.assertTrue(str(response.data['secret']).startswith('whsec_'))
+        get_resp = self.client.get(self._url(f'/api/v1/actions/rules/{rule.pk}'))
+        self.assertNotIn('secret', get_resp.data)
+        self.assertEqual(get_resp.data['config']['secret_hint'], response.data['secret'][-4:])
 
     def test_list_deliveries_and_requeue(self):
         rule = ActionRule.objects.create(
