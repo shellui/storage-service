@@ -88,6 +88,28 @@ def _env_bool(name, default: bool) -> bool:
     return raw.lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _caches_config(redis_url: str) -> dict:
+    """
+    Shared cache for auth rate limits, access-token denylist, and activity throttles.
+
+    When ``REDIS_URL`` is set, use Django's Redis backend (requires the ``redis`` package).
+    Otherwise use in-process LocMem (fine for single-process dev; not shared across Gunicorn workers).
+    """
+    if redis_url:
+        return {
+            'default': {
+                'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+                'LOCATION': redis_url,
+            }
+        }
+    return {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'identity-service-auth',
+        }
+    }
+
+
 def _env_bytes(name, default):
     """Parse byte sizes: bare int, or suffixes K/M/G/T (binary, 1024-based)."""
     raw = os.getenv(name, '').strip()
@@ -169,8 +191,10 @@ INSTALLED_APPS = [
     'rest_framework',
     'drf_spectacular',
     'storages',
+    'config.apps.ConfigConfig',
     'apps.authapi',
     'apps.storage',
+    'apps.actions',
     'apps.webdav',
 ]
 
@@ -240,6 +264,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+CACHES = _caches_config(REDIS_URL)
+
 POSTGRES_DATABASE_URL = os.getenv('POSTGRES_DATABASE_URL', '').strip()
 
 POSTGRES_SSL_REQUIRE = _env_bool('POSTGRES_SSL_REQUIRE', not DEBUG)
@@ -274,6 +301,12 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'static']
+
+if DEBUG:
+    # Local dev: serve assets from STATICFILES_DIRS without collectstatic.
+    WHITENOISE_USE_FINDERS = True
+    WHITENOISE_AUTOREFRESH = True
 
 MEDIA_URL = '/media/'
 _media_root = os.getenv('MEDIA_ROOT', '').strip()
@@ -526,6 +559,14 @@ CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', not DEBUG)
 # Django admin exposes cross-tenant data — disable on internet-facing API pods when
 # operators use a separate admin ingress with MFA / network restrictions.
 DJANGO_ADMIN_ENABLED = _env_bool('DJANGO_ADMIN_ENABLED', True)
+
+# Shellui Actions (outbound webhooks)
+ACTIONS_WEBHOOK_TIMEOUT_SECONDS = _env_float('ACTIONS_WEBHOOK_TIMEOUT_SECONDS', 5.0)
+ACTIONS_OUTBOX_MAX_ATTEMPTS = _env_int('ACTIONS_OUTBOX_MAX_ATTEMPTS', 8)
+ACTIONS_WEBHOOK_ALLOW_PRIVATE = _env_bool('ACTIONS_WEBHOOK_ALLOW_PRIVATE', False)
+ACTIONS_WEBHOOK_RETRY_LEASE_SECONDS = _env_int('ACTIONS_WEBHOOK_RETRY_LEASE_SECONDS', 120)
+ACTIONS_WEBHOOK_DISPATCH_WORKERS = _env_int('ACTIONS_WEBHOOK_DISPATCH_WORKERS', 4)
+ACTIONS_WEBHOOK_SYNC_DELIVERY = _env_bool('ACTIONS_WEBHOOK_SYNC_DELIVERY', False)
 
 if not DEBUG:
     _production_config_errors = []

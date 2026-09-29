@@ -1,218 +1,357 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Shellui Storage</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #fafafa;
-      --card: #ffffff;
-      --text: #111827;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --focus: #111827;
-      --danger: #b91c1c;
-      --success-bg: #f0fdf4;
-      --success-border: #86efac;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    .page {
-      flex: 1;
-      display: grid;
-      place-items: center;
-      padding: 2rem 1rem;
-    }
-    .card {
-      width: min(100%, 480px);
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
-      padding: 1.5rem;
-    }
-    h1 {
-      margin: 0 0 0.5rem;
-      font-size: 1.3rem;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-    p {
-      margin: 0 0 1rem;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-    .row {
-      display: grid;
-      gap: 0.35rem;
-      margin-bottom: 0.8rem;
-    }
-    label {
-      font-size: 0.85rem;
-      font-weight: 600;
-    }
-    input {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.62rem 0.72rem;
-      font-size: 0.95rem;
-      outline: none;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      background: #fff;
-    }
-    input:focus {
-      border-color: var(--focus);
-      box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
-    }
-    .button {
-      width: 100%;
-      border: 0;
-      border-radius: 10px;
-      padding: 0.72rem 0.9rem;
-      font-size: 0.95rem;
-      font-weight: 600;
-      background: #111827;
-      color: #fff;
-      cursor: pointer;
-    }
-    .button:hover { background: #1f2937; }
-    .errors {
-      border: 1px solid #fecaca;
-      background: #fef2f2;
-      color: var(--danger);
-      border-radius: 10px;
-      padding: 0.7rem 0.8rem;
-      margin-bottom: 0.9rem;
-      font-size: 0.9rem;
-    }
-    .success {
-      border: 1px solid var(--success-border);
-      background: var(--success-bg);
-      border-radius: 10px;
-      padding: 0.7rem 0.8rem;
-      margin-bottom: 1rem;
-      font-size: 0.92rem;
-      color: #166534;
-    }
-    .links {
-      margin-top: 0.8rem;
-      padding-left: 1.1rem;
-    }
-    .links li { margin: 0.35rem 0; }
-    a { color: #1d4ed8; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .tiny { font-size: 0.82rem; color: var(--muted); margin-top: 0.8rem; }
-    .site-footer {
-      padding: 0.6rem 1rem 1rem;
-      text-align: center;
-      font-size: 0.72rem;
-      color: #9ca3af;
-      letter-spacing: 0.01em;
-    }
-    .site-footer a {
-      color: inherit;
-      text-decoration: none;
-    }
-    .site-footer a:hover {
-      color: var(--muted);
-      text-decoration: underline;
-    }
-    .site-footer .sep {
-      margin: 0 0.4rem;
-      opacity: 0.65;
-    }
-  </style>
-</head>
-<body>
-  <div class="page">
-  <main class="card">
-    <h1>Shellui Storage</h1>
-    {% if show_setup_form %}
-      <p>Create the initial administrator account. This setup is available only once and disappears permanently after the first user is created.</p>
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {% load static %}
+    {% include "includes/shellui_favicons.html" %}
+    <link rel="stylesheet" href="{% static 'css/site.css' %}" />
+    {% with page_title="Shellui Storage" page_description="Supabase-compatible object storage for Shellui apps. Company buckets, quotas, access grants, and WebDAV under /storage/v1." %}
+    <title>{% if show_setup_form %}Setup · {% endif %}{{ page_title }}</title>
+    <meta name="description" content="{{ page_description }}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="{{ page_title }} - object storage for Shellui apps" />
+    <meta property="og:description" content="{{ page_description }}" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="{{ page_title }} - object storage for Shellui apps" />
+    <meta name="twitter:description" content="{{ page_description }}" />
+    {% endwith %}
+    <script>
+      (function () {
+        var stored = localStorage.getItem("theme");
+        var theme =
+          stored ||
+          (window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light");
+        if (theme === "dark") document.documentElement.classList.add("dark");
+      })();
+    </script>
+  </head>
+  <body class="flex min-h-full flex-col bg-background text-foreground antialiased">
+    {% include "includes/shellui_logo_sprite.html" %}
 
-      {% if form.non_field_errors %}
-        <div class="errors">
-          {% for error in form.non_field_errors %}
+    <header class="fixed inset-x-0 top-0 z-50">
+      <div class="relative z-50 border-b border-border/50 bg-background/80 backdrop-blur-md page-x dark:border-border/50">
+        <nav class="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4" aria-label="Global">
+          <a
+            href="/"
+            class="inline-flex shrink-0 items-center text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            aria-label="Shellui Storage"
+            translate="no"
+          >
+            <svg class="size-8.5" viewBox="0 0 1080 1080" role="img" aria-hidden="true">
+              <use href="#logo-shellui-mark"></use>
+            </svg>
+          </a>
+          <div class="flex items-center gap-3 sm:gap-5">
+            <a
+              href="{{ website_url }}"
+              class="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Website</a
+            >
+            <a
+              href="{{ storage_docs_url }}"
+              class="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Documentation</a
+            >
+            <a
+              href="{{ github_url }}"
+              class="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+            <button
+              type="button"
+              class="theme-toggle inline-flex size-11 items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              aria-label="Toggle dark mode"
+            >
+              <svg class="h-5 w-5 dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+              <svg class="hidden h-5 w-5 dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </button>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <main class="relative z-10 flex-1">
+      {% if show_setup_form %}
+      <div class="page-x page-top">
+        <div class="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm hosting-form">
+          <h1 class="text-xl font-semibold tracking-tight text-foreground">Shellui Storage setup</h1>
+          <p class="mt-3 text-sm leading-relaxed text-muted-foreground">
+            Create the first administrator account. You can run this setup once. After an account exists, this form goes away.
+          </p>
+
+          {% if form.non_field_errors %}
+          <div class="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {% for error in form.non_field_errors %}
             <div>{{ error }}</div>
-          {% endfor %}
-        </div>
-      {% endif %}
+            {% endfor %}
+          </div>
+          {% endif %}
 
-      <form method="post" novalidate>
-        {% csrf_token %}
-        {% if setup_token %}
-          <input type="hidden" name="setup_token" value="{{ setup_token }}">
-        {% endif %}
-        <div class="row">
-          <label for="{{ form.username.id_for_label }}">Username</label>
-          {{ form.username }}
-          {% if form.username.errors %}
-            <div class="errors">
-              {% for error in form.username.errors %}<div>{{ error }}</div>{% endfor %}
+          <form method="post" novalidate class="mt-5">
+            {% csrf_token %}
+            {% if setup_token %}
+            <input type="hidden" name="setup_token" value="{{ setup_token }}" />
+            {% endif %}
+            <div class="row">
+              <label for="{{ form.username.id_for_label }}">Username</label>
+              {{ form.username }}
+              {% if form.username.errors %}
+              <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {% for error in form.username.errors %}<div>{{ error }}</div>{% endfor %}
+              </div>
+              {% endif %}
             </div>
-          {% endif %}
-        </div>
-        <div class="row">
-          <label for="{{ form.email.id_for_label }}">Email (optional)</label>
-          {{ form.email }}
-          {% if form.email.errors %}
-            <div class="errors">
-              {% for error in form.email.errors %}<div>{{ error }}</div>{% endfor %}
+            <div class="row">
+              <label for="{{ form.email.id_for_label }}">Email (optional)</label>
+              {{ form.email }}
+              {% if form.email.errors %}
+              <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {% for error in form.email.errors %}<div>{{ error }}</div>{% endfor %}
+              </div>
+              {% endif %}
             </div>
-          {% endif %}
-        </div>
-        <div class="row">
-          <label for="{{ form.password.id_for_label }}">Password</label>
-          {{ form.password }}
-          {% if form.password.errors %}
-            <div class="errors">
-              {% for error in form.password.errors %}<div>{{ error }}</div>{% endfor %}
+            <div class="row">
+              <label for="{{ form.password.id_for_label }}">Password</label>
+              {{ form.password }}
+              {% if form.password.errors %}
+              <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {% for error in form.password.errors %}<div>{{ error }}</div>{% endfor %}
+              </div>
+              {% endif %}
             </div>
-          {% endif %}
-        </div>
-        <div class="row">
-          <label for="{{ form.password_confirm.id_for_label }}">Confirm password</label>
-          {{ form.password_confirm }}
-          {% if form.password_confirm.errors %}
-            <div class="errors">
-              {% for error in form.password_confirm.errors %}<div>{{ error }}</div>{% endfor %}
+            <div class="row">
+              <label for="{{ form.password_confirm.id_for_label }}">Confirm password</label>
+              {{ form.password_confirm }}
+              {% if form.password_confirm.errors %}
+              <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {% for error in form.password_confirm.errors %}<div>{{ error }}</div>{% endfor %}
+              </div>
+              {% endif %}
             </div>
-          {% endif %}
+            <button type="submit" class="mt-2 w-full cursor-pointer rounded-md bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:opacity-90">
+              Create superuser
+            </button>
+          </form>
+          <p class="mt-4 text-xs text-muted-foreground">Tip: Use a long passphrase. Django password policy is enforced here.</p>
         </div>
-        <button type="submit" class="button">Create superuser</button>
-      </form>
-      <p class="tiny">Tip: Use a long passphrase. Django password policy is enforced here.</p>
-    {% else %}
-      {% if setup_done %}
-        <div class="success">Initial user created successfully. Setup is now locked.</div>
-      {% endif %}
-      {% if bootstrap_blocked %}
-        <p>No administrator account exists yet. Public bootstrap is disabled in this environment. Create the first superuser with:</p>
-        <p class="tiny"><code>uv run python manage.py createsuperuser</code></p>
-        <p class="tiny">Alternatively, set <code>SETUP_TOKEN</code> and open <code>/?setup_token=&lt;token&gt;</code> for a one-time web setup.</p>
+      </div>
+      {% elif bootstrap_blocked %}
+      <div class="page-x page-top">
+        <div class="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm">
+          <h1 class="text-xl font-semibold tracking-tight text-foreground">Shellui Storage setup</h1>
+          <p class="mt-3 text-sm leading-relaxed text-muted-foreground">
+            No administrator account exists yet. Public bootstrap is disabled in this environment. Create the first superuser with:
+          </p>
+          <p class="mt-3 font-mono text-xs text-primary-ink dark:text-primary">
+            <code>uv run python manage.py createsuperuser</code>
+          </p>
+          <p class="mt-3 text-xs text-muted-foreground">
+            Alternatively, set <code class="font-mono text-primary-ink dark:text-primary">SETUP_TOKEN</code> and open
+            <code class="font-mono">/?setup_token=&lt;token&gt;</code> for a one-time web setup.
+          </p>
+        </div>
+      </div>
       {% else %}
-        <p>Object storage for Shellui. Explore the API documentation using:</p>
+      <div class="relative isolate page-x page-top">
+        <div
+          class="pointer-events-none absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80"
+          aria-hidden="true"
+        >
+          <div
+            class="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-30 bg-linear-to-tr from-primary to-amber-200 opacity-30 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem] dark:opacity-20"
+            style="
+              clip-path: polygon(
+                74.1% 44.1%,
+                100% 61.6%,
+                97.5% 26.9%,
+                85.5% 0.1%,
+                80.7% 2%,
+                72.5% 32.5%,
+                60.2% 62.4%,
+                52.4% 68.1%,
+                47.5% 58.3%,
+                45.2% 34.5%,
+                27.5% 76.7%,
+                0.1% 64.9%,
+                17.9% 100%,
+                27.6% 76.8%,
+                76.1% 97.7%,
+                74.1% 44.1%
+              );
+            "
+          ></div>
+        </div>
+
+        <div class="mx-auto max-w-3xl pb-12 sm:pb-16">
+          {% if setup_done %}
+          <div class="mb-6 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
+            You created the initial user. Setup is now locked.
+          </div>
+          {% endif %}
+
+          <p class="text-sm font-medium text-primary-ink dark:text-primary">Storage service</p>
+          <h1 class="mt-4 text-4xl font-bold tracking-tight text-balance text-foreground sm:text-5xl">
+            Shellui Storage
+          </h1>
+          <p class="mt-6 max-w-xl text-lg/7 text-muted-foreground">
+            Shellui Storage is object storage for apps in the Shellui shell. Call the Supabase-compatible REST API at
+            <code class="font-mono text-sm text-primary-ink dark:text-primary">/storage/v1</code>
+            with a Bearer JWT from Shellui Identity. Blobs live on the filesystem or an S3-compatible backend, with one bucket per company and streaming downloads through Django.
+          </p>
+
+          <ul class="mt-8 max-w-xl space-y-2 text-sm text-muted-foreground">
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>Upload, download, list, move, copy, and signed URLs with the same shapes Supabase clients expect.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>One company bucket, access grants, share links, company quotas, and optional per-user quotas.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>Shellui Actions webhooks for <code class="font-mono text-xs">storage.*</code> events, with an n8n guide in the repo docs.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>Optional WebDAV at <code class="font-mono text-xs">/dav/</code> when you enable it for desktop clients.</span>
+            </li>
+          </ul>
+
+          <div class="mt-8 flex flex-wrap items-center gap-4">
+            <a
+              href="{{ storage_docs_url }}"
+              class="inline-flex min-h-11 items-center justify-center rounded-md bg-foreground px-5 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Read the docs</a
+            >
+            <a
+              href="{{ swagger_url }}"
+              class="text-sm font-medium text-primary-ink underline-offset-2 hover:underline dark:text-primary"
+              >OpenAPI (Swagger)</a
+            >
+          </div>
+
+          <section class="mt-12 rounded-xl border border-border bg-muted p-6 sm:p-8">
+            <h2 class="text-lg font-semibold text-foreground">Service endpoints</h2>
+            <ul class="mt-4 space-y-2 text-sm text-muted-foreground">
+              <li>
+                <a href="{{ swagger_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">Swagger UI</a>
+                ·
+                <a href="{{ redoc_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">ReDoc</a>
+              </li>
+              <li>
+                <a href="{{ schema_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">OpenAPI schema</a>
+              </li>
+              <li>
+                <a href="{{ health_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">Health</a>
+                <span class="text-muted-foreground">(<code class="font-mono text-xs">GET /storage/v1/health</code>)</span>
+              </li>
+              <li>
+                <a href="{{ n8n_docs_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">n8n webhooks</a>
+                <span class="text-muted-foreground">(Shellui Actions · <a href="{{ n8n_repo_docs_url }}" class="underline-offset-2 hover:underline">docs/n8n.md</a>)</span>
+              </li>
+              {% if show_admin_link %}
+              <li>
+                <a href="{{ admin_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">Django admin</a>
+                <span class="text-muted-foreground">(operators)</span>
+              </li>
+              {% endif %}
+            </ul>
+          </section>
+        </div>
+      </div>
       {% endif %}
-      <ul class="links">
-        <li><a href="{{ swagger_url }}">Swagger UI</a></li>
-        <li><a href="{{ redoc_url }}">ReDoc</a></li>
-      </ul>
-    {% endif %}
-  </main>
-  </div>
-  <footer class="site-footer">
-    <a href="{{ schema_url }}">OpenAPI</a><span class="sep">·</span>v{{ version }}
-  </footer>
-</body>
+    </main>
+
+    <footer class="relative z-10 border-t border-border bg-muted page-x py-10">
+      <div class="mx-auto flex max-w-5xl flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <a href="/" class="inline-flex items-center text-foreground" aria-label="Shellui Storage" translate="no">
+            <svg class="h-5 w-auto text-foreground" viewBox="0 0 1024 270" role="img" aria-hidden="true">
+              <use href="#logo-shellui"></use>
+            </svg>
+          </a>
+          <p class="mt-2 max-w-xs text-sm text-muted-foreground">
+            Object storage and WebDAV for Shellui apps.
+          </p>
+          <p class="mt-4 text-xs text-muted-foreground">© 2026 Shellui</p>
+        </div>
+        <div class="sm:text-right md:pt-4 md:space-y-3">
+          <nav
+            class="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground sm:justify-end"
+            aria-label="Footer"
+          >
+            <a href="{{ website_url }}" class="transition-colors hover:text-foreground" target="_blank" rel="noopener noreferrer">Website</a>
+            <a href="{{ docs_url }}" class="transition-colors hover:text-foreground" target="_blank" rel="noopener noreferrer">Docs</a>
+            <a href="{{ playground_url }}" class="transition-colors hover:text-foreground" target="_blank" rel="noopener noreferrer">Playground</a>
+            <a href="{{ github_url }}" class="transition-colors hover:text-foreground" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="{{ storage_docs_url }}" class="transition-colors hover:text-foreground" target="_blank" rel="noopener noreferrer">Storage docs</a>
+            <a href="{{ identity_docs_url }}" class="transition-colors hover:text-foreground" target="_blank" rel="noopener noreferrer">Identity docs</a>
+          </nav>
+          <nav
+            class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground sm:justify-end"
+            aria-label="Platform"
+          >
+            <a href="{{ schema_url }}" class="transition-colors hover:text-foreground">OpenAPI</a>
+            <span>v{{ version }}</span>
+          </nav>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var html = document.documentElement;
+        var toggles = document.querySelectorAll(".theme-toggle");
+        function applyTheme(mode) {
+          var isDark = mode === "dark";
+          html.classList.toggle("dark", isDark);
+          localStorage.setItem("theme", mode);
+          toggles.forEach(function (toggle) {
+            toggle.setAttribute(
+              "aria-label",
+              isDark ? "Switch to light mode" : "Switch to dark mode",
+            );
+          });
+        }
+        function setTheme(theme, event) {
+          var prefersReduced = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+          ).matches;
+          var apply = function () {
+            applyTheme(theme);
+          };
+          if (!document.startViewTransition || prefersReduced) {
+            apply();
+            return;
+          }
+          if (event) {
+            html.style.setProperty("--x", event.clientX + "px");
+            html.style.setProperty("--y", event.clientY + "px");
+          }
+          document.startViewTransition(apply);
+        }
+        toggles.forEach(function (toggle) {
+          toggle.addEventListener("click", function (event) {
+            setTheme(html.classList.contains("dark") ? "light" : "dark", event);
+          });
+        });
+      })();
+    </script>
+  </body>
 </html>

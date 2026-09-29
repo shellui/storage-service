@@ -11,6 +11,8 @@ const sidebars = {
     "downloads",
     "clients",
     "signals",
+    "actions",
+    "n8n",
     "admin",
   ],
 };

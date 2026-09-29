@@ -37,11 +37,11 @@ Manual equivalents (if you are not using the script):
 
 ### 1. Version alignment
 
-Ensure these match the release version (e.g. `0.3.0`):
+Ensure these match the release version (e.g. `0.4.0`):
 
 - `version` in `pyproject.toml` (OpenAPI / API metadata via `config.settings.VERSION`)
 - `CHANGELOG.md` entry with date
-- Git tag `v0.3.0` (optional but recommended; not enforced by the script)
+- Git tag `v0.4.0` (optional but recommended; not enforced by the script)
 - CI green on the release commit (`.github/workflows/ci.yml` + pre-release workflow)
 
 ### 2. No secrets in the build context
@@ -65,7 +65,7 @@ Covered by `./tools/pre-release-check.sh`. Manual form:
 export SECRET_KEY="$(uv run python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")"
 # Prefer a static JWKS document for offline smoke tests (see the script).
 
-VERSION=0.3.0
+VERSION=0.4.0
 docker build -t "shellui/storage-service:${VERSION}" .
 
 docker run --rm -d --name storage-release-smoke -p 18001:8000 \
@@ -98,12 +98,12 @@ docker login
 
 ### Tagging
 
-For semver release `0.3.0`, typical Docker Hub tags:
+For semver release `0.4.0`, typical Docker Hub tags:
 
 | Tag      | Purpose                                  |
 | -------- | ---------------------------------------- |
-| `0.3.0`  | Exact release (pin in production)        |
-| `0.3`    | Latest patch in the 0.3 line             |
+| `0.4.0`  | Exact release (pin in production)        |
+| `0.4`    | Latest patch in the 0.4 line             |
 | `latest` | Newest published release (use with care) |
 
 ### Option A — single platform
@@ -111,16 +111,16 @@ For semver release `0.3.0`, typical Docker Hub tags:
 From the repository root:
 
 ```bash
-VERSION=0.3.0
+VERSION=0.4.0
 IMAGE=shellui/storage-service
 
 docker build -t "${IMAGE}:${VERSION}" .
 docker push "${IMAGE}:${VERSION}"
 
 # Optional extra tags
-docker tag "${IMAGE}:${VERSION}" "${IMAGE}:0.3"
+docker tag "${IMAGE}:${VERSION}" "${IMAGE}:0.4"
 docker tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
-docker push "${IMAGE}:0.3"
+docker push "${IMAGE}:0.4"
 docker push "${IMAGE}:latest"
 ```
 
@@ -129,7 +129,7 @@ docker push "${IMAGE}:latest"
 If you build on Apple Silicon, a plain `docker build` may produce `linux/arm64` only. Most cloud VMs expect `linux/amd64`. Publish both with buildx:
 
 ```bash
-VERSION=0.3.0
+VERSION=0.4.0
 IMAGE=shellui/storage-service
 
 docker buildx create --use --name multi 2>/dev/null || docker buildx use multi
@@ -144,7 +144,7 @@ docker buildx build \
 ### Git tag (recommended)
 
 ```bash
-VERSION=0.3.0
+VERSION=0.4.0
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
@@ -168,7 +168,7 @@ docker run -d \
   -e ALLOWED_HOSTS='storage.example.com' \
   -e CSRF_TRUSTED_ORIGINS='https://storage.example.com' \
   -e IDENTITY_JWKS='{"keys":[...]}' \
-  shellui/storage-service:0.3.0
+  shellui/storage-service:0.4.0
 ```
 
 The entrypoint runs migrations on start, then starts Gunicorn on port 8000.
@@ -229,6 +229,7 @@ First superuser: run `python manage.py createsuperuser` inside the container (or
 | `CORS_ALLOWED_ORIGINS`  | Used when `CORS_ALLOW_ALL_ORIGINS=false`; Shellui / admin front-end origins. |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
 | `POSTGRES_SSL_REQUIRE`  | Default `true` when `DEBUG=false`; set `false` for internal DB only.  |
+| `REDIS_URL`             | Shared Redis cache (recommended when `GUNICORN_WORKERS` > 1). Example: `redis://redis:6379/0`. Without it, LocMem is per-worker. |
 | `DJANGO_ADMIN_ENABLED`  | Default `true`; set `false` on public API pods (see `docs/security.md`). |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
 | `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |
@@ -244,6 +245,18 @@ With Postgres:
 ```bash
 -e POSTGRES_DATABASE_URL='postgres://user:pass@host:5432/dbname'
 ```
+
+### Redis (Coolify / multi-worker Gunicorn)
+
+When `GUNICORN_WORKERS` is greater than 1 (Docker default is `2`), any cache-backed rate limits or throttles rely on Django cache. In-process LocMem is **not** shared between workers.
+
+1. Add a **Redis** service in Coolify (or run Redis on the VPS).
+2. On the storage-service container, set **`REDIS_URL`** to the Redis connection URL, for example:
+   - Same Coolify project, internal hostname: `redis://redis:6379/0`
+   - Managed Redis with password: `redis://:password@host:6379/0`
+3. Redeploy storage-service. `manage.py check --deploy` warns (`authapi.W001`) if production still uses LocMem with multiple workers.
+
+Local dev and single-worker installs can leave `REDIS_URL` unset.
 
 With S3:
 

@@ -1,0 +1,52 @@
+@import "tailwindcss";
+@import "./extras.css";
+
+@source "../../templates/**/*.html";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary: #e3a512;
+  --color-primary-foreground: #1a1408;
+  --color-primary-ink: #c4920a;
+  --color-background: #ffffff;
+  --color-foreground: #111827;
+  --color-muted: #f9fafb;
+  --color-muted-foreground: #4b5563;
+  --color-border: #e5e7eb;
+  --color-card: #ffffff;
+  --color-card-foreground: #111827;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #111827;
+  --color-secondary: #f3f4f6;
+  --color-secondary-foreground: #111827;
+  --color-accent: #f9fafb;
+  --color-accent-foreground: #111827;
+  --color-destructive: #dc2626;
+  --color-input: #e5e7eb;
+  --color-ring: #e3a512;
+  --radius-lg: 0.75rem;
+  --radius-md: 0.375rem;
+  --radius-sm: 0.25rem;
+}
+
+@layer theme {
+  .dark {
+    --color-primary: #e8b84a;
+    --color-ring: #e8b84a;
+    --color-background: #030712;
+    --color-foreground: #f9fafb;
+    --color-muted: rgb(255 255 255 / 0.05);
+    --color-muted-foreground: #9ca3af;
+    --color-border: #1f2937;
+    --color-card: #111827;
+    --color-card-foreground: #f9fafb;
+    --color-popover: #111827;
+    --color-popover-foreground: #f9fafb;
+    --color-secondary: #1f2937;
+    --color-secondary-foreground: #f9fafb;
+    --color-accent: rgb(255 255 255 / 0.05);
+    --color-accent-foreground: #f9fafb;
+    --color-input: #1f2937;
+  }
+}

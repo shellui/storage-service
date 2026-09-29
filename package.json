@@ -1,0 +1,14 @@
+{
+  "name": "storage-service-frontend",
+  "private": true,
+  "description": "Tailwind CSS build for storage-service landing templates",
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/css/input.css -o ./static/css/site.css --minify",
+    "watch:css": "tailwindcss -i ./assets/css/input.css -o ./static/css/site.css --watch",
+    "dev:css": "npm run watch:css"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

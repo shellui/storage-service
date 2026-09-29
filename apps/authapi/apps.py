@@ -8,6 +8,7 @@ class AuthapiConfig(AppConfig):
     verbose_name = 'Identity JWKS auth'
 
     def ready(self):
+        from . import checks  # noqa: F401
         from . import openapi  # noqa: F401
         self._log_jwks_config()
 

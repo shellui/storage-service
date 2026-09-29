@@ -15,6 +15,7 @@ from . import views
 
 urlpatterns = [
     path('', views.root, name='root'),
+    path('api/v1/actions/', include('apps.actions.urls')),
     path('storage/v1/', include('apps.storage.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path(
