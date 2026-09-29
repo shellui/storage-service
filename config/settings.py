@@ -194,6 +194,7 @@ INSTALLED_APPS = [
     'config.apps.ConfigConfig',
     'apps.authapi',
     'apps.storage',
+    'apps.actions',
     'apps.webdav',
 ]
 
@@ -558,6 +559,14 @@ CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', not DEBUG)
 # Django admin exposes cross-tenant data — disable on internet-facing API pods when
 # operators use a separate admin ingress with MFA / network restrictions.
 DJANGO_ADMIN_ENABLED = _env_bool('DJANGO_ADMIN_ENABLED', True)
+
+# Shellui Actions (outbound webhooks)
+ACTIONS_WEBHOOK_TIMEOUT_SECONDS = _env_float('ACTIONS_WEBHOOK_TIMEOUT_SECONDS', 5.0)
+ACTIONS_OUTBOX_MAX_ATTEMPTS = _env_int('ACTIONS_OUTBOX_MAX_ATTEMPTS', 8)
+ACTIONS_WEBHOOK_ALLOW_PRIVATE = _env_bool('ACTIONS_WEBHOOK_ALLOW_PRIVATE', False)
+ACTIONS_WEBHOOK_RETRY_LEASE_SECONDS = _env_int('ACTIONS_WEBHOOK_RETRY_LEASE_SECONDS', 120)
+ACTIONS_WEBHOOK_DISPATCH_WORKERS = _env_int('ACTIONS_WEBHOOK_DISPATCH_WORKERS', 4)
+ACTIONS_WEBHOOK_SYNC_DELIVERY = _env_bool('ACTIONS_WEBHOOK_SYNC_DELIVERY', False)
 
 if not DEBUG:
     _production_config_errors = []

@@ -443,9 +443,9 @@ def assert_can_access_path(
     )
 
 
-def ensure_company_bucket(*, company_id: int) -> Bucket:
+def ensure_company_bucket(*, company_id: int, request=None) -> Bucket:
     """Ensure the single system company bucket exists."""
-    company_bucket, _ = Bucket.objects.get_or_create(
+    company_bucket, created = Bucket.objects.get_or_create(
         company_id=company_id,
         name=COMPANY_BUCKET_NAME,
         defaults={
@@ -454,6 +454,10 @@ def ensure_company_bucket(*, company_id: int) -> Bucket:
             'owner_id': None,
         },
     )
+    if created:
+        from apps.actions.storage_hooks import emit_bucket_created
+
+        emit_bucket_created(company_bucket, request=request)
     if company_bucket.kind != BucketKind.COMPANY or company_bucket.public:
         company_bucket.kind = BucketKind.COMPANY
         company_bucket.public = False
