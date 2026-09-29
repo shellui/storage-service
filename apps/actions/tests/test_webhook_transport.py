@@ -1,178 +1,149 @@
-"""Tests for SSRF-safe HTTPS transport (pinned IP, correct SNI)."""
+"""Tests for SSRF-pinned webhook HTTP transport (real connection behavior)."""
 
 from __future__ import annotations
 
 import datetime
-import http.server
 import ipaddress
+import socket
 import ssl
-import tempfile
 import threading
-from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
-from django.test import SimpleTestCase
 
 from apps.actions.ssrf import ResolvedWebhookEndpoint
 from apps.actions.webhook_transport import (
     PinnedHTTPSConnection,
     WebhookHTTPError,
+    _tls_server_name,
     post_resolved_webhook,
     post_webhook_url,
 )
 
 
-def _write_self_signed_cert(
-    *,
-    common_name: str,
-    san_dns: list[str] | None = None,
-    san_ips: list[str] | None = None,
-) -> tuple[Path, Path]:
+def _self_signed_localhost_cert() -> tuple[bytes, bytes]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
-    builder = (
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')])
+    cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
         .issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
-        .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1))
-    )
-    alt: list[x509.GeneralName] = []
-    for name in san_dns or []:
-        alt.append(x509.DNSName(name))
-    for ip in san_ips or []:
-        alt.append(x509.IPAddress(ipaddress.ip_address(ip)))
-    if not alt:
-        alt.append(x509.DNSName(common_name))
-    builder = builder.add_extension(x509.SubjectAlternativeName(alt), critical=False)
-    cert = builder.sign(key, hashes.SHA256())
-
-    cert_path = Path(tempfile.mkstemp(suffix='.pem')[1])
-    key_path = Path(tempfile.mkstemp(suffix='.pem')[1])
-    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
+        .not_valid_before(datetime.datetime.now(datetime.UTC))
+        .not_valid_after(datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName('localhost')]),
+            critical=False,
         )
+        .sign(key, hashes.SHA256())
     )
-    return cert_path, key_path
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+    key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return cert_pem, key_pem
 
 
-class _OkHandler(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'ok')
-
-    def log_message(self, _format, *_args):
-        return
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(('127.0.0.1', 0))
+        return int(sock.getsockname()[1])
 
 
-def _run_one_shot_https_server(*, cert_path: Path, key_path: Path) -> tuple[int, threading.Thread]:
-    httpd = http.server.HTTPServer(('127.0.0.1', 0), _OkHandler)
-    port = httpd.server_address[1]
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
-    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+class TlsServerNameTests(TestCase):
+    def _endpoint(self, host_header: str) -> ResolvedWebhookEndpoint:
+        return ResolvedWebhookEndpoint(
+            original_url='https://example/hook',
+            scheme='https',
+            connect_host='127.0.0.1',
+            port=443,
+            host_header=host_header,
+            path='/hook',
+        )
 
-    def _serve():
-        httpd.handle_request()
-        httpd.server_close()
+    def test_plain_hostname(self) -> None:
+        self.assertEqual(_tls_server_name(self._endpoint('example.com')), 'example.com')
 
-    thread = threading.Thread(target=_serve, daemon=True)
-    thread.start()
-    return port, thread
+    def test_hostname_with_port(self) -> None:
+        self.assertEqual(_tls_server_name(self._endpoint('example.com:8443')), 'example.com')
+
+    def test_ipv6_literal_with_port(self) -> None:
+        self.assertEqual(_tls_server_name(self._endpoint('[::1]:8443')), '::1')
+
+    def test_ipv6_literal_without_port(self) -> None:
+        self.assertEqual(_tls_server_name(self._endpoint('[2001:db8::1]')), '2001:db8::1')
 
 
-class PinnedHTTPSConnectionTests(SimpleTestCase):
-    @patch('apps.actions.webhook_transport.socket.create_connection')
-    def test_connect_dials_pinned_ip_with_tls_server_name(self, mock_create):
+class PinnedHTTPSConnectionUnitTests(TestCase):
+    def test_connect_dials_pinned_ip_and_wraps_with_hostname(self) -> None:
+        context = ssl.create_default_context()
+        conn = PinnedHTTPSConnection(
+            'webhook.example.com',
+            443,
+            connect_host='203.0.113.10',
+            timeout=5.0,
+            context=context,
+        )
         mock_sock = MagicMock()
-        mock_create.return_value = mock_sock
+        with patch('apps.actions.webhook_transport.socket.create_connection', return_value=mock_sock) as create_conn:
+            with patch.object(context, 'wrap_socket', return_value=MagicMock()) as wrap:
+                conn.connect()
+        create_conn.assert_called_once_with(('203.0.113.10', 443), 5.0, None)
+        wrap.assert_called_once_with(mock_sock, server_hostname='webhook.example.com')
+
+    def test_connect_normalizes_ipv6_literal(self) -> None:
         context = ssl.create_default_context()
-        with patch.object(context, 'wrap_socket', return_value=mock_sock) as mock_wrap:
-            conn = PinnedHTTPSConnection(
-                'hooks.example.com',
-                443,
-                pinned_host='203.0.113.10',
-                timeout=5.0,
-                context=context,
-            )
-            conn.connect()
-        mock_create.assert_called_once()
-        dial_host, dial_port = mock_create.call_args[0][0]
-        self.assertEqual(dial_host, '203.0.113.10')
-        self.assertEqual(dial_port, 443)
-        mock_wrap.assert_called_once()
-        self.assertEqual(mock_wrap.call_args.kwargs['server_hostname'], 'hooks.example.com')
-
-    @patch('apps.actions.webhook_transport.socket.create_connection')
-    def test_connect_supports_ipv6_literal_pin(self, mock_create):
-        mock_create.return_value = MagicMock()
-        context = ssl.create_default_context()
-        with patch.object(context, 'wrap_socket', return_value=MagicMock()):
-            conn = PinnedHTTPSConnection(
-                'example.com',
-                443,
-                pinned_host='2001:db8::1',
-                timeout=3.0,
-                context=context,
-            )
-            conn.connect()
-        dial_host, _ = mock_create.call_args[0][0]
-        self.assertEqual(dial_host, '2001:db8::1')
-
-
-def _context_trusting_cert(cert_path: Path) -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    ctx.load_verify_locations(cafile=str(cert_path))
-    return ctx
-
-
-class HttpsWebhookIntegrationTests(SimpleTestCase):
-    def test_localhost_self_signed_roundtrip(self):
-        cert_path, key_path = _write_self_signed_cert(common_name='127.0.0.1', san_ips=['127.0.0.1'])
-        try:
-            port, thread = _run_one_shot_https_server(cert_path=cert_path, key_path=key_path)
-            endpoint = ResolvedWebhookEndpoint(
-                original_url=f'https://127.0.0.1:{port}/hook',
-                scheme='https',
-                connect_host='127.0.0.1',
-                port=port,
-                host_header='127.0.0.1',
-                path='/hook',
-            )
-            with patch(
-                'apps.actions.webhook_transport.ssl.create_default_context',
-                return_value=_context_trusting_cert(cert_path),
-            ):
-                result = post_resolved_webhook(
-                    endpoint,
-                    body=b'{}',
-                    headers={'Content-Type': 'application/json'},
-                    timeout=5.0,
-                )
-            self.assertEqual(result.status, 200)
-            thread.join(timeout=5)
-        finally:
-            cert_path.unlink(missing_ok=True)
-            key_path.unlink(missing_ok=True)
-
-    def test_hostname_mismatch_fails_verification(self):
-        cert_path, key_path = _write_self_signed_cert(
-            common_name='wrong-host.invalid',
-            san_dns=['wrong-host.invalid'],
+        conn = PinnedHTTPSConnection(
+            'webhook.example.com',
+            443,
+            connect_host='2001:db8::1',
+            timeout=3.0,
+            context=context,
         )
+        expected = ipaddress.ip_address('2001:db8::1').compressed
+        mock_sock = MagicMock()
+        with patch('apps.actions.webhook_transport.socket.create_connection', return_value=mock_sock) as create_conn:
+            with patch.object(context, 'wrap_socket', return_value=MagicMock()):
+                conn.connect()
+        create_conn.assert_called_once_with((expected, 443), 3.0, None)
+
+
+class WebhookTransportIntegrationTests(TestCase):
+    def test_https_post_round_trip_with_pinned_connect(self) -> None:
+        port = _free_port()
+        received: dict[str, bytes | str] = {}
+        body_event = threading.Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get('Content-Length', '0'))
+                received['host'] = self.headers.get('Host', '')
+                received['body'] = self.rfile.read(length)
+                self.send_response(204)
+                self.end_headers()
+                body_event.set()
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        cert_pem, key_pem = _self_signed_localhost_cert()
+        httpd = HTTPServer(('127.0.0.1', port), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=_pem_temp(cert_pem), keyfile=_pem_temp(key_pem))
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        client_context = ssl.create_default_context()
+        client_context.load_verify_locations(cadata=cert_pem.decode('ascii'))
         try:
-            port, thread = _run_one_shot_https_server(cert_path=cert_path, key_path=key_path)
             endpoint = ResolvedWebhookEndpoint(
                 original_url=f'https://localhost:{port}/hook',
                 scheme='https',
@@ -181,45 +152,102 @@ class HttpsWebhookIntegrationTests(SimpleTestCase):
                 host_header='localhost',
                 path='/hook',
             )
+            payload = b'{"ok":true}'
             with patch(
                 'apps.actions.webhook_transport.ssl.create_default_context',
-                return_value=_context_trusting_cert(cert_path),
+                return_value=client_context,
             ):
-                with self.assertRaises(ssl.SSLCertVerificationError):
-                    post_resolved_webhook(
-                        endpoint,
-                        body=b'{}',
-                        headers={'Content-Type': 'application/json'},
-                        timeout=5.0,
-                    )
-            thread.join(timeout=5)
-        finally:
-            cert_path.unlink(missing_ok=True)
-            key_path.unlink(missing_ok=True)
-
-    def test_post_webhook_url_private_localhost(self):
-        cert_path, key_path = _write_self_signed_cert(common_name='127.0.0.1', san_ips=['127.0.0.1'])
-        try:
-            port, thread = _run_one_shot_https_server(cert_path=cert_path, key_path=key_path)
-            url = f'https://127.0.0.1:{port}/hook'
-            with patch(
-                'apps.actions.webhook_transport.ssl.create_default_context',
-                return_value=_context_trusting_cert(cert_path),
-            ):
-                result = post_webhook_url(
-                    url,
-                    body=b'{"ok":true}',
+                result = post_resolved_webhook(
+                    endpoint,
+                    body=payload,
                     headers={'Content-Type': 'application/json'},
                     timeout=5.0,
-                    allow_private=True,
                 )
-            self.assertEqual(result.status, 200)
-            thread.join(timeout=5)
+            self.assertTrue(body_event.wait(timeout=5.0))
+            self.assertEqual(result.status, 204)
+            self.assertEqual(received['host'], 'localhost')
+            self.assertEqual(received['body'], payload)
         finally:
-            cert_path.unlink(missing_ok=True)
-            key_path.unlink(missing_ok=True)
+            httpd.shutdown()
+            httpd.server_close()
 
-    def test_private_url_blocked_without_allow_private(self):
+    def test_https_cert_hostname_mismatch_fails(self) -> None:
+        port = _free_port()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                self.send_response(500)
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        cert_pem, key_pem = _self_signed_localhost_cert()
+        httpd = HTTPServer(('127.0.0.1', port), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=_pem_temp(cert_pem), keyfile=_pem_temp(key_pem))
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            endpoint = ResolvedWebhookEndpoint(
+                original_url=f'https://wrong.example:{port}/hook',
+                scheme='https',
+                connect_host='127.0.0.1',
+                port=port,
+                host_header='wrong.example',
+                path='/hook',
+            )
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                post_resolved_webhook(
+                    endpoint,
+                    body=b'{}',
+                    headers={},
+                    timeout=5.0,
+                )
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_http_post_round_trip_to_pinned_ip(self) -> None:
+        port = _free_port()
+        received: dict[str, bytes | str] = {}
+        body_event = threading.Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get('Content-Length', '0'))
+                received['host'] = self.headers.get('Host', '')
+                received['body'] = self.rfile.read(length)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'ok')
+                body_event.set()
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        httpd = HTTPServer(('127.0.0.1', port), Handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f'http://127.0.0.1:{port}/notify'
+            result = post_webhook_url(
+                url,
+                body=b'ping',
+                headers={'Content-Type': 'text/plain'},
+                timeout=5.0,
+                allow_private=True,
+            )
+            self.assertTrue(body_event.wait(timeout=5.0))
+            self.assertEqual(result.status, 200)
+            self.assertEqual(received['host'], f'127.0.0.1:{port}')
+            self.assertEqual(received['body'], b'ping')
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_private_url_blocked_without_allow_private(self) -> None:
         with self.assertRaises(WebhookHTTPError):
             post_webhook_url(
                 'https://127.0.0.1/hook',
@@ -228,3 +256,13 @@ class HttpsWebhookIntegrationTests(SimpleTestCase):
                 timeout=2.0,
                 allow_private=False,
             )
+
+
+def _pem_temp(pem: bytes) -> str:
+    import tempfile
+
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix='.pem')
+    handle.write(pem)
+    handle.flush()
+    handle.close()
+    return handle.name

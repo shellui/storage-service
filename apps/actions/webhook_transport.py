@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import ssl
 from dataclasses import dataclass
@@ -37,36 +38,53 @@ class WebhookPostResult:
     retry_after_seconds: int | None = None
 
 
+def _tls_server_name(endpoint: ResolvedWebhookEndpoint) -> str:
+    """Hostname for TLS SNI and certificate verification from the HTTP Host value."""
+    host_header = endpoint.host_header
+    if host_header.startswith('['):
+        end = host_header.find(']')
+        if end == -1:
+            return host_header
+        return host_header[1:end]
+    _head, sep, tail = host_header.rpartition(':')
+    if sep and tail.isdigit():
+        return _head
+    return host_header
+
+
+def _socket_connect_host(connect_host: str) -> str:
+    """Normalize connect addresses for ``socket.create_connection``."""
+    try:
+        ip = ipaddress.ip_address(connect_host)
+    except ValueError:
+        return connect_host
+    if isinstance(ip, ipaddress.IPv6Address):
+        return ip.compressed
+    return connect_host
+
+
 class PinnedHTTPSConnection(HTTPSConnection):
-    """
-    HTTPSConnection that dials a pinned IP (SSRF-safe) while verifying TLS for ``host``.
-    """
+    """TLS to the original hostname while the TCP socket targets a pinned IP."""
 
     def __init__(
         self,
         host: str,
         port: int,
         *,
-        pinned_host: str,
+        connect_host: str,
         timeout: float,
         context: ssl.SSLContext,
-        source_address=None,
     ) -> None:
-        super().__init__(host, port, timeout=timeout, source_address=source_address, context=context)
-        self._pinned_host = pinned_host
+        super().__init__(host, port, timeout=timeout, context=context)
+        self._pinned_connect_host = _socket_connect_host(connect_host)
 
     def connect(self) -> None:
-        self.sock = socket.create_connection(
-            (self._pinned_host, self.port),
+        sock = socket.create_connection(
+            (self._pinned_connect_host, self.port),
             self.timeout,
             self.source_address,
         )
-        if self._tunnel_host:
-            server_hostname = self._tunnel_host
-        else:
-            server_hostname = self.host
-        assert self._context is not None
-        self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
 def _read_response_excerpt(response: HTTPResponse) -> str:
@@ -82,10 +100,6 @@ def _read_response_excerpt(response: HTTPResponse) -> str:
     return text.strip()
 
 
-def _tls_server_name(endpoint: ResolvedWebhookEndpoint) -> str:
-    return endpoint.host_header.split(':')[0]
-
-
 def post_resolved_webhook(
     endpoint: ResolvedWebhookEndpoint,
     *,
@@ -95,17 +109,22 @@ def post_resolved_webhook(
 ) -> WebhookPostResult:
     req_headers = dict(headers)
     req_headers['Host'] = endpoint.host_header
+    tls_hostname = _tls_server_name(endpoint)
     if endpoint.scheme == 'https':
         context = ssl.create_default_context()
         conn: HTTPConnection | HTTPSConnection = PinnedHTTPSConnection(
-            _tls_server_name(endpoint),
+            tls_hostname,
             endpoint.port,
-            pinned_host=endpoint.connect_host,
+            connect_host=endpoint.connect_host,
             timeout=timeout,
             context=context,
         )
     else:
-        conn = HTTPConnection(endpoint.connect_host, endpoint.port, timeout=timeout)
+        conn = HTTPConnection(
+            _socket_connect_host(endpoint.connect_host),
+            endpoint.port,
+            timeout=timeout,
+        )
     try:
         conn.request('POST', endpoint.path, body=body, headers=req_headers)
         response = conn.getresponse()

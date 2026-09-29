@@ -37,6 +37,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 - **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
 
+### 🐛 Bug Fixes
+
+- **HTTPS webhooks (Python 3.14):** Align `webhook_transport.py` with identity-service pinned TLS connect (`PinnedHTTPSConnection`, IPv6 Host/SNI parsing); admin send-test uses fresh UUID/timestamp sample values via shared `sample_data.py` while events catalog previews stay static.
+
 ## [0.3.0] - 2026-09-18
 
 ### 🔒 Security
