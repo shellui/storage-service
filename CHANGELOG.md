@@ -23,30 +23,34 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
-### ✨ Feature
+## [0.4.0] - 2026-09-29
 
-- **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
+### Added
+
+- **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with a DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
 - **n8n integration:** Retry-friendly HTTP semantics (404 retryable), `whsec_` signing secrets, UTF-8 JSON bodies, `X-Shellui-Event` / `X-Shellui-Delivery-Attempt` headers, `Retry-After` on 429/503, `POST …/rotate-secret`, create/rotate-only `secret` responses with `has_secret` / `secret_hint`, [docs/n8n.md](docs/n8n.md), and [docs/examples/verify-shellui-webhook.mjs](docs/examples/verify-shellui-webhook.mjs).
-- **Redis cache:** Set optional `REDIS_URL` for shared Django cache (aligned with identity-service). Without it, LocMem stays the default. Deploy check `authapi.W001` warns when production uses LocMem with `GUNICORN_WORKERS` > 1.
-
-### 📚 Documentation
-
-- `REDIS_URL` in `.env.example`, [README.md](README.md), [PUBLISH.md](PUBLISH.md), [docs/security.md](docs/security.md), and `docker-compose.yml`.
-
-- Add root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
+- **Redis cache:** Optional `REDIS_URL` for shared Django cache (aligned with identity-service). Without it, LocMem stays the default. Deploy check `authapi.W001` warns when production uses LocMem with `GUNICORN_WORKERS` > 1.
+- Root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
 - Ported identity-service Docusaurus theme overrides (`tools/docusaurus/src/theme/**`, `shellui-init.js`, favicons) for published docs at `storage.docs.shellui.com`.
 
-### 🛠 Improvements
+### Changed
 
 - **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
+- **Documentation:** `REDIS_URL` in `.env.example`, [README.md](README.md), [PUBLISH.md](PUBLISH.md), [docs/security.md](docs/security.md), and `docker-compose.yml`. Post-deploy examples use `https://storage.shellui.com` for the live storage API host.
 
-### 🐛 Bug Fixes
+### Fixed
 
 - **HTTPS webhooks (Python 3.14):** Align `webhook_transport.py` with identity-service pinned TLS connect (`PinnedHTTPSConnection`, IPv6 Host/SNI parsing); admin send-test uses fresh UUID/timestamp sample values via shared `sample_data.py` while events catalog previews stay static.
 
-### 🔒 Security
+### Security
 
 - **Webhook SSRF (identity v0.6.0):** Reject non-global resolved addresses (including CGNAT `100.64.0.0/10`); block NAT64, 6to4, and IPv4-compatible IPv6 literals via embedded IPv4 checks. Changing a webhook URL clears staff-granted `allow_private_urls` unless a superuser re-enables it.
+
+### Upgrade notes
+
+- Run database migrations after upgrade (`apps.actions` initial migration creates webhook outbox tables).
+- Schedule `python manage.py retry_webhooks` every minute (for example `* * * * *` in cron) so failed webhook deliveries retry with backoff.
+- When `GUNICORN_WORKERS` is greater than 1, set **`REDIS_URL`** (for example `redis://redis:6379/0`) so cache-backed limits are shared across workers.
 
 ## [0.3.0] - 2026-09-18
 
