@@ -146,6 +146,8 @@ docker compose up --build
 
 Default host port: `8001`.
 
+Runtime env vars include `SECRET_KEY`, identity JWKS settings, and optional **`REDIS_URL`** for a shared Django cache. When unset, Django uses in-process LocMem (fine for local dev or a single Gunicorn worker). With **`GUNICORN_WORKERS` > 1** (Docker default is `2`), set `REDIS_URL` so future cache-backed rate limits are shared across workers. `manage.py check --deploy` warns (`authapi.W001`) when production still uses LocMem with multiple workers. See [PUBLISH.md](PUBLISH.md) for Coolify Redis setup.
+
 ## Tests
 
 ```bash

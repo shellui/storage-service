@@ -23,7 +23,13 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
+### ✨ Feature
+
+- **Redis cache:** Set optional `REDIS_URL` for shared Django cache (aligned with identity-service). Without it, LocMem stays the default. Deploy check `authapi.W001` warns when production uses LocMem with `GUNICORN_WORKERS` > 1.
+
 ### 📚 Documentation
+
+- `REDIS_URL` in `.env.example`, [README.md](README.md), [PUBLISH.md](PUBLISH.md), [docs/security.md](docs/security.md), and `docker-compose.yml`.
 
 - Add root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
 - Ported identity-service Docusaurus theme overrides (`tools/docusaurus/src/theme/**`, `shellui-init.js`, favicons) for published docs at `storage.docs.shellui.com`.

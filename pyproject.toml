@@ -21,6 +21,7 @@ dependencies = [
     "requests==2.33.0",
     "markdown==3.10.2",
     "prometheus-client==0.21.1",
+    "redis==8.1.0",
     "sqlparse==0.6.0",
 ]
 
