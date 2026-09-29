@@ -207,8 +207,29 @@
             Shellui Storage
           </h1>
           <p class="mt-6 max-w-xl text-lg/7 text-muted-foreground">
-            Store files and blobs for Shellui apps with a Supabase-compatible REST API at <code class="font-mono text-sm text-primary-ink dark:text-primary">/storage/v1</code>. Send a Bearer JWT from Shellui Identity, keep one bucket per company, and enforce quotas. WebDAV is available for desktop clients when you enable it.
+            Shellui Storage is object storage for apps in the Shellui shell. Call the Supabase-compatible REST API at
+            <code class="font-mono text-sm text-primary-ink dark:text-primary">/storage/v1</code>
+            with a Bearer JWT from Shellui Identity. Blobs live on the filesystem or an S3-compatible backend, with one bucket per company and streaming downloads through Django.
           </p>
+
+          <ul class="mt-8 max-w-xl space-y-2 text-sm text-muted-foreground">
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>Upload, download, list, move, copy, and signed URLs with the same shapes Supabase clients expect.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>One company bucket, access grants, share links, company quotas, and optional per-user quotas.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>Shellui Actions webhooks for <code class="font-mono text-xs">storage.*</code> events, with an n8n guide in the repo docs.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-primary-ink dark:text-primary" aria-hidden="true">•</span>
+              <span>Optional WebDAV at <code class="font-mono text-xs">/dav/</code> when you enable it for desktop clients.</span>
+            </li>
+          </ul>
 
           <div class="mt-8 flex flex-wrap items-center gap-4">
             <a
@@ -240,7 +261,11 @@
                 <a href="{{ health_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">Health</a>
                 <span class="text-muted-foreground">(<code class="font-mono text-xs">GET /storage/v1/health</code>)</span>
               </li>
-              {% if django_admin_enabled and user.is_authenticated %}
+              <li>
+                <a href="{{ n8n_docs_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">n8n webhooks</a>
+                <span class="text-muted-foreground">(Shellui Actions · <a href="{{ n8n_repo_docs_url }}" class="underline-offset-2 hover:underline">docs/n8n.md</a>)</span>
+              </li>
+              {% if show_admin_link %}
               <li>
                 <a href="{{ admin_url }}" class="font-medium text-primary-ink hover:underline dark:text-primary">Django admin</a>
                 <span class="text-muted-foreground">(operators)</span>
