@@ -229,6 +229,7 @@ First superuser: run `python manage.py createsuperuser` inside the container (or
 | `CORS_ALLOWED_ORIGINS`  | Used when `CORS_ALLOW_ALL_ORIGINS=false`; Shellui / admin front-end origins. |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
 | `POSTGRES_SSL_REQUIRE`  | Default `true` when `DEBUG=false`; set `false` for internal DB only.  |
+| `REDIS_URL`             | Shared Redis cache (recommended when `GUNICORN_WORKERS` > 1). Example: `redis://redis:6379/0`. Without it, LocMem is per-worker. |
 | `DJANGO_ADMIN_ENABLED`  | Default `true`; set `false` on public API pods (see `docs/security.md`). |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
 | `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |
@@ -244,6 +245,18 @@ With Postgres:
 ```bash
 -e POSTGRES_DATABASE_URL='postgres://user:pass@host:5432/dbname'
 ```
+
+### Redis (Coolify / multi-worker Gunicorn)
+
+When `GUNICORN_WORKERS` is greater than 1 (Docker default is `2`), any cache-backed rate limits or throttles rely on Django cache. In-process LocMem is **not** shared between workers.
+
+1. Add a **Redis** service in Coolify (or run Redis on the VPS).
+2. On the storage-service container, set **`REDIS_URL`** to the Redis connection URL, for example:
+   - Same Coolify project, internal hostname: `redis://redis:6379/0`
+   - Managed Redis with password: `redis://:password@host:6379/0`
+3. Redeploy storage-service. `manage.py check --deploy` warns (`authapi.W001`) if production still uses LocMem with multiple workers.
+
+Local dev and single-worker installs can leave `REDIS_URL` unset.
 
 With S3:
 

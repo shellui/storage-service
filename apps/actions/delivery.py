@@ -168,7 +168,7 @@ def _apply_delivery_result(
         row.last_error = attempt_error
         delay = compute_retry_delay_seconds(
             attempt_number=attempt_number,
-            http_status=attempt_meta.get('http_status'),
+            http_status=http_status,
             retry_after_seconds=attempt_meta.get('retry_after_seconds'),
             base_backoff_seconds=_backoff_seconds(attempt_number),
         )

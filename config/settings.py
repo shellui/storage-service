@@ -88,6 +88,28 @@ def _env_bool(name, default: bool) -> bool:
     return raw.lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _caches_config(redis_url: str) -> dict:
+    """
+    Shared cache for auth rate limits, access-token denylist, and activity throttles.
+
+    When ``REDIS_URL`` is set, use Django's Redis backend (requires the ``redis`` package).
+    Otherwise use in-process LocMem (fine for single-process dev; not shared across Gunicorn workers).
+    """
+    if redis_url:
+        return {
+            'default': {
+                'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+                'LOCATION': redis_url,
+            }
+        }
+    return {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'identity-service-auth',
+        }
+    }
+
+
 def _env_bytes(name, default):
     """Parse byte sizes: bare int, or suffixes K/M/G/T (binary, 1024-based)."""
     raw = os.getenv(name, '').strip()
@@ -241,6 +263,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+CACHES = _caches_config(REDIS_URL)
 
 POSTGRES_DATABASE_URL = os.getenv('POSTGRES_DATABASE_URL', '').strip()
 

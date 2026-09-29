@@ -66,6 +66,22 @@ The admin at `/admin/` shows **cross-tenant** data (all companies' buckets, obje
 
 See [Admin panel](admin.md) for dashboard features.
 
+## Shared cache (Redis)
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `REDIS_URL` | unset | Django Redis cache backend for shared state across Gunicorn workers |
+
+When unset, Django uses in-process **LocMem** (fine for local dev or a single Gunicorn worker). With **`GUNICORN_WORKERS` > 1** (Docker default is `2`), set `REDIS_URL` so future cache-backed rate limits and throttles are shared across workers. `manage.py check --deploy` emits **`authapi.W001`** when production uses LocMem with multiple workers.
+
+Example:
+
+```bash
+REDIS_URL=redis://redis:6379/0
+```
+
+See [PUBLISH.md](https://github.com/shellui/storage-service/blob/develop/PUBLISH.md) for Coolify Redis setup.
+
 ## Environment file hygiene (M-12)
 
 `.env.example` contains **placeholders only**. Generate `SECRET_KEY` locally; never commit real JWKS private keys, AWS credentials, or production DSNs.
