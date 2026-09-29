@@ -1,0 +1,39 @@
+services:
+  storage-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: shellui/storage-service:local
+    container_name: storage-service
+    ports:
+      - "${STORAGE_SERVICE_PORT:-8001}:8000"
+    environment:
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required — copy .env.example to .env and set SECRET_KEY}"
+      DEBUG: "${DEBUG:-true}"
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-}"
+      CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-}"
+      POSTGRES_DATABASE_URL: "${POSTGRES_DATABASE_URL:-}"
+      REDIS_URL: "${REDIS_URL:-}"
+      SQLITE_PATH: "/app/data/db.sqlite3"
+      MEDIA_ROOT: "/app/data/media"
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-filesystem}"
+      IDENTITY_SERVICE_URL: "${IDENTITY_SERVICE_URL:-http://host.docker.internal:8000}"
+      IDENTITY_JWKS: "${IDENTITY_JWKS:-}"
+      IDENTITY_JWKS_FILE: "${IDENTITY_JWKS_FILE:-}"
+      IDENTITY_ISSUER: "${IDENTITY_ISSUER:-}"
+      IDENTITY_AUDIENCE: "${IDENTITY_AUDIENCE:-}"
+      CORS_ALLOW_ALL_ORIGINS: "${CORS_ALLOW_ALL_ORIGINS:-true}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+      GUNICORN_WORKERS: "${GUNICORN_WORKERS:-2}"
+      GUNICORN_THREADS: "${GUNICORN_THREADS:-2}"
+      GUNICORN_TIMEOUT: "${GUNICORN_TIMEOUT:-120}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-}"
+      SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
+      SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0}"
+    volumes:
+      - storage-service-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  storage-service-data:
