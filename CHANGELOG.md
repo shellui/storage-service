@@ -21,9 +21,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [Unreleased]
-
 ## [0.4.0] - 2026-09-29
+
+### ✨ Feature
+
+- **Homepage (0.4.0):** Public root landing aligned with identity-service; staff-only Django admin link and homepage tests.
+- **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
+- **n8n integration:** Retry-friendly HTTP semantics (404 retryable), `whsec_` signing secrets, UTF-8 JSON bodies, `X-Shellui-Event` / `X-Shellui-Delivery-Attempt` headers, `Retry-After` on 429/503, `POST …/rotate-secret`, create/rotate-only `secret` responses with `has_secret` / `secret_hint`, [docs/n8n.md](docs/n8n.md), and [docs/examples/verify-shellui-webhook.mjs](docs/examples/verify-shellui-webhook.mjs).
+- **Redis cache:** Set optional `REDIS_URL` for shared Django cache (aligned with identity-service). Without it, LocMem stays the default. Deploy check `authapi.W001` warns when production uses LocMem with `GUNICORN_WORKERS` > 1.
 
 ### Added
 

@@ -114,6 +114,11 @@ def root(request):
                 )
 
     show_setup_form = not has_users and bootstrap_allowed
+    storage_docs_url = getattr(
+        settings,
+        'SHELLUI_STORAGE_DOCS_URL',
+        'https://storage.docs.shellui.com',
+    ).rstrip('/')
     context = {
         'form': form,
         'show_setup_form': show_setup_form,
@@ -123,7 +128,11 @@ def root(request):
         'schema_url': reverse('schema'),
         'health_url': reverse('storage-health'),
         'admin_url': reverse('admin:index'),
-        'django_admin_enabled': settings.DJANGO_ADMIN_ENABLED,
+        'show_admin_link': (
+            settings.DJANGO_ADMIN_ENABLED
+            and request.user.is_authenticated
+            and request.user.is_staff
+        ),
         'version': settings.VERSION,
         'setup_done': request.GET.get('setup') == 'done',
         'setup_token': _provided_setup_token(request) if bootstrap_allowed and not has_users else '',
@@ -132,11 +141,9 @@ def root(request):
         'playground_url': getattr(
             settings, 'SHELLUI_PLAYGROUND_URL', 'https://playground.shellui.com'
         ),
-        'storage_docs_url': getattr(
-            settings,
-            'SHELLUI_STORAGE_DOCS_URL',
-            'https://storage.docs.shellui.com',
-        ),
+        'storage_docs_url': storage_docs_url,
+        'n8n_docs_url': f'{storage_docs_url}/n8n',
+        'n8n_repo_docs_url': f'{getattr(settings, "SHELLUI_GITHUB_STORAGE_URL", "https://github.com/shellui/storage-service").rstrip("/")}/blob/develop/docs/n8n.md',
         'identity_docs_url': getattr(
             settings,
             'SHELLUI_IDENTITY_DOCS_URL',
