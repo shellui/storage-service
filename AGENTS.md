@@ -16,3 +16,6 @@ Canonical source lives in `shellui/website` (`content/guidelines/`, `skills/writ
 - Ban em dashes (`—`) and en dashes (`–`) used as punctuation; prefer a hyphen (`-`) or split the sentence
 - Straight quotes in markdown source; ellipsis `…`, not three dots `...`
 - Avoid banned filler: easy, simple, quick, seamless, robust, powerful, just, very, really, simply
+- Say **Shellui Actions** (not bare "Actions") in user-facing docs for webhook rules and delivery
+
+When writing or reviewing user-facing copy in this repo, follow https://shellui.com/guidelines/writing.md (no em or en dashes; product is always **Shellui**).

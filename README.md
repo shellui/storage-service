@@ -26,6 +26,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - `config/` — Django settings and URL routing
 - `apps/authapi/` — JWKS JWT authentication
 - `apps/storage/` — buckets, objects, quotas, downloads, signals
+- `apps/actions/` — Shellui Actions webhook outbox and admin API
 - `apps/webdav/` — WebDAV connector
 - `docs/` — topic guides (Docusaurus)
 
@@ -48,6 +49,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 | Quota | `GET /storage/v1/quota` |
 | Stats | `GET /storage/v1/stats` |
 | Metrics | `GET /storage/v1/metrics`, `GET /storage/v1/metrics/all` |
+| Shellui Actions admin | `/api/v1/actions/*` (webhook rules and delivery log) |
 | WebDAV | `/dav/{bucket}/…` |
 | OpenAPI | `/api/docs/`, `/api/docs/redoc/` |
 
@@ -145,6 +147,16 @@ docker compose up --build
 ```
 
 Default host port: `8001`.
+
+### Shellui Actions retries (production)
+
+Schedule webhook outbox retries every minute (same pattern as identity-service):
+
+```cron
+* * * * * python manage.py retry_webhooks
+```
+
+See [docs/actions.md](docs/actions.md).
 
 ## Tests
 

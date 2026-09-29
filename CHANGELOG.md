@@ -23,6 +23,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
+### ✨ Feature
+
+- **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
+
 ### 📚 Documentation
 
 - Add root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
