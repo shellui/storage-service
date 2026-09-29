@@ -1,22 +1,19 @@
 # Change Log
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](http://keepachangelog.com/)
-and this project adheres to [Semantic Versioning](http://semver.org/).
+Notable changes to this project. Format: [Keep a Changelog](http://keepachangelog.com/). Versioning: [Semantic Versioning](http://semver.org/).
 
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
-### ✨ Feature – for new features
-### 🛠 Improvements – for general improvements
-### 🚨 Changed – for changes in existing functionality
-### ⚠️ Deprecated – for soon-to-be removed features
-### 📚 Documentation – for documentation update
-### 🗑 Removed – for removed features
-### 🐛 Bug Fixes – for any bug fixes
-### 🔒 Security – in case of vulnerabilities
-### 🏗 Chore – for tidying code
+### ✨ Feature - for new features
+### 🛠 Improvements - for general improvements
+### 🚨 Changed - for changes in existing functionality
+### ⚠️ Deprecated - for soon-to-be removed features
+### 📚 Documentation - for documentation update
+### 🗑 Removed - for removed features
+### 🐛 Bug Fixes - for any bug fixes
+### 🔒 Security - in case of vulnerabilities
+### 🏗 Chore - for tidying code
 
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
@@ -25,131 +22,127 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### ✨ Feature
 
-- **Homepage (0.4.0):** Public root landing aligned with identity-service; staff-only Django admin link and homepage tests.
-- **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
-- **n8n integration:** Retry-friendly HTTP semantics (404 retryable), `whsec_` signing secrets, UTF-8 JSON bodies, `X-Shellui-Event` / `X-Shellui-Delivery-Attempt` headers, `Retry-After` on 429/503, `POST …/rotate-secret`, create/rotate-only `secret` responses with `has_secret` / `secret_hint`, [docs/n8n.md](docs/n8n.md), and [docs/examples/verify-shellui-webhook.mjs](docs/examples/verify-shellui-webhook.mjs).
-- **Redis cache:** Set optional `REDIS_URL` for shared Django cache (aligned with identity-service). Without it, LocMem stays the default. Deploy check `authapi.W001` warns when production uses LocMem with `GUNICORN_WORKERS` > 1.
+- Public homepage aligned with identity-service, with a staff-only Django admin link
+- **Shellui Actions**: signed outbound webhooks for `storage.*` events at `/api/v1/actions/*`
+- n8n-ready delivery: `whsec_` secrets, retry headers, rotate-secret, and an [n8n guide](docs/n8n.md)
+- Optional `REDIS_URL` shared cache; LocMem stays the default
 
-### Added
+### 🛠 Improvements
 
-- **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with a DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
-- **n8n integration:** Retry-friendly HTTP semantics (404 retryable), `whsec_` signing secrets, UTF-8 JSON bodies, `X-Shellui-Event` / `X-Shellui-Delivery-Attempt` headers, `Retry-After` on 429/503, `POST …/rotate-secret`, create/rotate-only `secret` responses with `has_secret` / `secret_hint`, [docs/n8n.md](docs/n8n.md), and [docs/examples/verify-shellui-webhook.mjs](docs/examples/verify-shellui-webhook.mjs).
-- **Redis cache:** Optional `REDIS_URL` for shared Django cache (aligned with identity-service). Without it, LocMem stays the default. Deploy check `authapi.W001` warns when production uses LocMem with `GUNICORN_WORKERS` > 1.
-- Root `AGENTS.md` with Shellui writing and design guidelines for coding agents.
-- Ported identity-service Docusaurus theme overrides (`tools/docusaurus/src/theme/**`, `shellui-init.js`, favicons) for published docs at `storage.docs.shellui.com`.
+- Root `AGENTS.md` for Shellui writing and design guidelines
+- Docusaurus theme and favicons for docs at `storage.docs.shellui.com`
 
-### Changed
+### 🚨 Changed
 
-- **Homepage:** Root landing uses Shellui brand favicons, hero wash, hosting-style footer, and circular dark-mode transition. Title and meta describe **Shellui Storage** (Supabase-compatible object storage for Shellui apps). Tailwind v4 builds `static/css/site.css` from `templates/`; `runserver` rebuilds CSS locally when `DEBUG=true`.
-- **Documentation:** `REDIS_URL` in `.env.example`, [README.md](README.md), [PUBLISH.md](PUBLISH.md), [docs/security.md](docs/security.md), and `docker-compose.yml`. Post-deploy examples use `https://storage.shellui.com` for the live storage API host.
+- Homepage uses Shellui brand, a **Shellui Storage** title, and Tailwind v4 `static/css/site.css`
+- Docs and Compose examples use `REDIS_URL` and `https://storage.shellui.com`
+- Run `apps.actions` migrations after upgrade
+- Schedule `python manage.py retry_webhooks` every minute
+- Set `REDIS_URL` when `GUNICORN_WORKERS` is greater than 1
 
-### Fixed
+### 🐛 Bug Fixes
 
-- **HTTPS webhooks (Python 3.14):** Align `webhook_transport.py` with identity-service pinned TLS connect (`PinnedHTTPSConnection`, IPv6 Host/SNI parsing); admin send-test uses fresh UUID/timestamp sample values via shared `sample_data.py` while events catalog previews stay static.
+- HTTPS webhooks on Python 3.14 use pinned TLS connect, aligned with identity-service
 
-### Security
+### 🔒 Security
 
-- **Webhook SSRF (identity v0.6.0):** Reject non-global resolved addresses (including CGNAT `100.64.0.0/10`); block NAT64, 6to4, and IPv4-compatible IPv6 literals via embedded IPv4 checks. Changing a webhook URL clears staff-granted `allow_private_urls` unless a superuser re-enables it.
-
-### Upgrade notes
-
-- Run database migrations after upgrade (`apps.actions` initial migration creates webhook outbox tables).
-- Schedule `python manage.py retry_webhooks` every minute (for example `* * * * *` in cron) so failed webhook deliveries retry with backoff.
-- When `GUNICORN_WORKERS` is greater than 1, set **`REDIS_URL`** (for example `redis://redis:6379/0`) so cache-backed limits are shared across workers.
+- Webhook SSRF: reject non-global, CGNAT, NAT64, 6to4, and IPv4-compatible IPv6
+- Changing a webhook URL clears `allow_private_urls` unless a superuser re-enables it
 
 ## [0.3.0] - 2026-09-18
 
 ### 🔒 Security
 
-- **M-01 CORS:** Allow `CORS_ALLOW_ALL_ORIGINS=true` in production when `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT). Startup fails if allow-all and credentials are both enabled. Document multi-tenant CORS model; do not require static customer origin lists.
-- **M-03 JWT iss/aud:** Require `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` when `DEBUG=false`, aligned with identity-service 0.5.0+ (`JWT_ISSUER` / `JWT_AUDIENCE`).
-- **M-12 env hygiene:** `.env.example` uses placeholders only (no insecure literal secrets).
-- **M-22 signed URLs:** Document that filesystem “signed” URLs are not cryptographically signed; use S3 in production and do not expose `/media/` publicly.
-- **M-23 admin:** Document cross-tenant admin isolation; optional `DJANGO_ADMIN_ENABLED=false` for API pods; MFA and network-lock guidance.
-- **Transport / Postgres:** HSTS and secure cookies when `DEBUG=false`; `POSTGRES_SSL_REQUIRE` defaults to `true` with `false` escape for internal databases.
-- **H-10 bulk/prefix/empty delete ACL:** REST bulk delete, prefix delete, and bucket-empty now enforce path-level write ACL on every target (same as single-object delete and WebDAV), closing a gap where company bucket write access could delete another user's private files.
-- **Prefix stats ACL (M-20):** `GET /storage/v1/object/prefix/{bucket}` now omits objects the caller cannot read, matching list ACL filtering — no metadata leak on private prefixes.
-- **Signed URL TTL cap (M-21):** Client `expiresIn` / `expires_in` is capped to `SIGNED_URL_EXPIRES` (default 3600s); unset values use that setting instead of a hardcoded default.
-- **Health endpoint (M-24):** Anonymous `GET /storage/v1/health` returns only `status` and `version`; storage backend and JWKS fields require a valid Bearer token.
-- Gate public first-run superuser bootstrap at `/`: disabled when `DEBUG=false` unless a valid `SETUP_TOKEN` is provided (query param, hidden form field, or `X-Setup-Token` header). Production installs should use `manage.py createsuperuser` or a one-time `SETUP_TOKEN` URL.
+- CORS: `CORS_ALLOW_ALL_ORIGINS=true` is allowed in production when credentials are off
+- Require `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` when `DEBUG=false`
+- `.env.example` uses placeholders only
+- Filesystem signed URLs are not cryptographic; use S3 in production
+- Optional `DJANGO_ADMIN_ENABLED=false` for API pods
+- HSTS and secure cookies when `DEBUG=false`; `POSTGRES_SSL_REQUIRE` defaults to `true`
+- Bulk, prefix, and empty delete enforce path-level write ACL
+- Prefix stats omit objects you cannot read
+- Signed URL TTL is capped to `SIGNED_URL_EXPIRES` (default 3600s)
+- Anonymous health returns only `status` and `version`
+- First-run superuser at `/` needs `SETUP_TOKEN` when `DEBUG=false`
 
 ### 📚 Documentation
 
-- Add [Production security](docs/security.md) guide.
-- Add `./tools/prod-config-check.sh` post-deploy smoke test for live HTTPS deployments (README + PUBLISH.md).
+- [Production security](docs/security.md) guide
+- `./tools/prod-config-check.sh` smoke test for live HTTPS deploys
 
 ## [0.2.1] - 2026-09-07
 
 ### 🚨 Changed
 
-- **Permissive API CORS:** default `CORS_ALLOW_ALL_ORIGINS=true` with `CORS_ALLOW_CREDENTIALS=false` (Bearer JWT auth). Hosted preview origins no longer need per-slug `CORS_ALLOWED_ORIGINS` entries.
+- Default `CORS_ALLOW_ALL_ORIGINS=true` with `CORS_ALLOW_CREDENTIALS=false`
 
 ## [0.2.0] - 2026-09-03
 
 ### 🔒 Security
 
-- Bump dependencies to clear `pip-audit` findings: Django `6.0.8`, cryptography `50.0.0`, djangorestframework `3.17.2`, requests `2.33.0`, PyJWT `2.13.0`, sqlparse `0.6.0`.
+- Dependency bumps for `pip-audit`: Django 6.0.8, cryptography 50.0.0, and related packages
 
 ### 🐛 Bug Fixes
 
-- WebDAV `PROPFIND` on a missing path returns **404** instead of an empty `207` collection.
+- WebDAV `PROPFIND` on a missing path returns 404, not an empty 207
 
 ### 🏗 Chore
 
-- Add GitHub Actions CI on PRs and `main`/`develop`: Django tests, `uv lock --check`, `pip-audit`, gitleaks, lychee link checks, and Docker build.
-- Automate PUBLISH.md pre-release checklist via `./tools/pre-release-check.sh` and `.github/workflows/pre-release.yml` (PRs to `main`).
-- Align remaining product strings with Shellui brand spelling.
+- GitHub Actions CI: tests, lockfile, `pip-audit`, gitleaks, lychee, Docker build
+- Pre-release checks via `./tools/pre-release-check.sh`
+- Product strings use Shellui spelling
 
 ### 🛠 Improvements
 
-- Log JWT/JWKS verification failures with algorithm, key id, issuer/audience, and loaded JWKS kids (token values are never logged). API 401s include a `request_id` matching `X-Request-ID`.
-- Document storage APIViews for OpenAPI (serializers + unique operation IDs) so schema generation no longer skips endpoints.
+- JWT/JWKS failure logs include algorithm, key id, issuer, audience, and JWKS kids
+- API 401s include `request_id` matching `X-Request-ID`
+- OpenAPI covers storage APIViews with unique operation IDs
 
 ### 📚 Documentation
 
-- Sync embedded Swagger UI and ReDoc light/dark mode with shellui appearance (native Swagger UI dark mode and Redoc presets).
-- Document how to read storage-service logs locally and in Docker/Coolify.
-- Add Shellui brand favicon (ICO + PNG sizes) to the Docusaurus docs site.
+- Swagger UI and ReDoc follow shell appearance
+- How to read logs locally, in Docker, and in Coolify
+- Shellui favicon on the Docusaurus site
 
 ## [0.1.1] - 2026-08-18
 
 ### 🛠 Improvements
 
-- Remove some informations from homepage to keep it minimalist
-- Verify JWTs from a local JWKS file or `IDENTITY_JWKS` env (no runtime HTTP to identity).
+- Slimmer homepage
+- JWTs from a local JWKS file or `IDENTITY_JWKS` (no runtime HTTP to identity)
 
 ### 🐛 Bug Fixes
 
-- Fix issues loading JWKS_URL.
+- JWKS URL loading
 
 ## [0.1.0] - 2026-08-17
 
 ### ✨ Feature
 
-- Initial release of `storage-service`.
-- Added **Supabase-compatible** Storage REST API under `/storage/v1/*` (upload, download, list with folders, move/copy, signed URLs).
-- Added **one bucket per company** with files **private to the creator** by default; share via **access grants** (user / company / folder / object). Nested items inherit the parent folder's permissions.
-- Added **share links** — secret capability URLs with expiry and/or max downloads.
-- Added JWT authentication via identity-service JWKS (`IDENTITY_JWKS_URL`).
-- Added pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**.
-- Added company total quota and optional per-user quota.
-- Added WebDAV at `/dav/` for third-party file clients.
-- Added Prometheus metrics (`GET /storage/v1/metrics`, `GET /storage/v1/metrics/all`).
-- Added Django signals on upload/delete (including Markdown sidecar extraction).
+- Initial `storage-service` release
+- Supabase-compatible REST API under `/storage/v1/*`
+- One company bucket; files private to the creator; share with access grants
+- Share links with expiry and download caps
+- JWT auth via identity-service JWKS
+- S3 or filesystem blob backend
+- Company quota and optional per-user quota
+- WebDAV at `/dav/`
+- Prometheus metrics at `/storage/v1/metrics`
+- Django signals on upload and delete
 
 ### 🛠 Improvements
 
-- Added OpenAPI documentation (Swagger + ReDoc) and a simple home page.
-- Added Django admin with upload statistics (documents, MIME breakdown, quotas, recent files).
-- Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin.
-- MIME type detection and per-bucket allow-lists.
-- CORS for local Shellui (`http://localhost:4000`), admin, and extra origins.
+- OpenAPI (Swagger + ReDoc) and home page
+- Django admin upload statistics
+- Downloads stream through Django (`FileResponse`)
+- MIME detection and per-bucket allow-lists
+- CORS for local Shellui, admin, and extra origins
 
 ### 🚨 Changed
 
-- Local setup uses `uv sync` / `uv run` (`pyproject.toml` + `uv.lock`).
-- Docker installs with `uv sync --frozen`.
+- Local setup: `uv sync` / `uv run`
+- Docker: `uv sync --frozen`
 
 ### 📚 Documentation
 
-- Added topic guides for authentication, quotas, metrics, downloads, clients, access control, sharing, signals, and admin statistics.
+- Guides for auth, quotas, metrics, downloads, clients, access, sharing, signals, and admin
