@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from apps.actions.handlers.webhook import WebhookDeliveryError, deliver_webhook_action
 from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
+from apps.actions.webhook_retry import next_attempt_delay_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -74,21 +75,27 @@ def _load_rule_for_delivery(row: ActionOutbox) -> tuple[ActionRule | None, str |
     return rule, None
 
 
-def _perform_http_delivery(*, rule: ActionRule, envelope: dict) -> tuple[bool, dict]:
+def _perform_http_delivery(*, rule: ActionRule, envelope: dict, attempt_number: int) -> tuple[bool, dict]:
     started = time.monotonic()
     http_status = None
     response_excerpt = ''
     error_message = ''
     success = False
     permanent = False
+    retry_after_seconds = None
     try:
-        deliver_webhook_action(config=rule.config or {}, envelope=envelope)
+        deliver_webhook_action(
+            config=rule.config or {},
+            envelope=envelope,
+            attempt_number=attempt_number,
+        )
         success = True
     except WebhookDeliveryError as exc:
         error_message = str(exc)
         http_status = exc.http_status
         response_excerpt = exc.response_excerpt or ''
         permanent = exc.permanent
+        retry_after_seconds = exc.retry_after_seconds
     except Exception as exc:  # noqa: BLE001
         error_message = str(exc) or exc.__class__.__name__
         logger.exception('Webhook delivery failed')
@@ -98,6 +105,7 @@ def _perform_http_delivery(*, rule: ActionRule, envelope: dict) -> tuple[bool, d
         'response_excerpt': response_excerpt,
         'error_message': error_message,
         'permanent': permanent,
+        'retry_after_seconds': retry_after_seconds,
         'duration_ms': duration_ms,
     }
 
@@ -158,7 +166,13 @@ def _apply_delivery_result(
     else:
         row.status = ActionOutbox.STATUS_FAILED
         row.last_error = attempt_error
-        row.next_attempt_at = timezone.now() + timedelta(seconds=_backoff_seconds(attempt_number))
+        delay = next_attempt_delay_seconds(
+            attempt_number=attempt_number,
+            http_status=attempt_meta.get('http_status'),
+            retry_after_seconds=attempt_meta.get('retry_after_seconds'),
+            backoff_seconds=_backoff_seconds(attempt_number),
+        )
+        row.next_attempt_at = timezone.now() + timedelta(seconds=delay)
     row.save(
         update_fields=[
             'status',
@@ -207,7 +221,11 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
                 attempt_meta={},
             )
 
-    success, attempt_meta = _perform_http_delivery(rule=rule, envelope=envelope)
+    success, attempt_meta = _perform_http_delivery(
+        rule=rule,
+        envelope=envelope,
+        attempt_number=snapshot_attempt + 1,
+    )
 
     with transaction.atomic():
         row = ActionOutbox.objects.select_for_update().get(pk=outbox_id)

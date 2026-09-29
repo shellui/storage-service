@@ -11,7 +11,12 @@ from apps.actions.emit import emit_event
 from apps.actions.handlers.webhook import WebhookDeliveryError
 from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
 from apps.actions.ssrf import SSRFError, validate_webhook_url
+from apps.actions.webhook_body import serialize_webhook_envelope
 from apps.actions.webhook_signing import sign_webhook_body
+
+
+def _mock_ok(*_args, **_kwargs):
+    return (200, '', None)
 
 
 @override_settings(ACTIONS_WEBHOOK_SYNC_DELIVERY=True)
@@ -40,7 +45,7 @@ class EmitEventTests(TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(ActionOutbox.objects.count(), 0)
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(200, ''))
+    @patch('apps.actions.handlers.webhook.post_webhook_url', side_effect=_mock_ok)
     def test_emit_creates_outbox_and_delivers_on_commit(self, _mock_post):
         with self.captureOnCommitCallbacks(execute=True):
             rows = emit_event(
@@ -72,7 +77,7 @@ class WebhookHandlerTests(TestCase):
             },
         )
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(200, ''))
+    @patch('apps.actions.handlers.webhook.post_webhook_url', side_effect=_mock_ok)
     def test_webhook_posts_signed_json(self, mock_post):
         envelope = {
             'id': 'evt-1',
@@ -90,14 +95,16 @@ class WebhookHandlerTests(TestCase):
         deliver_outbox_row(row.pk)
         mock_post.assert_called_once()
         _args, kwargs = mock_post.call_args
-        self.assertEqual(kwargs['body'], json.dumps(envelope, separators=(',', ':'), sort_keys=True).encode())
+        self.assertEqual(kwargs['body'], serialize_webhook_envelope(envelope))
         headers = kwargs['headers']
         self.assertIn('webhook-signature', headers)
         self.assertIn('webhook-id', headers)
+        self.assertEqual(headers['webhook-id'], 'evt-1')
+        self.assertEqual(headers['X-Shellui-Delivery-Attempt'], '1')
         row.refresh_from_db()
         self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(500, 'err'))
+    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(500, 'err', None))
     def test_webhook_failure_records_attempt(self, _mock_post):
         row = ActionOutbox.objects.create(
             company_id=self.company_id,
@@ -113,8 +120,8 @@ class WebhookHandlerTests(TestCase):
         self.assertEqual(attempt.http_status, 500)
         self.assertIn('HTTP 500', attempt.error_message)
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(404, 'missing'))
-    def test_permanent_4xx_goes_dead(self, _mock_post):
+    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(401, 'unauthorized', None))
+    def test_permanent_401_goes_dead(self, _mock_post):
         row = ActionOutbox.objects.create(
             company_id=self.company_id,
             action_rule=self.rule,
@@ -158,7 +165,7 @@ class RetryDeliveryTests(TestCase):
             config={'url': 'https://example.com/h', 'secret': 's'},
         )
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(500, ''))
+    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(500, '', None))
     def test_dead_after_max_attempts(self, _mock):
         row = ActionOutbox.objects.create(
             company_id=self.company_id,
@@ -183,7 +190,7 @@ class RetryCommandTests(TestCase):
             config={'url': 'https://example.com/h', 'secret': 's'},
         )
 
-    @patch('apps.actions.handlers.webhook.post_webhook_url', return_value=(200, ''))
+    @patch('apps.actions.handlers.webhook.post_webhook_url', side_effect=_mock_ok)
     def test_retry_command_processes_batch(self, _mock):
         ActionOutbox.objects.create(
             company_id=self.company_id,

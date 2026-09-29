@@ -27,6 +27,7 @@ class ActionRuleWriteSerializer(serializers.Serializer):
 class ActionRuleCreateSerializer(ActionRuleWriteSerializer):
     name = serializers.CharField(max_length=200)
     event_type = serializers.CharField(max_length=128)
+    secret = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
     def validate_event_type(self, value):
         if not is_registered_event(value):

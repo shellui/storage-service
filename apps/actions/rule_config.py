@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 
 from apps.actions.models import ActionRule
+from apps.actions.webhook_signing import generate_webhook_signing_secret
 
 
 def build_webhook_config(
@@ -30,9 +31,9 @@ def build_webhook_config(
         elif existing.get('secret'):
             cfg['secret'] = existing['secret']
         elif not partial:
-            raise ValidationError('Webhook signing secret is required for new webhook rules.')
+            cfg['secret'] = generate_webhook_signing_secret()
     elif not partial and not cfg.get('secret'):
-        raise ValidationError('Webhook signing secret is required for new webhook rules.')
+        cfg['secret'] = generate_webhook_signing_secret()
     elif existing.get('secret'):
         cfg['secret'] = existing['secret']
 

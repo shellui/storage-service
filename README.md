@@ -156,7 +156,7 @@ Schedule webhook outbox retries every minute (same pattern as identity-service):
 * * * * * python manage.py retry_webhooks
 ```
 
-See [docs/actions.md](docs/actions.md).
+See [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md) for n8n setup.
 
 ## Tests
 

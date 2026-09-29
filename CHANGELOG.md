@@ -26,6 +26,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### ✨ Feature
 
 - **Shellui Actions webhooks:** Outbound webhook delivery for `storage.*` domain events with DB-backed outbox, signed envelopes, SSRF-safe HTTP, `python manage.py retry_webhooks`, and company admin REST API at `/api/v1/actions/*` (aligned with identity-service).
+- **n8n integration:** Retry-friendly HTTP semantics (404 retryable), `whsec_` signing secrets, UTF-8 JSON bodies, `X-Shellui-Event` / `X-Shellui-Delivery-Attempt` headers, `Retry-After` on 429/503, and [docs/n8n.md](docs/n8n.md).
 
 ### 📚 Documentation
 
