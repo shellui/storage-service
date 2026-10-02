@@ -570,6 +570,25 @@ ACTIONS_WEBHOOK_SYNC_DELIVERY = _env_bool('ACTIONS_WEBHOOK_SYNC_DELIVERY', False
 # Days kept in the event log and webhook delivery history; `manage.py purge_expired_data` deletes older rows.
 EVENT_LOG_RETENTION_DAYS = _env_int('EVENT_LOG_RETENTION_DAYS', 7)
 
+# Email notifications. Empty EMAIL_SERVICE_API_KEY disables forwarding (uploads still succeed).
+# EMAIL_SERVICE_URL is an origin; callers append /api/v1/events.
+EMAIL_SERVICE_URL = (
+    os.getenv('EMAIL_SERVICE_URL', 'https://email.shellui.com').strip().rstrip('/')
+    or 'https://email.shellui.com'
+)
+EMAIL_SERVICE_API_KEY = os.getenv('EMAIL_SERVICE_API_KEY', '').strip()
+if EMAIL_SERVICE_API_KEY:
+    if not EMAIL_SERVICE_API_KEY.startswith('esk_'):
+        raise ImproperlyConfigured(
+            'EMAIL_SERVICE_API_KEY must be an email-service key with the esk_ prefix.'
+        )
+    if not EMAIL_SERVICE_URL.startswith(('http://', 'https://')):
+        raise ImproperlyConfigured(
+            'EMAIL_SERVICE_URL must be an absolute http(s) origin '
+            '(no path). storage-service appends /api/v1/events. '
+            f'Got: {EMAIL_SERVICE_URL!r}'
+        )
+
 if not DEBUG:
     _production_config_errors = []
     if not IDENTITY_ISSUER:
@@ -595,9 +614,13 @@ LOGGING = {
         'request_id': {
             '()': 'config.request_context.RequestIdFilter',
         },
+        'redact_email_service_api_key': {
+            '()': 'apps.actions.email_service.RedactEmailServiceApiKeyFilter',
+        },
     },
     'formatters': {
         'console': {
+            '()': 'apps.actions.email_service.RedactEmailServiceApiKeyFormatter',
             'format': '{asctime} {levelname} [{name}] [req={request_id}] {message}',
             'style': '{',
             'datefmt': '%Y-%m-%d %H:%M:%S',
@@ -607,12 +630,13 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'console',
-            'filters': ['request_id'],
+            'filters': ['request_id', 'redact_email_service_api_key'],
         },
     },
     'root': {
         'handlers': ['console'],
         'level': LOG_LEVEL,
+        'filters': ['redact_email_service_api_key'],
     },
     'loggers': {
         'django': {
@@ -634,6 +658,7 @@ LOGGING = {
             'handlers': ['console'],
             'level': LOG_LEVEL,
             'propagate': False,
+            'filters': ['redact_email_service_api_key'],
         },
         'config': {
             'handlers': ['console'],

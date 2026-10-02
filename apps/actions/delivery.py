@@ -12,6 +12,7 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from apps.actions.email_service import deliver_email_event, email_event_body, email_service_configured, is_email_outbox
 from apps.actions.handlers.webhook import WebhookDeliveryError, deliver_webhook_action
 from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
 from apps.actions.webhook_retry import compute_retry_delay_seconds
@@ -64,6 +65,8 @@ def _format_attempt_error(
 
 
 def _load_rule_for_delivery(row: ActionOutbox) -> tuple[ActionRule | None, str | None]:
+    if row.action_rule_id is None:
+        return None, 'Action rule deleted.'
     try:
         rule = row.action_rule
     except ActionRule.DoesNotExist:
@@ -143,8 +146,10 @@ def _apply_delivery_result(
         attempt_number=attempt_number,
         duration_ms=duration_ms,
     )
+    channel = 'email_event' if is_email_outbox(row) else 'webhook_delivery'
     logger.info(
-        'webhook_delivery outbox_id=%s attempt=%s success=%s http_status=%s duration_ms=%s',
+        '%s outbox_id=%s attempt=%s success=%s http_status=%s duration_ms=%s',
+        channel,
         row.pk,
         attempt_number,
         success,
@@ -201,7 +206,12 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
             return row
         if row.status == ActionOutbox.STATUS_DEAD:
             return row
-        rule, terminal_error = _load_rule_for_delivery(row)
+        email_body = email_event_body(row)
+        if email_body is not None:
+            rule = None
+            terminal_error = None if email_service_configured() else 'Email service is not configured.'
+        else:
+            rule, terminal_error = _load_rule_for_delivery(row)
         envelope = row.envelope
         snapshot_attempt = row.attempt_count
 
@@ -221,11 +231,14 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
                 attempt_meta={},
             )
 
-    success, attempt_meta = _perform_http_delivery(
-        rule=rule,
-        envelope=envelope,
-        attempt_number=snapshot_attempt + 1,
-    )
+    if email_body is not None:
+        success, attempt_meta = deliver_email_event(email_body)
+    else:
+        success, attempt_meta = _perform_http_delivery(
+            rule=rule,
+            envelope=envelope,
+            attempt_number=snapshot_attempt + 1,
+        )
 
     with transaction.atomic():
         row = ActionOutbox.objects.select_for_update().get(pk=outbox_id)
@@ -245,7 +258,7 @@ def _safe_deliver_outbox_row(outbox_id) -> None:
     try:
         deliver_outbox_row(outbox_id)
     except Exception:  # noqa: BLE001
-        logger.exception('Post-commit webhook delivery error outbox_id=%s', outbox_id)
+        logger.exception('Post-commit outbox delivery error outbox_id=%s', outbox_id)
 
 
 def schedule_outbox_delivery(outbox_ids: list) -> None:

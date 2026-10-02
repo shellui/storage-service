@@ -22,6 +22,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### ✨ Feature
 
+- **Email notifications:** when `EMAIL_SERVICE_API_KEY` is set, every `storage.*` event is also posted to email-service `POST /api/v1/events`. The existing `retry_webhooks` cron retries failures, including HTTP 404. A `202` with `skipped_reason` (`rule_disabled` or `no_recipients`) is finished. Leave the key unset and nothing is forwarded. See [docs/email.md](docs/email.md).
 - **Event log:** every `storage.*` event is stored, with or without a webhook rule, and listed at `GET /api/v1/actions/event-log` (filters: type, user, date range) for the admin panel **Storage > Log events** page. See [docs/event-log.md](docs/event-log.md).
 - **Data retention:** `EVENT_LOG_RETENTION_DAYS` (default 7). New `manage.py purge_expired_data` deletes expired events and finished webhook deliveries in short batches; schedule it every hour. `GET /api/v1/actions/event-log/retention` reports `stale_events` when the job is not running.
 

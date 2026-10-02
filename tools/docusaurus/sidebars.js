@@ -12,6 +12,7 @@ const sidebars = {
     "clients",
     "signals",
     "actions",
+    "email",
     "n8n",
     "admin",
   ],

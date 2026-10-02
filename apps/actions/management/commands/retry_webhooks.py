@@ -5,7 +5,10 @@ from apps.actions.delivery import retry_pending_webhooks
 
 
 class Command(BaseCommand):
-    help = 'Retry pending or failed webhook outbox rows (for cron, typically every minute).'
+    help = (
+        'Retry pending or failed webhook and email-service outbox rows '
+        '(for cron, typically every minute).'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
