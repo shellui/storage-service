@@ -22,7 +22,7 @@ import requests
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from apps.actions.webhook_retry import parse_retry_after_header
+from apps.actions.webhook_retry import is_permanent_http_status, parse_retry_after_header
 
 logger = logging.getLogger(__name__)
 
@@ -176,22 +176,18 @@ def enqueue_email_event(
     )
 
 
-def email_failure_is_permanent(status: int | None, error_code: str) -> bool:
+def email_failure_is_permanent(status: int | None, error_code: str = '') -> bool:
     """
-    Contract retry rules for callers.
+    Caller retry table from the email-service integration contract.
 
-    Retry network failures, 408, 425, 429, 5xx, and 409 ``lane_paused``.
-    400, 401, 403, 404, 422, other 409s, and redirects are not retried.
+    2xx is finished, including ``skipped_reason``. 404, 408, 409, 425, 429, other
+    4xx, 5xx, timeouts, and connection errors retry. 400, 401, 403, 405, 410, 413,
+    and 422 are permanent. ``error_code`` does not change the decision.
     """
-    if status is None:
+    del error_code
+    if status is not None and 200 <= status < 300:
         return False
-    if 200 <= status < 300:
-        return False
-    if status in (408, 425, 429) or status >= 500:
-        return False
-    if status == 409 and error_code == 'lane_paused':
-        return False
-    return True
+    return is_permanent_http_status(status)
 
 
 def _timeout_seconds() -> float:

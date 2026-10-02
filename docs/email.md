@@ -47,9 +47,9 @@ storage-service posts the event it already recorded, plus recipient hints from t
 }
 ```
 
-`payload` is the webhook object metadata. `company_name` is added when the emitter passes a company name. storage-service has no company table, so the field is absent unless that name was supplied. The suggested templates substitute "your company" when it is missing.
+`payload` is the webhook object metadata. `company_name` is optional. storage-service sends it only when the emitter already has a company name. email-service otherwise uses a name stored from an earlier call, the company provider `from_name` when that name is not `Shellui`, or the template default (`your company`).
 
-`recipients` holds the actor when the token includes an email address. That is the hint email-service uses when the rule's `recipient_mode` is `hints`. A company that wants a fixed list sets `static` recipients on the rule. email-service then ignores this hint.
+`recipients` holds the actor when the token includes an email address. That is the hint email-service uses when the rule's `recipient_mode` is `hints`. A company that wants a fixed list sets `static` recipients on the rule. email-service then ignores this hint. An empty `recipients` list, including a token with no email, returns `202` and `skipped_reason: no_recipients`. That response is finished.
 
 `idempotency_key` is the outbox row id. Retries send the same key and the same body. `language` is omitted, so email-service uses the rule language, then `en`.
 
@@ -63,11 +63,11 @@ The HTTP call runs after the database commit, off the request thread. Failures s
 
 | Result | What storage-service does |
 | --- | --- |
-| 2xx | Delivered. A disabled rule counts as delivered. |
-| 409 `lane_paused`, 408, 425, 429, 5xx, connection errors | Retry with the same idempotency key. 429 and 503 honor `Retry-After`, capped at 1 hour. |
-| 400, 401, 403, 404, 422, other 4xx, other 409 | Dead. The body is not posted again. |
+| 2xx | Delivered. `skipped_reason` of `rule_disabled` or `no_recipients` is finished. |
+| 404, 408, 409, 425, 429, other 4xx, 5xx, timeouts, connection errors | Retry with the same idempotency key and the same body. |
+| 400, 401, 403, 405, 410, 413, 422 | Dead. That body is not posted again. |
 
-HTTP 404 is dead for an email forward (`unknown_event` and `not_found` are not transient). Shellui Actions webhooks still retry 404 when an n8n workflow is inactive. Backoff matches webhooks: **30s × 2^(attempt−1)**, capped at **1 hour**, up to **8** attempts. The timeout is `ACTIONS_WEBHOOK_TIMEOUT_SECONDS` (default 5 seconds).
+HTTP 404 is retried, the same as a Shellui Actions webhook. Backoff is **30s × 2^(attempt−1)**, capped at **1 hour**, up to **8** attempts. `429` and `503` honor `Retry-After`, still capped at 1 hour. The timeout is `ACTIONS_WEBHOOK_TIMEOUT_SECONDS` (default 5 seconds).
 
 `purge_expired_data` deletes finished email rows with finished webhook deliveries after `EVENT_LOG_RETENTION_DAYS`. See [event-log.md](event-log.md).
 

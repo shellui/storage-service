@@ -123,7 +123,15 @@ class EmailEventForwardTests(TestCase):
 
     @patch('apps.actions.email_service.requests.post')
     def test_missing_actor_sends_empty_recipient_hints(self, mock_post):
-        mock_post.return_value = _response(202, {'messages': []})
+        mock_post.return_value = _response(
+            202,
+            {
+                'idempotent_replay': False,
+                'rule_enabled': True,
+                'skipped_reason': 'no_recipients',
+                'messages': [],
+            },
+        )
         with self.captureOnCommitCallbacks(execute=True):
             emit_event(
                 'storage.bucket.created',
@@ -137,6 +145,10 @@ class EmailEventForwardTests(TestCase):
         self.assertEqual(body['payload']['bucket_name'], 'company')
         self.assertNotIn('company_name', body['payload'])
         self.assertNotIn('language', body)
+        row = ActionOutbox.objects.get()
+        self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
+        call_command('retry_webhooks', batch_size=10, max_seconds=5, concurrency=1)
+        self.assertEqual(mock_post.call_count, 1)
 
     @patch('apps.actions.email_service.requests.post')
     def test_http_waits_until_commit(self, mock_post):
@@ -217,6 +229,27 @@ class EmailEventForwardTests(TestCase):
         self.assertEqual(mock_post.call_count, 1)
         row.refresh_from_db()
         self.assertEqual(row.status, ActionOutbox.STATUS_DEAD)
+
+    @patch('apps.actions.email_service.requests.post')
+    def test_404_is_retried_with_the_same_body(self, mock_post):
+        mock_post.side_effect = [
+            _response(404, {'error_code': 'not_found'}),
+            _response(202, {'rule_enabled': False, 'skipped_reason': 'rule_disabled', 'messages': []}),
+        ]
+        with self.captureOnCommitCallbacks(execute=True):
+            _emit()
+        row = ActionOutbox.objects.get()
+        self.assertEqual(row.status, ActionOutbox.STATUS_FAILED)
+        row.next_attempt_at = timezone.now() - timedelta(seconds=1)
+        row.save(update_fields=['next_attempt_at'])
+        call_command('retry_webhooks', batch_size=10, max_seconds=5, concurrency=1)
+        row.refresh_from_db()
+        self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(
+            mock_post.call_args_list[0].kwargs['data'],
+            mock_post.call_args_list[1].kwargs['data'],
+        )
 
     @patch('apps.actions.email_service.requests.post')
     def test_connection_error_retries_without_logging_api_key(self, mock_post):
@@ -313,14 +346,20 @@ class EmailEventUnconfiguredTests(TestCase):
 class EmailFailureClassificationTests(TestCase):
     def test_permanent_statuses(self):
         self.assertFalse(email_failure_is_permanent(None, ''))
-        self.assertFalse(email_failure_is_permanent(202, ''))
-        self.assertFalse(email_failure_is_permanent(429, 'company_rate_limited'))
+        self.assertFalse(email_failure_is_permanent(202, 'rule_disabled'))
+        self.assertFalse(email_failure_is_permanent(202, 'no_recipients'))
+        self.assertFalse(email_failure_is_permanent(404, 'not_found'))
+        self.assertFalse(email_failure_is_permanent(408, ''))
         self.assertFalse(email_failure_is_permanent(409, 'lane_paused'))
+        self.assertFalse(email_failure_is_permanent(409, 'idempotency_conflict'))
+        self.assertFalse(email_failure_is_permanent(425, ''))
+        self.assertFalse(email_failure_is_permanent(429, 'company_rate_limited'))
+        self.assertFalse(email_failure_is_permanent(402, ''))
         self.assertFalse(email_failure_is_permanent(503, 'request_failed'))
         self.assertTrue(email_failure_is_permanent(400, 'validation_failed'))
         self.assertTrue(email_failure_is_permanent(401, 'unauthorized'))
         self.assertTrue(email_failure_is_permanent(403, 'forbidden'))
-        self.assertTrue(email_failure_is_permanent(404, 'unknown_event'))
-        self.assertTrue(email_failure_is_permanent(409, 'idempotency_conflict'))
+        self.assertTrue(email_failure_is_permanent(405, 'method_not_allowed'))
+        self.assertTrue(email_failure_is_permanent(410, ''))
+        self.assertTrue(email_failure_is_permanent(413, ''))
         self.assertTrue(email_failure_is_permanent(422, 'recipient_suppressed'))
-        self.assertTrue(email_failure_is_permanent(302, ''))
