@@ -74,7 +74,7 @@ HTTP 404 is dead for an email forward (`unknown_event` and `not_found` are not t
 ## Try it locally
 
 1. Run email-service and create a service key for `storage` (`allowed_lanes`: `transactional`, `allowed_template_prefixes`: `storage.`).
-2. Set `EMAIL_SERVICE_URL` to that origin (for example `http://localhost:8002`) and set `EMAIL_SERVICE_API_KEY`.
+2. Set `EMAIL_SERVICE_URL` to `http://localhost:8003` and set `EMAIL_SERVICE_API_KEY`. In Docker Compose the container uses `http://host.docker.internal:8003`.
 3. Restart storage-service and keep `python manage.py retry_webhooks` on a one-minute cron if you want retries without waiting for the in-process attempt.
 4. Upload a file with a user token that includes `email`.
 5. Enable the `storage.object.uploaded` rule for that company when you want a message queued. With the catalog default, email-service accepts the event and skips it.

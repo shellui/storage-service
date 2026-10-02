@@ -31,7 +31,7 @@ services:
       SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-}"
       SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
       SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0}"
-      EMAIL_SERVICE_URL: "${EMAIL_SERVICE_URL:-https://email.shellui.com}"
+      EMAIL_SERVICE_URL: "${EMAIL_SERVICE_URL:-http://host.docker.internal:8003}"
       EMAIL_SERVICE_API_KEY: "${EMAIL_SERVICE_API_KEY:-}"
     volumes:
       - storage-service-data:/app/data
