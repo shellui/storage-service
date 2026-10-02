@@ -25,6 +25,11 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - **Event log:** every `storage.*` event is stored, with or without a webhook rule, and listed at `GET /api/v1/actions/event-log` (filters: type, user, date range) for the admin panel **Storage > Log events** page. See [docs/event-log.md](docs/event-log.md).
 - **Data retention:** `EVENT_LOG_RETENTION_DAYS` (default 7). New `manage.py purge_expired_data` deletes expired events and finished webhook deliveries in short batches; schedule it every hour. `GET /api/v1/actions/event-log/retention` reports `stale_events` when the job is not running.
 
+### 🐛 Bug Fixes
+
+- **Django admin deletes:** deleting a file or a bucket in Django admin now goes through the same path as the REST API: blobs are removed, quota usage goes down, and `storage.object.deleted` is emitted for each file. It previously left blobs and usage behind and emitted nothing.
+- `storage.bucket.created` now includes the user whose first request provisioned the bucket.
+
 ## [0.4.0] - 2026-09-29
 
 ### ✨ Feature

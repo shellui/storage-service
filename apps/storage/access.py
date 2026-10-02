@@ -443,7 +443,7 @@ def assert_can_access_path(
     )
 
 
-def ensure_company_bucket(*, company_id: int, request=None) -> Bucket:
+def ensure_company_bucket(*, company_id: int, request=None, principal=None) -> Bucket:
     """Ensure the single system company bucket exists."""
     company_bucket, created = Bucket.objects.get_or_create(
         company_id=company_id,
@@ -457,7 +457,7 @@ def ensure_company_bucket(*, company_id: int, request=None) -> Bucket:
     if created:
         from apps.actions.storage_hooks import emit_bucket_created
 
-        emit_bucket_created(company_bucket, request=request)
+        emit_bucket_created(company_bucket, request=request, principal=principal)
     if company_bucket.kind != BucketKind.COMPANY or company_bucket.public:
         company_bucket.kind = BucketKind.COMPANY
         company_bucket.public = False
@@ -477,7 +477,7 @@ def list_accessible_buckets(principal) -> list[Bucket]:
     from .services import require_company_id
 
     company_id = require_company_id(principal)
-    ensure_company_bucket(company_id=company_id)
+    ensure_company_bucket(company_id=company_id, principal=principal)
 
     buckets = list(Bucket.objects.filter(company_id=company_id).order_by('kind', 'name'))
     return [b for b in buckets if can_access_bucket(principal, b)]
@@ -488,7 +488,7 @@ def get_accessible_bucket(principal, name: str, *, write: bool = False, admin: b
     from .services import StorageError, require_company_id
 
     company_id = require_company_id(principal)
-    ensure_company_bucket(company_id=company_id)
+    ensure_company_bucket(company_id=company_id, principal=principal)
 
     try:
         bucket = Bucket.objects.get(company_id=company_id, name=name)

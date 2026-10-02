@@ -12,7 +12,10 @@ from apps.storage.signals import storage_object_deleted, storage_object_uploaded
 def actor_from_request(request) -> dict | None:
     if request is None:
         return None
-    user = getattr(request, 'user', None)
+    return actor_from_user(getattr(request, 'user', None))
+
+
+def actor_from_user(user) -> dict | None:
     if not user or not getattr(user, 'is_authenticated', False):
         return None
     actor: dict = {'user_id': int(getattr(user, 'user_id', getattr(user, 'pk', 0)))}
@@ -68,7 +71,7 @@ def actions_on_object_deleted(sender, bucket_name, object_name, company_id, mime
     )
 
 
-def emit_bucket_created(bucket, *, request=None) -> None:
+def emit_bucket_created(bucket, *, request=None, principal=None) -> None:
     emit_event_if_rules(
         'storage.bucket.created',
         int(bucket.company_id),
@@ -77,5 +80,5 @@ def emit_bucket_created(bucket, *, request=None) -> None:
             'bucket_name': bucket.name,
             'bucket_kind': bucket.kind,
         },
-        actor=actor_from_request(request),
+        actor=actor_from_request(request) or actor_from_user(principal),
     )
