@@ -10,8 +10,22 @@ from apps.actions.admin_api_views import (
     ShellUIAdminActionRuleRotateSecretView,
     ShellUIAdminActionRuleSendTestView,
 )
+from apps.actions.event_log_views import (
+    ShellUIAdminEventLogDetailView,
+    ShellUIAdminEventLogListView,
+    ShellUIAdminEventLogRetentionView,
+    ShellUIAdminEventLogTypesView,
+)
 
 urlpatterns = [
+    path('event-log', ShellUIAdminEventLogListView.as_view(), name='shellui-admin-event-log'),
+    path('event-log/types', ShellUIAdminEventLogTypesView.as_view(), name='shellui-admin-event-log-types'),
+    path(
+        'event-log/retention',
+        ShellUIAdminEventLogRetentionView.as_view(),
+        name='shellui-admin-event-log-retention',
+    ),
+    path('event-log/<int:pk>', ShellUIAdminEventLogDetailView.as_view(), name='shellui-admin-event-log-detail'),
     path('events', ShellUIAdminActionEventsView.as_view(), name='shellui-admin-actions-events'),
     path('rules', ShellUIAdminActionRuleListCreateView.as_view(), name='shellui-admin-actions-rules'),
     path(

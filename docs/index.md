@@ -18,4 +18,6 @@ The published site is [https://storage.docs.shellui.com](https://storage.docs.sh
 - **[Access control](access.md)** — one company bucket, access grants, connector mounts.
 - **[Share links](sharing.md)** — time- or download-limited capability URLs.
 - **[Signals](signals.md)** — reacting to uploads (e.g. Markdown).
+- **[Shellui Actions](actions.md)** — outbound webhooks on `storage.*` events.
+- **[Event log](event-log.md)** — stored `storage.*` events, retention, and the hourly purge job.
 - **[Admin statistics](admin.md)** — Django admin dashboard for uploads and documents.

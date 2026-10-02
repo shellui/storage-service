@@ -567,6 +567,8 @@ ACTIONS_WEBHOOK_ALLOW_PRIVATE = _env_bool('ACTIONS_WEBHOOK_ALLOW_PRIVATE', False
 ACTIONS_WEBHOOK_RETRY_LEASE_SECONDS = _env_int('ACTIONS_WEBHOOK_RETRY_LEASE_SECONDS', 120)
 ACTIONS_WEBHOOK_DISPATCH_WORKERS = _env_int('ACTIONS_WEBHOOK_DISPATCH_WORKERS', 4)
 ACTIONS_WEBHOOK_SYNC_DELIVERY = _env_bool('ACTIONS_WEBHOOK_SYNC_DELIVERY', False)
+# Days kept in the event log and webhook delivery history; `manage.py purge_expired_data` deletes older rows.
+EVENT_LOG_RETENTION_DAYS = _env_int('EVENT_LOG_RETENTION_DAYS', 7)
 
 if not DEBUG:
     _production_config_errors = []
