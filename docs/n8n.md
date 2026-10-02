@@ -2,6 +2,8 @@
 
 Shellui storage-service can POST signed JSON to an **n8n Webhook** node when storage events happen. This guide matches identity-service and hosting-service Shellui Actions behavior so you can reuse the same n8n workflow patterns.
 
+Email notifications are a separate forward to email-service, not an n8n webhook. See [email.md](email.md).
+
 ---
 
 ## Before you start

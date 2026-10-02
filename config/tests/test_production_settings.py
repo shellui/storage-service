@@ -59,6 +59,39 @@ class ProductionSettingsValidationTests(unittest.TestCase):
         self.assertIn('IDENTITY_ISSUER is required when DEBUG=false', result.stderr)
         self.assertIn('IDENTITY_AUDIENCE is required when DEBUG=false', result.stderr)
 
+    def test_email_service_key_must_use_esk_prefix(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'true',
+                'EMAIL_SERVICE_API_KEY': 'not-a-service-key',
+            }
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('esk_', result.stderr)
+        self.assertNotIn('not-a-service-key', result.stderr)
+
+    def test_email_service_url_must_be_an_origin_when_key_is_set(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'true',
+                'EMAIL_SERVICE_API_KEY': 'esk_test_prefix_only',  # gitleaks:allow
+                'EMAIL_SERVICE_URL': 'email.shellui.com',
+            }
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('EMAIL_SERVICE_URL', result.stderr)
+        self.assertNotIn('esk_test_prefix_only', result.stderr)
+
+    def test_unset_email_service_key_still_starts(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'true',
+                'EMAIL_SERVICE_API_KEY': '',
+                'EMAIL_SERVICE_URL': '',
+            }
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
     def test_production_starts_with_matching_iss_aud(self):
         result = _settings_check(
             {

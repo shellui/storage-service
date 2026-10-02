@@ -19,5 +19,6 @@ The published site is [https://storage.docs.shellui.com](https://storage.docs.sh
 - **[Share links](sharing.md)** — time- or download-limited capability URLs.
 - **[Signals](signals.md)** — reacting to uploads (e.g. Markdown).
 - **[Shellui Actions](actions.md)** — outbound webhooks on `storage.*` events.
+- **[Email notifications](email.md)** - forward the same events to email-service when a service key is set.
 - **[Event log](event-log.md)** — stored `storage.*` events, retention, and the hourly purge job.
 - **[Admin statistics](admin.md)** — Django admin dashboard for uploads and documents.

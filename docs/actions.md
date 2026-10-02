@@ -4,6 +4,8 @@ Company owners and Django staff can configure **webhook Shellui Actions rules** 
 
 Storage-service delivers webhooks directly from its own database outbox. There is no central actions service, message bus, or Celery worker.
 
+The same outbox forwards events to email-service when `EMAIL_SERVICE_API_KEY` is set. That path is not a webhook rule. See [email.md](email.md).
+
 For **n8n**, see [n8n.md](n8n.md).
 
 ## Event catalog (`storage.*`)
@@ -38,7 +40,7 @@ After each commit, the service attempts delivery once off the request thread. Fa
 
 Post-commit dispatch is bounded by `ACTIONS_WEBHOOK_DISPATCH_WORKERS` (default 4). Large WebDAV syncs can emit many events; delivery is at-least-once with no ordering guarantee (see [n8n.md](n8n.md)).
 
-Run a cron job every minute:
+Run a cron job every minute. It retries webhook deliveries and email-service forwards:
 
 ```cron
 * * * * * python manage.py retry_webhooks

@@ -62,6 +62,8 @@ class ActionOutbox(models.Model):
         ActionRule,
         on_delete=models.CASCADE,
         related_name='outbox_rows',
+        null=True,
+        blank=True,
     )
     event_type = models.CharField(max_length=128)
     envelope = models.JSONField()
@@ -88,7 +90,9 @@ class ActionOutbox(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f'{self.event_type} → rule {self.action_rule_id} ({self.status})'
+        if self.action_rule_id:
+            return f'{self.event_type} → rule {self.action_rule_id} ({self.status})'
+        return f'{self.event_type} → email-service ({self.status})'
 
 
 class DeliveryAttempt(models.Model):

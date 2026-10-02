@@ -160,6 +160,8 @@ Schedule webhook outbox retries every minute (same pattern as identity-service):
 
 See [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md) for n8n setup.
 
+The same cron retries email-service forwards. Set `EMAIL_SERVICE_API_KEY` to turn that on. With the key unset, storage-service does not call email-service. See [docs/email.md](docs/email.md).
+
 ### Event log purge (production)
 
 Every storage event is stored in an event log, kept for `EVENT_LOG_RETENTION_DAYS` (default 7). Schedule the purge every hour:
@@ -246,5 +248,6 @@ Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (
 - [Downloads](docs/downloads.md)
 - [Third-party clients (WebDAV / S3)](docs/clients.md)
 - [Signals](docs/signals.md)
+- [Email notifications](docs/email.md)
 
 Build docs site: `./tools/generate-docs.sh`
