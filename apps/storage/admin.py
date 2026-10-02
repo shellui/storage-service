@@ -11,6 +11,7 @@ from .models import (
     StorageAccessGrant,
     UserQuota,
 )
+from .services import delete_object
 from .stats import build_storage_stats, human_bytes
 
 
@@ -82,6 +83,16 @@ class BucketAdmin(admin.ModelAdmin):
     @admin.display(description='Files')
     def file_count(self, obj):
         return obj.files.count()
+
+    # Delete files one by one so blobs, quota usage and storage.object.deleted follow the REST API.
+    def delete_model(self, request, obj):
+        for item in list(obj.files.all()):
+            delete_object(item)
+        obj.delete()
+
+    def delete_queryset(self, request, queryset):
+        for bucket in queryset:
+            self.delete_model(request, bucket)
 
 
 @admin.register(StorageAccessGrant, site=storage_admin_site)
@@ -160,6 +171,14 @@ class StorageObjectAdmin(HumanSizeMixin, admin.ModelAdmin):
     @admin.display(description='File', ordering='name')
     def basename_display(self, obj):
         return format_html('<span title="{}">{}</span>', obj.name, obj.basename)
+
+    # Same path as the REST API: removes the blob, updates quota usage, emits storage.object.deleted.
+    def delete_model(self, request, obj):
+        delete_object(obj)
+
+    def delete_queryset(self, request, queryset):
+        for obj in queryset:
+            delete_object(obj)
 
 
 @admin.register(CompanyQuota, site=storage_admin_site)

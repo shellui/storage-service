@@ -1,3 +1,4 @@
+import io
 from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
@@ -189,3 +190,110 @@ class PurgeExpiredDataTests(TestCase):
         out = StringIO()
         call_command('purge_expired_data', stdout=out)
         self.assertIn('deleted events=1 webhook_deliveries=1 complete=true', out.getvalue())
+
+
+@override_settings(
+    STORAGE_BACKEND='filesystem',
+    JWT_HS256_FALLBACK_SECRET='test-secret',
+    ALLOW_JWT_HS256_FALLBACK=True,
+    IDENTITY_JWKS_URL='http://jwks.test/.well-known/jwks.json',
+    DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
+)
+class StorageApiEventTests(TestCase):
+    """Each storage REST endpoint that changes objects records its event with the caller."""
+
+    def setUp(self):
+        from unittest.mock import patch
+
+        from apps.storage.tests.test_storage import make_token
+
+        self.client = APIClient()
+        jwks_patch = patch('apps.authapi.authentication.get_jwks_client')
+        jwks_patch.start().return_value.get_signing_key.return_value = None
+        self.addCleanup(jwks_patch.stop)
+        token = make_token(user_id=7, email='ada@acme.test', is_company_owner=True)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def _upload(self, path, method='post'):
+        res = getattr(self.client, method)(
+            f'/storage/v1/object/company/{path}', data=b'hello', content_type='text/plain'
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_every_endpoint_records_its_event(self):
+        self.assertEqual(self.client.get('/storage/v1/bucket').status_code, 200)
+        self._upload('docs/a.txt')
+        self._upload('docs/a.txt', method='put')
+        res = self.client.post(
+            '/storage/v1/object/copy',
+            {'sourceKey': 'company/docs/a.txt', 'destinationKey': 'company/docs/b.txt'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        res = self.client.delete('/storage/v1/object/company/docs/b.txt')
+        self.assertEqual(res.status_code, 200, res.content)
+        res = self.client.delete('/storage/v1/object/company', {'prefixes': ['docs/a.txt']}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self._upload('folder/x.txt')
+        res = self.client.delete('/storage/v1/object/prefix/company', {'prefix': 'folder'}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self._upload('y.txt')
+        res = self.client.post('/storage/v1/bucket/company/empty')
+        self.assertEqual(res.status_code, 200, res.content)
+
+        self.assertEqual(
+            list(EventLog.objects.order_by('pk').values_list('event_type', 'data__path')),
+            [
+                ('storage.bucket.created', None),
+                ('storage.object.uploaded', 'docs/a.txt'),
+                ('storage.object.uploaded', 'docs/a.txt'),
+                ('storage.object.uploaded', 'docs/b.txt'),
+                ('storage.object.deleted', 'docs/b.txt'),
+                ('storage.object.deleted', 'docs/a.txt'),
+                ('storage.object.uploaded', 'folder/x.txt'),
+                ('storage.object.deleted', 'folder/x.txt'),
+                ('storage.object.uploaded', 'y.txt'),
+                ('storage.object.deleted', 'y.txt'),
+            ],
+        )
+        self.assertEqual(
+            set(EventLog.objects.values_list('company_id', 'user_id', 'data__actor_email')),
+            {(10, 7, 'ada@acme.test')},
+        )
+
+
+@override_settings(STORAGE_BACKEND='filesystem', DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024)
+class DjangoAdminDeleteTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        from apps.storage.access import ensure_company_bucket
+        from apps.storage.services import upload_object
+
+        self.bucket = ensure_company_bucket(company_id=1)
+        self.objects = [
+            upload_object(bucket=self.bucket, path=name, fileobj=io.BytesIO(b'x'), owner_id=1)
+            for name in ('one.txt', 'two.txt', 'three.txt')
+        ]
+        EventLog.objects.all().delete()
+        admin = get_user_model().objects.create_superuser('root', 'root@acme.test', 'pw')
+        self.client.force_login(admin)
+
+    def _deleted_paths(self):
+        return sorted(EventLog.objects.filter(event_type='storage.object.deleted').values_list('data__path', flat=True))
+
+    def test_object_delete_and_bulk_delete(self):
+        one, two, _three = self.objects
+        res = self.client.post(f'/admin/storage/storageobject/{one.pk}/delete/', {'post': 'yes'})
+        self.assertEqual(res.status_code, 302)
+        res = self.client.post(
+            '/admin/storage/storageobject/',
+            {'action': 'delete_selected', '_selected_action': [two.pk], 'post': 'yes'},
+        )
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(self._deleted_paths(), ['one.txt', 'two.txt'])
+
+    def test_bucket_delete_deletes_each_file(self):
+        res = self.client.post(f'/admin/storage/bucket/{self.bucket.pk}/delete/', {'post': 'yes'})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(self._deleted_paths(), ['one.txt', 'three.txt', 'two.txt'])
