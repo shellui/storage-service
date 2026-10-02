@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.utils import timezone
 
 from apps.actions.registry import event_choices
 
@@ -117,3 +118,31 @@ class DeliveryAttempt(models.Model):
 
     def __str__(self) -> str:
         return f'attempt {self.attempt_number} ({self.status})'
+
+
+class EventLog(models.Model):
+    """
+    One row per catalog event, written whether or not a webhook rule matches.
+
+    Kept small on purpose: ids instead of foreign keys (users and companies live in identity-service),
+    a compact JSON payload, and only the two indexes the admin list needs.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    company_id = models.PositiveIntegerField()
+    user_id = models.PositiveIntegerField(null=True, blank=True)
+    event_type = models.CharField(max_length=64)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = 'Event log entry'
+        verbose_name_plural = 'Event log'
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['company_id', '-created_at'], name='actions_eventlog_company_idx'),
+            models.Index(fields=['company_id', 'user_id', '-created_at'], name='actions_eventlog_user_idx'),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.event_type} @ {self.created_at:%Y-%m-%d %H:%M:%S}'

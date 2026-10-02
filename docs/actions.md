@@ -46,6 +46,12 @@ Run a cron job every minute:
 
 Options: `--batch-size 50`, `--max-seconds 50`, `--concurrency 4`, `--dry-run`.
 
+Delivered and dead deliveries are deleted after `EVENT_LOG_RETENTION_DAYS` by the hourly `purge_expired_data` job (see [event-log.md](event-log.md#retention)).
+
+## Event log
+
+Every catalog event is also stored in the event log, with or without a matching rule. See [event-log.md](event-log.md).
+
 ## Admin REST API
 
 | Method | Path |

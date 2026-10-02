@@ -160,6 +160,16 @@ Schedule webhook outbox retries every minute (same pattern as identity-service):
 
 See [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md) for n8n setup.
 
+### Event log purge (production)
+
+Every storage event is stored in an event log, kept for `EVENT_LOG_RETENTION_DAYS` (default 7). Schedule the purge every hour:
+
+```cron
+17 * * * * python manage.py purge_expired_data --max-seconds 300
+```
+
+See [docs/event-log.md](docs/event-log.md).
+
 ## Tests
 
 ```bash
