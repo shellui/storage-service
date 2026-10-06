@@ -24,6 +24,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 - **Handbook:** [`docs/index.md`](docs/index.md) is the storage homepage, with [`docs/sidebars.js`](docs/sidebars.js) for the sidebar on `docs.shellui.com/storage`. New pages cover running the service, configuration, buckets and files, maintenance jobs, and the API. Access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, the event log, and security hardening are refreshed against `develop`. CI builds the storage docs with shellui/shellui.
 - **Publish note:** [PUBLISH.md](PUBLISH.md) points readers at `docs.shellui.com/storage`. The old `storage.docs.shellui.com` hostname no longer resolves.
+- **In-repo docs site removed:** `deploy-docs.yml`, `tools/docusaurus/`, `tools/generate-docs.sh`, and the root `CNAME` are gone. Docs are published only by [shellui/shellui](https://github.com/shellui/shellui).
 
 ### 🏗 Chore
 

@@ -149,9 +149,9 @@ git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
 
-The public handbook is [docs.shellui.com/storage](https://docs.shellui.com/storage/). [shellui/shellui](https://github.com/shellui/shellui) builds it from `docs/` on `main`.
+The public handbook is [docs.shellui.com/storage](https://docs.shellui.com/storage/). [shellui/shellui](https://github.com/shellui/shellui) builds it from `docs/` on `main`. This repository does not publish a docs site.
 
-Pushes to `main`, and `v*` tags that point at `main`, also run [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml). That workflow builds the in-repo Docusaurus site and publishes it to the `gh-pages` branch. The CNAME it writes is `storage.docs.shellui.com`. Enable Pages in the GitHub repo (source: `gh-pages` branch) if you still publish that branch.
+The **Docs build** job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) checks on every pull request that the docs still build.
 
 ## Deploy
 

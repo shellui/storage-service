@@ -112,8 +112,6 @@ jobs:
           # Brand spelling (Shellui / shellui only)
           if git grep -nIE '\bShellUI\b|\bshellUI\b|\bShellUi\b' -- . \
               ':(exclude).github/workflows/**' \
-              ':(exclude)tools/docusaurus/build' \
-              ':(exclude)tools/docusaurus/node_modules' \
               ':(exclude).venv'; then
             echo '::error::Use Shellui (product) or shellui (packages); avoid Shell-UI camelCase variants'
             exit 1

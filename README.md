@@ -10,7 +10,7 @@ The handbook is in [`docs/`](docs/index.md). It is published on [docs.shellui.co
 
 Start with the [overview](docs/index.md), then [Run storage-service](docs/getting-started.md) and [Configuration](docs/configuration.md). Buckets, access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, the event log, security, maintenance jobs, and the API each have a page in that sidebar.
 
-Build the in-repo docs site with `./tools/generate-docs.sh`. The site published on docs.shellui.com is built from the same `docs/` folder by [shellui/shellui](https://github.com/shellui/shellui).
+[shellui/shellui](https://github.com/shellui/shellui) builds the published site from this `docs/` folder. To preview it, clone `shellui` next to this repository, then run `pnpm install` and `DOCS_SERVICES=storage pnpm docs:start` in `../shellui`. See [Build the docs site](https://github.com/shellui/shellui/blob/main/docs/docs-site.md). The **Docs build** job runs that build on every pull request.
 
 ## Features
 
@@ -36,7 +36,7 @@ Build the in-repo docs site with `./tools/generate-docs.sh`. The site published 
 - `apps/storage/` — buckets, objects, quotas, downloads, signals
 - `apps/actions/` — Shellui Actions webhook outbox and admin API
 - `apps/webdav/` — WebDAV connector
-- `docs/` — topic guides (Docusaurus)
+- `docs/`: handbook pages for docs.shellui.com/storage
 
 ## Main endpoints
 
@@ -184,7 +184,7 @@ See [docs/event-log.md](docs/event-log.md).
 uv run python manage.py test
 ```
 
-Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), and a Docker image build.
+Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), a docs build against [shellui/shellui](https://github.com/shellui/shellui), and a Docker image build.
 
 Pull requests **to `main`** also run the pre-release checklist ([`.github/workflows/pre-release.yml`](.github/workflows/pre-release.yml)) — same checks as:
 
