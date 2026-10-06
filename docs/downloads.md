@@ -1,38 +1,42 @@
-# Downloads
+---
+description: How object GET streams bytes through Django, and when a signed URL is cryptographic.
+---
 
-Authenticated `GET /storage/v1/object/{bucket}/{path}` always **streams bytes through Django** (`FileResponse`). The Files UI can open files same-origin with `Authorization` — no S3 CORS and no nginx `X-Accel-Redirect`.
+# Downloads and signed URLs
 
-Anonymous downloads use [share links](sharing.md) (`GET /storage/v1/share/link/{token}`), which stream the same way.
+Authenticated downloads always stream through Django. A signed URL is a separate, optional pointer at the blob. This page is both paths.
 
-## Headers
+You need read access on the object, from bucket defaults or an [access grant](access.md). Someone without a token uses a [share link](sharing.md), which streams the same way.
+
+## Stream a file
+
+`GET /storage/v1/object/{bucket}/{path}` returns a `FileResponse`. The Files UI can open the file on the storage host with the `Authorization` header. The response does not redirect to S3, and it does not use `X-Accel-Redirect`.
+
+The same bytes are available at `/storage/v1/object/authenticated/{bucket}/{path}`.
 
 | Header | Value |
-|--------|--------|
+| --- | --- |
 | `Content-Type` | Object MIME type |
-| `Content-Disposition` | `inline` (or `attachment` when downloading as a file) |
+| `Content-Disposition` | `inline`, or `attachment` when the `download` query parameter is present |
 | `Content-Length` | Object size |
-| `ETag` | Content hash when stored |
+| `ETag` | Quoted content hash when one is stored |
 | `Cache-Control` | `private, no-store` |
+
+`download` with an empty value, `true`, or `1` uses the object's file name. Any other `download` value is sent as the file name. The response also sets `last_accessed_at` on the row.
+
+`GET /storage/v1/object/public/…` does not serve bytes. It returns 403 `public_download_disabled`.
 
 ## Signed URLs
 
-`POST /storage/v1/object/sign/{bucket}/{path}` returns a time-limited URL for clients that fetch directly from object storage. Object `GET` does not redirect to it.
+`POST /storage/v1/object/sign/{bucket}/{path}` returns a time-limited URL. Object `GET` does not redirect to it. You can also `POST /storage/v1/object/sign/{bucket}` with the path in the body.
 
-| Backend | URL type | Production use |
-|---------|----------|------------------|
-| **S3** | Cryptographically signed pre-signed URL (query-string auth) | Recommended |
-| **Filesystem** | Plain `/media/objects/...` path — **not signed** | Dev/local only; do not expose `/media/` publicly |
+The body field is `expiresIn` or `expires_in`, in seconds. The value is capped at `SIGNED_URL_EXPIRES` (default `3600`). A larger number is reduced. The minimum used is 1 second.
 
-See [Production security](security.md) for filesystem media exposure guidance.
+| Backend | URL | Use |
+| --- | --- | --- |
+| `STORAGE_BACKEND=s3` | Pre-signed URL with query-string authentication | Clients that should fetch from object storage |
+| `filesystem` | Plain `/media/objects/…` path. Not signed | Local development. Do not publish `/media/` |
 
-```bash
-STORAGE_BACKEND=s3
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_STORAGE_BUCKET_NAME=shellui
-AWS_S3_ENDPOINT_URL=http://minio:9000   # omit for AWS
-AWS_S3_ADDRESSING_STYLE=path            # path for MinIO; virtual for AWS
-SIGNED_URL_EXPIRES=3600
-```
+On S3, anyone who holds the URL can fetch the object until it expires. There is no download counter and no revoke short of waiting for expiry. For a link you can revoke, use [Share links](sharing.md).
 
-Client `expiresIn` / `expires_in` on sign requests is capped to this value; larger values are silently reduced.
+Filesystem signed URLs are ordinary media paths. If that path is reachable, knowing or guessing it is enough. Production installs that need signed URLs set `STORAGE_BACKEND=s3` and leave `/media/` off the public host. See [Security hardening](security.md).

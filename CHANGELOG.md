@@ -18,7 +18,16 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [Unreleased] - 2026-10-02
+## [Unreleased] - 2026-10-06
+
+### 📚 Documentation
+
+- **Handbook:** [`docs/index.md`](docs/index.md) is the storage homepage, with [`docs/sidebars.js`](docs/sidebars.js) for the sidebar on `docs.shellui.com/storage`. New pages cover running the service, configuration, buckets and files, maintenance jobs, and the API. Access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, the event log, and security hardening are refreshed against `develop`. CI builds the storage docs with shellui/shellui.
+- **Publish note:** [PUBLISH.md](PUBLISH.md) points readers at `docs.shellui.com/storage`. The old `storage.docs.shellui.com` hostname no longer resolves.
+
+### 🏗 Chore
+
+- Allow the handbook placeholder `your_access_token_here` in the gitleaks scan. The upload example passes the token as `$ACCESS_TOKEN`.
 
 ### ✨ Feature
 

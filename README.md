@@ -4,6 +4,14 @@
 
 It authenticates with JWTs issued by [identity-service](https://github.com/shellui/identity-service) (JWKS / RS256), stores blobs in **S3** (or local filesystem), enforces **per-company** and optional **per-user** quotas, exposes **WebDAV** for third-party file clients, and fires Django **signals** on upload/delete (including Markdown sidecar extraction).
 
+## Documentation
+
+The handbook is in [`docs/`](docs/index.md). It is published on [docs.shellui.com](https://docs.shellui.com) at `docs.shellui.com/storage`.
+
+Start with the [overview](docs/index.md), then [Run storage-service](docs/getting-started.md) and [Configuration](docs/configuration.md). Buckets, access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, the event log, security, maintenance jobs, and the API each have a page in that sidebar.
+
+Build the in-repo docs site with `./tools/generate-docs.sh`. The site published on docs.shellui.com is built from the same `docs/` folder by [shellui/shellui](https://github.com/shellui/shellui).
+
 ## Features
 
 - Supabase-compatible Storage REST API under `/storage/v1/*` (one company bucket, upload, download, list with folders, move/copy, signed URLs)
@@ -232,19 +240,3 @@ docker logs storage-service 2>&1 | grep JWT
 Set `LOG_LEVEL=DEBUG` (default when `DEBUG=true`) or `LOG_LEVEL=INFO` in `.env`. JWT verify failures are logged at **WARNING** with algorithm, `kid`, issuer/audience, and which JWKS keys were loaded — the raw token is never logged. When `DEBUG=true`, the 401 body also includes the underlying PyJWT exception.
 
 See [JWKS auth](docs/authentication.md) for how to interpret those fields.
-
-## Documentation
-
-Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `main` and `v*` tags).
-
-- [API overview](docs/index.md)
-- [JWKS auth](docs/authentication.md)
-- [Access control & grants](docs/access.md)
-- [Share links](docs/sharing.md)
-- [Quotas](docs/quotas.md)
-- [Metrics (Prometheus)](docs/metrics.md)
-- [Downloads](docs/downloads.md)
-- [Third-party clients (WebDAV / S3)](docs/clients.md)
-- [Signals](docs/signals.md)
-
-Build docs site: `./tools/generate-docs.sh`

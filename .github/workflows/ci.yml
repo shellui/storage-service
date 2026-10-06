@@ -149,6 +149,54 @@ jobs:
             docs
           fail: true
 
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    env:
+      # Branch, tag or commit of shellui/shellui, which builds docs.shellui.com.
+      # Defaults to main (shellui/shellui has no develop branch).
+      # Override with the repository variable SHELLUI_DOCS_REF.
+      SHELLUI_DOCS_REF: ${{ vars.SHELLUI_DOCS_REF || 'main' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: storage-service
+
+      # Sibling checkout: the shellui docs fetch script reads ../storage-service/docs.
+      - name: Checkout shellui/shellui
+        uses: actions/checkout@v4
+        with:
+          repository: shellui/shellui
+          ref: ${{ env.SHELLUI_DOCS_REF }}
+          path: shellui
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: shellui/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: shellui/.nvmrc
+          cache: pnpm
+          cache-dependency-path: shellui/pnpm-lock.yaml
+
+      - name: Install shellui dependencies
+        working-directory: shellui
+        run: pnpm install --frozen-lockfile
+
+      # Builds docs.shellui.com with only the storage docs, read from this checkout.
+      # onBrokenLinks is 'throw', so a broken link or an invalid page fails the job.
+      - name: Build docs (storage only)
+        working-directory: shellui
+        env:
+          DOCS_SOURCE: local
+          DOCS_SERVICES: storage
+          DOCS_SERVICES_DIR: ${{ github.workspace }}
+        run: pnpm docs:build
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest

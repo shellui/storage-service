@@ -1,39 +1,34 @@
-# Third-party clients (WebDAV & S3)
+---
+description: Mount the company bucket with a WebDAV client, and what a raw S3 client skips.
+---
 
-You can browse and sync files with any compatible **WebDAV** or **S3** client. Shellui does not endorse a particular app — use whatever your team already prefers.
+# WebDAV
 
-## WebDAV (recommended for Shellui)
+WebDAV exposes the company bucket to a file client. Requests go through storage-service, so quotas, MIME rules, access grants, and upload signals apply.
 
-Goes through `storage-service` — **quotas, MIME rules, and upload signals apply**.
+The routes exist when `WEBDAV_ENABLED` is true (the default). The prefix is `WEBDAV_PATH_PREFIX` (default `/dav`).
 
-Typical settings:
+## Client settings
 
 | Field | Value |
-|-------|-------|
-| Protocol | WebDAV (HTTPS), or HTTP for local development |
-| Server | your storage host (e.g. `localhost` or `storage.example.com`) |
-| Port | `8001` locally, or your TLS port in production |
+| --- | --- |
+| Protocol | WebDAV over HTTPS, or HTTP for local development |
+| Server | The storage host, for example `localhost` or `storage.example.com` |
+| Port | `8001` locally, or the TLS port in production |
 | Path | `/dav` |
-| Username | any string (often the user email) |
-| Password | identity-service **access JWT** |
+| Username | Any string. An email address is a common choice |
+| Password | The identity-service access JWT |
 
-Layout: `/dav/{bucket}/folder/file.ext` — typically `/dav/company/…` (one company bucket; access grants apply).
+You can also send `Authorization: Bearer your_access_token_here` instead of Basic auth. The username is not checked. The password, or the bearer token, is.
 
-The company bucket is auto-provisioned. `MKCOL` creates virtual folders (prefix-based, with the same `.emptyFolderPlaceholder` marker as REST) that are **private to the creator** by default (nested folders inherit parent grants). PROPFIND/GET/PUT honor the same path grants as the REST API — private folders return `403` for other users, and company-open files appear in listings.
+Paths look like `/dav/company/folder/file.ext`. The company bucket is created on first use. `MKCOL` creates a folder with the same `.emptyFolderPlaceholder` marker as the REST API, private to the creator unless a parent folder already has grants. `PROPFIND`, `GET`, and `PUT` use the same path checks as `/storage/v1/`. Another user's private folder is 403.
 
-Examples (non-exhaustive, not recommendations): the WebDAV support built into some desktop OSes, command-line sync tools, and file managers that offer a WebDAV or S3 plugin.
+A desktop file manager, an OS WebDAV mount, or a sync tool can use these settings. Shellui does not require a specific client.
 
-## Native S3 (when `STORAGE_BACKEND=s3`)
+## Direct S3
 
-Point an S3-compatible client at your bucket (AWS, MinIO, R2, …):
+When `STORAGE_BACKEND=s3`, an S3 client can use `AWS_S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` on `AWS_STORAGE_BUCKET_NAME`.
 
-| Field | Value |
-|-------|-------|
-| Protocol | Amazon S3 / S3-compatible |
-| Endpoint | your `AWS_S3_ENDPOINT_URL` (or the AWS regional endpoint) |
-| Access Key ID | `AWS_ACCESS_KEY_ID` |
-| Secret Access Key | `AWS_SECRET_ACCESS_KEY` |
+That client talks to object storage, not to storage-service. Quotas, grants, share links, and `storage.object.uploaded` do not run. Use it for operator access to the raw bucket. Use WebDAV or `/storage/v1/` when those checks should apply.
 
-**Trade-off:** direct S3 bypasses Shellui quotas and Django signals. Prefer WebDAV when those matter; use S3 for bulk or operational access to the raw store.
-
-Auth for WebDAV is the same JWT-as-password (or `Authorization: Bearer`) pattern described in [authentication.md](authentication.md).
+JWT checks for both WebDAV and the REST API are in [JWT and claim trust](authentication.md).
