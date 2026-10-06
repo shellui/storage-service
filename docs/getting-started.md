@@ -6,7 +6,7 @@ description: Run storage-service locally with Docker Compose or uv, point it at 
 
 This page takes you from a clone to a stored file. You start storage-service, point it at identity-service, then upload into the company bucket.
 
-Run identity-service first, on port 8000. storage-service checks the JWTs identity-service issues. The identity handbook is on [docs.shellui.com/identity](https://docs.shellui.com/identity).
+Run identity-service first, on port 8000. storage-service checks the JWTs identity-service issues. The identity handbook is on [docs.shellui.com/identity](https://docs.shellui.com/identity/).
 
 ## Start with Docker Compose
 
@@ -63,12 +63,12 @@ Or set `SETUP_TOKEN` and open `/?setup_token=your_setup_token_here` once. The fo
 
 ## Upload a file
 
-Get an access token from identity-service, then send the bytes. The company bucket is created on this call if it does not exist yet:
+Put an access token from identity-service in `ACCESS_TOKEN`, then send the bytes. The company bucket is created on this call if it does not exist yet:
 
 ```bash
 curl -fsS -X POST \
   "http://localhost:8001/storage/v1/object/company/docs/readme.md" \
-  -H "Authorization: Bearer your_access_token_here" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: text/markdown" \
   --data-binary @readme.md
 ```
