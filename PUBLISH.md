@@ -149,7 +149,9 @@ git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
 
-Docs are not published from this repository. [shellui/shellui](https://github.com/shellui/shellui) builds `docs/` (with the sidebar in `docs/sidebars.js`) into [https://docs.shellui.com/storage](https://docs.shellui.com/storage). The **Docs build** job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) checks on every pull request that the docs still build.
+The public handbook is [docs.shellui.com/storage](https://docs.shellui.com/storage/). [shellui/shellui](https://github.com/shellui/shellui) builds it from `docs/` on `main`. This repository does not publish a docs site.
+
+The **Docs build** job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) checks on every pull request that the docs still build.
 
 ## Deploy
 

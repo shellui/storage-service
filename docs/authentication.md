@@ -1,115 +1,85 @@
-# Authentication (JWKS)
+---
+description: How storage-service verifies identity-service JWTs, and which claims it trusts for staff, owners, and company scope.
+---
 
-`storage-service` does **not** issue tokens. It verifies Bearer JWTs created by identity-service using the identity **public** JWKS document (RSA keys). That document is not a private certificate; it is safe to copy into Coolify or a local file.
+# JWT and claim trust
 
-## Production: store the keys locally
+storage-service checks Bearer JWTs from identity-service and reads a few claims for authorization. It does not store users, and it does not call identity-service again on each API request.
 
-Do **not** fetch `https://id.shellui.com/.well-known/jwks.json` from a container on the same host. That public URL hairpins and times out.
+Send the token as `Authorization: Bearer your_access_token_here`.
 
-From a laptop (outside the server):
+## What gets verified
+
+Tokens must include `exp`. The signature is checked as RS256 against a JSON Web Key Set (JWKS). Pin that document in production with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS`. Local development can fetch `IDENTITY_JWKS_URL`, which defaults to `{IDENTITY_SERVICE_URL}/.well-known/jwks.json`.
+
+Copy the public JWKS from a machine that can reach identity-service. Do not fetch `https://id.shellui.com/.well-known/jwks.json` from a container on the same host. That request hairpins and times out.
 
 ```bash
 curl -sS https://id.shellui.com/.well-known/jwks.json
 ```
 
-Then set **one** of these on storage-service and restart:
+Set one of these and restart:
 
 ```bash
-# Coolify env (easiest)
-IDENTITY_JWKS={"keys":[...paste the JSON...]}
-
-# Or a file on the data volume
 IDENTITY_JWKS_FILE=/app/data/jwks.json
 ```
 
-When either is set, storage never calls identity at runtime. After identity rotates signing keys, update the JSON and restart storage.
+Or set `IDENTITY_JWKS` to the same JSON object, including a non-empty `keys` array. An empty `keys` array refuses to start. When either variable is set, verification uses that document and does not call identity-service at runtime. After identity-service rotates signing keys, update the JSON and restart storage-service.
 
-`GET /storage/v1/health` is public and returns `status` and `version` only. With a valid Bearer JWT, the same endpoint also reports `identity_jwks_source` (`env`, `file`, or `url`), `identity_jwks_url`, and `storage_backend`.
+Startup with `DEBUG=false` fails unless both of these are set:
 
-## Local/dev: fetch from identity
+- `IDENTITY_ISSUER`: the JWT `iss` claim must match
+- `IDENTITY_AUDIENCE`: the JWT `aud` claim must match
 
-Set the identity base URL; JWKS is derived automatically:
+A missing pin does not, by itself, refuse to start. Set the pin anyway so production does not depend on a runtime fetch.
 
-```bash
-IDENTITY_SERVICE_URL=http://localhost:8000
-# → fetches http://localhost:8000/.well-known/jwks.json
-```
+`JWT_HS256_FALLBACK_SECRET` verifies HS256 tokens from a local identity-service debug setup. Set it to that service's `SECRET_KEY`. storage-service refuses to start with the secret set while `DEBUG=false`, unless `ALLOW_JWT_HS256_FALLBACK=true`.
 
-Override only when JWKS is on a different host:
+Issuer and audience checks run only when the matching variable is set. Production always sets both.
 
-```bash
-IDENTITY_JWKS_URL=http://host.docker.internal:8000/.well-known/jwks.json
-```
+`GET /storage/v1/health` without a token returns `status` and `version` only. With a valid Bearer token, the same response adds `storage_backend`, `identity_jwks_source` (`env`, `file`, or `url`), and `identity_jwks_url`.
 
-If `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` is set, it wins and the URL is ignored.
+## Claims storage-service trusts
 
-## Configuration reference
+These claims are taken from the verified payload. storage-service does not ask identity-service whether they are still true on the next request:
 
-| Variable | Purpose |
-|----------|---------|
-| `IDENTITY_JWKS_FILE` | Path to a JWKS JSON file (production, preferred with a volume) |
-| `IDENTITY_JWKS` | JWKS JSON inline (production, easy in Coolify) |
-| `IDENTITY_SERVICE_URL` | Identity base URL; derives `{url}/.well-known/jwks.json` when no local document / explicit JWKS URL |
-| `IDENTITY_JWKS_URL` | Optional fetch URL override (different host than `IDENTITY_SERVICE_URL`) |
-| `IDENTITY_ISSUER` | **Required when `DEBUG=false`.** Must match identity-service `JWT_ISSUER` (0.5.0+), e.g. `https://id.shellui.com` |
-| `IDENTITY_AUDIENCE` | **Required when `DEBUG=false`.** Must match identity-service `JWT_AUDIENCE` (0.5.0+), typically `shellui` |
-| `JWKS_CACHE_TTL` | Seconds to cache a **fetched** JWKS (default `900`; unused for local documents) |
-| `JWKS_TIMEOUT` | Seconds to wait for a JWKS HTTP response (default `15`; connect cap `5`) |
-| `JWKS_RETRIES` | Extra JWKS fetch attempts after timeout / 5xx (default `2`; 4xx is not retried) |
-| `JWT_HS256_FALLBACK_SECRET` | Dev-only: verify HS256 when JWKS has no keys (identity `DEBUG=true`). **Rejected at startup if `DEBUG=false`** unless `ALLOW_JWT_HS256_FALLBACK=true` |
-| `ALLOW_JWT_HS256_FALLBACK` | Explicit escape hatch to allow HS256 fallback when `DEBUG=false` (not recommended in production) |
-| `JWT_ALGORITHMS` | Default `RS256` |
+| Claim | Used for |
+| --- | --- |
+| `user_metadata.is_staff` | Quota changes for any company, global stats, global metrics, Shellui Actions for any `company_id` |
+| `user_metadata.is_company_owner` | Quota changes for the token's company, company metrics, Shellui Actions for that company |
+| `pat_agm` | Global Prometheus metrics for a personal access token (PAT) issued by staff |
+| `company_id` | Which company's bucket, objects, quota, and events this caller may touch |
+| `user_id` or `sub` | Numeric identity user id stored as the object owner and on the event log |
+| `email` | Actor email on events, when the token carries one |
 
-## Expected claims
+A forged payload cannot pass unless it is signed by a key in the JWKS. Privileged routes rely on that signature check and on token expiry.
 
-| Claim | Use |
-|-------|------|
-| `sub` / `user_id` | Owner id for uploads and per-user quotas |
-| `company_id` | Tenancy — buckets and objects are scoped to this company |
-| `email` | Informational |
-| `user_metadata.is_staff` | Quota admin APIs |
-| `user_metadata.is_company_owner` | Quota admin for own company |
+The optional `apikey` header is allowed by CORS and ignored for authorization.
 
-## Client headers
+## Company scope
 
-```http
-Authorization: Bearer <access_token>
-```
+Object and bucket routes compare `company_id` on the token with the row. You only see your company's files.
 
-Optional Supabase-style `apikey` header is accepted by CORS but ignored for authorization.
+Staff tokens can `PUT` quotas for a `company_id` in the path and can read `GET /storage/v1/stats` with no company filter. Other callers see stats for their company only. `days` on that route is from 1 to 90 and defaults to 14.
 
-## Debugging failed tokens
+`GET /storage/v1/metrics` uses the company on the token and requires staff or a company owner. A `company_id` query parameter is 400. `GET /storage/v1/metrics/all` requires staff or `pat_agm`.
 
-API clients still get a generic 401 (`Token is invalid or could not be verified against identity JWKS.`) so the token is not leaked. The **process logs** have the details.
+Shellui Actions routes under `/api/v1/actions/` let staff pass any `company_id` query parameter. Company owners may omit it and then the token company is used. Another company returns 403. A caller who is neither staff nor a company owner receives 403.
 
-Look for `JWT` on the `apps.authapi.authentication` / `apps.authapi.jwks_client` loggers. Useful fields:
+## When verification fails
 
-| Log field | What it tells you |
-|-----------|-------------------|
-| `alg` / `kid` | Token header. `HS256` with no fallback means identity is in DEBUG mode — set `JWT_HS256_FALLBACK_SECRET`. `kid` missing from `jwks_kids` means storage's JWKS is stale; recopy `IDENTITY_JWKS`. |
-| `iss` / `aud` / `exp` | Unverified claims (signature not trusted). In production, `iss`/`aud` must match `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`. |
-| `jwks_source` / `jwks_kids` | Where keys were loaded (`env`, `file`, or `url`) and which `kid`s storage currently has. |
-| `request_id` / `[req=…]` | Correlate one HTTP call. The 401 JSON includes `request_id`; the same value is in `X-Request-ID`. |
+The API returns 401 and does not echo the token. Process logs on `apps.authapi.authentication` include `alg`, `kid`, `iss`, `aud`, `jwks_source`, and `jwks_kids`. The same `request_id` is the `X-Request-ID` response header and the `request_id` field on the error JSON.
 
-How to read logs:
+`HS256` with no fallback means identity-service is in debug mode: set `JWT_HS256_FALLBACK_SECRET` to that service's `SECRET_KEY`. A `kid` missing from `jwks_kids` means the pinned document is stale. When `DEBUG=true`, the 401 detail also includes the PyJWT exception name.
 
-```bash
-# Local runserver — logs print in that terminal
-uv run python manage.py runserver 8001
-
-# Docker
-docker logs -f <container> 2>&1 | grep JWT
-
-# Coolify / systemd — open the service logs and search for "JWT authentication failed"
-```
-
-On startup, storage logs `Identity JWKS auth ready: source=… key_count=… kids=…`. If `key_count=0` and you are not using HS256 fallback, every request will 401.
-
-When `DEBUG=true`, the 401 `detail` string also appends the PyJWT exception (`InvalidSignatureError`, `DecodeError`, missing `kid`, …).
+On startup the process logs `Identity JWKS auth ready` with the source, key count, and key ids. A key count of 0, without the HS256 fallback, makes every authenticated call fail.
 
 ## WebDAV
 
-Third-party WebDAV clients may send:
+WebDAV clients may send `Authorization: Bearer your_access_token_here`, or HTTP Basic where the password is the JWT. The Basic username is not checked. See [WebDAV](clients.md).
 
-- `Authorization: Bearer <jwt>`, or
-- HTTP Basic where the **password** is the JWT (username can be the user email).
+## Related
+
+- [Configuration](configuration.md) lists the JWT environment variables
+- [Security hardening](security.md) covers production JWT rules
+- [Access grants](access.md) uses `company_id` after the token is verified

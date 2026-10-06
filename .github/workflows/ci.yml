@@ -152,8 +152,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Branch, tag or commit of shellui/shellui, which builds docs.shellui.com.
+      # Defaults to main (shellui/shellui has no develop branch).
       # Override with the repository variable SHELLUI_DOCS_REF.
-      SHELLUI_DOCS_REF: ${{ vars.SHELLUI_DOCS_REF || 'develop' }}
+      SHELLUI_DOCS_REF: ${{ vars.SHELLUI_DOCS_REF || 'main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
