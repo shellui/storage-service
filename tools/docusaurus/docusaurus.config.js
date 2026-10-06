@@ -1,5 +1,6 @@
 // @ts-check
 
+const path = require('path');
 const lightCodeTheme = require('prism-react-renderer').themes.github;
 const darkCodeTheme = require('prism-react-renderer').themes.vsDark;
 
@@ -68,6 +69,21 @@ const config = {
           sidebarPath: require.resolve('./sidebars.js'),
           editUrl:
             'https://github.com/shellui/storage-service/tree/main/',
+          // Same rewrite the central docs site applies: links that leave docs/
+          // point at GitHub, and the old docs host stays on this site.
+          beforeDefaultRemarkPlugins: [
+            [
+              require('./plugins/remark-service-links'),
+              {
+                docsPath: path.resolve(__dirname, '../../docs'),
+                repo: 'shellui/storage-service',
+                ref: 'develop',
+                hostRoutes: {
+                  'storage.docs.shellui.com': '/',
+                },
+              },
+            ],
+          ],
         },
         blog: false,
         theme: {

@@ -1,87 +1,74 @@
-# Production security
+---
+description: Production controls for CORS, JWT checks, HTTPS, Postgres, signed URLs, and Django admin.
+---
 
-Operational controls for deploying `storage-service` alongside [identity-service](https://github.com/shellui/identity-service) **0.5.0+** in a multi-tenant Shellui stack.
+# Security hardening
 
-## CORS (M-01)
+Set the controls on this page before you expose storage-service beyond a local machine. Defaults below follow `DEBUG=false` unless a row says otherwise. Variable names and defaults are also in [Configuration](configuration.md).
 
-Browser API calls use **Bearer JWT** — not cookies. `CORS_ALLOW_CREDENTIALS` defaults to `false`, so `Access-Control-Allow-Origin: *` is safe for token-based auth.
+## CORS for browser API calls
 
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `CORS_ALLOW_ALL_ORIGINS` | `true` | Intentional for multi-tenant hosting previews. Set `false` only when you want a first-party-only API. |
-| `CORS_ALLOW_CREDENTIALS` | `false` | Must stay `false` when allow-all is enabled. Startup **fails** if both are `true`. |
-| `CORS_ALLOWED_ORIGINS` | Shellui dev/admin origins | Used when `CORS_ALLOW_ALL_ORIGINS=false`. |
+Customer shells run on hostnames you do not list in advance, and they call `/storage/v1/*` with a Bearer JWT. A fixed `CORS_ALLOWED_ORIGINS` list does not cover those shells.
 
-Token delivery is not governed by storage CORS — identity OAuth redirect allowlists (`CompanyOAuthRedirect`) are the boundary for where login codes/tokens may be sent.
+Leave `CORS_ALLOW_ALL_ORIGINS=true` and `CORS_ALLOW_CREDENTIALS=false`. Auth is the Bearer JWT, not a cookie, so the API allows every origin and refuses credentials.
 
-## JWT issuer and audience (M-03)
+Where the browser may return after login is the identity-service redirect allowlist, not storage CORS.
 
-When `DEBUG=false`, **`IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` are required**. They must match the values identity-service uses to sign tokens:
+To lock the API to known origins, set `CORS_ALLOW_ALL_ORIGINS=false` and list them in `CORS_ALLOWED_ORIGINS`.
 
-| storage-service | identity-service (0.5.0+) | Example |
-|-----------------|---------------------------|---------|
-| `IDENTITY_ISSUER` | `JWT_ISSUER` | `https://id.shellui.com` |
-| `IDENTITY_AUDIENCE` | `JWT_AUDIENCE` | `shellui` |
+Startup fails when `CORS_ALLOW_ALL_ORIGINS=true` and `CORS_ALLOW_CREDENTIALS=true`. Wildcard origins cannot carry credentials safely.
 
-Copy both from the identity deployment env. Mismatched `iss`/`aud` claims produce 401s; check process logs for `iss=` / `aud=` on failed JWT verification.
+## JWT verification in production
 
-## Transport and database TLS
+When `DEBUG=false`:
 
-When `DEBUG=false`, HTTPS and secure cookies are enabled by default:
+- `IDENTITY_ISSUER` and `IDENTITY_AUDIENCE` are required, and `iss` / `aud` are checked
+- Pin the JWKS document with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS`. Fetching `IDENTITY_JWKS_URL` still starts, and it will time out if the container cannot reach identity-service
 
-| Variable | Production default |
-|----------|-------------------|
-| `SECURE_SSL_REDIRECT` | `true` |
-| `SECURE_HSTS_SECONDS` | `31536000` (1 year) |
-| `SESSION_COOKIE_SECURE` | `true` |
-| `CSRF_COOKIE_SECURE` | `true` |
+Copy both issuer and audience from the identity-service deployment (`JWT_ISSUER` and `JWT_AUDIENCE`). A mismatch is a 401. The log line includes `iss` and `aud`.
 
-Override individual settings for local HTTP testing.
+Privileged claims are listed in [JWT and claim trust](authentication.md). Leave `JWT_HS256_FALLBACK_SECRET` unset in production.
 
-Postgres connections require TLS when `DEBUG=false` (`POSTGRES_SSL_REQUIRE=true` by default). Set `POSTGRES_SSL_REQUIRE=false` only for trusted internal databases (e.g. Coolify Postgres on the same Docker network without TLS).
+## HTTPS, HSTS, and cookies
 
-## Signed URLs and media exposure (M-22)
+When `DEBUG=false`:
 
-| Backend | `POST /storage/v1/object/sign/...` behaviour |
-|---------|-----------------------------------------------|
-| **S3** (`STORAGE_BACKEND=s3`) | Returns a **cryptographically signed** pre-signed URL (query-string auth). Suitable for production when clients fetch directly from object storage. |
-| **Filesystem** | Returns a plain `/media/objects/...` path. **Not signed** — anyone who knows or guesses the URL can fetch the object if media is publicly served. |
+- `SECURE_SSL_REDIRECT=true` redirects HTTP to HTTPS. Turn it off only behind a TLS terminator that already redirects
+- `SECURE_HSTS_SECONDS=31536000` (1 year), including subdomains
+- `SESSION_COOKIE_SECURE=true` and `CSRF_COOKIE_SECURE=true`
 
-**Production guidance:**
+Override any of these in the environment. See [`.env.example`](../.env.example). Django admin uses these cookies. The storage API does not.
 
-- Use `STORAGE_BACKEND=s3` for signed URL flows.
-- Do **not** expose `/media/` on the public internet when using the filesystem backend.
-- Authenticated downloads (`GET /storage/v1/object/...`) always stream through Django regardless of backend — that path does not rely on signed URLs.
+## Postgres SSL
 
-## Django admin isolation (M-23)
+When `POSTGRES_DATABASE_URL` is set and `DEBUG=false`, connections use TLS (`ssl_require=true`). Set `POSTGRES_SSL_REQUIRE=false` only for a database without TLS on a private network, such as a Coolify internal database.
 
-The admin at `/admin/` shows **cross-tenant** data (all companies' buckets, objects, quotas). Treat it as a privileged operator surface, not an end-user UI.
+## Signed URLs and media files
 
-| Control | Recommendation |
-|---------|----------------|
-| **Disable on API pods** | `DJANGO_ADMIN_ENABLED=false` on internet-facing replicas; run admin on a separate internal deployment or ingress. |
-| **Network restriction** | Bind admin to a private ingress, VPN, or IP allowlist — do not publish `/admin/` on the same public hostname as the storage API without additional controls. |
-| **MFA** | Enforce MFA on operator accounts (identity / SSO provider). Django admin uses local superuser credentials — prefer `manage.py createsuperuser` in production over the one-time home-page bootstrap when `DEBUG=false`. |
-| **Audit** | Monitor admin login and model changes via your platform logs / SIEM. |
+| Backend | `POST /storage/v1/object/sign/…` |
+| --- | --- |
+| S3 | Cryptographic pre-signed URL. Suitable when a client fetches from object storage |
+| Filesystem | Plain `/media/objects/…` path. Not signed. Anyone who can request that path can read the object |
 
-See [Admin panel](admin.md) for dashboard features.
+Use `STORAGE_BACKEND=s3` when you sign URLs. Do not publish `/media/` on the public internet for the filesystem backend. Authenticated `GET /storage/v1/object/…` still streams through Django and does not depend on the signed URL. Anonymous download is a [share link](sharing.md). The public object route returns 403.
 
-## Shared cache (Redis)
+## Django admin
 
-| Variable | Default | Purpose |
-| -------- | ------- | ------- |
-| `REDIS_URL` | unset | Django Redis cache backend for shared state across Gunicorn workers |
+Django admin is cross-tenant. It uses local Django users, not the JWT company scope. The statistics page lists every company's objects, quotas, and recent uploads.
 
-When unset, Django uses in-process **LocMem** (fine for local dev or a single Gunicorn worker). With **`GUNICORN_WORKERS` > 1** (Docker default is `2`), set `REDIS_URL` so future cache-backed rate limits and throttles are shared across workers. `manage.py check --deploy` emits **`authapi.W001`** when production uses LocMem with multiple workers.
+- Expose `/admin/` on an internal hostname or a VPN, not on the public storage host
+- Require MFA for staff at the identity provider that signs them into admin
+- Set `DJANGO_ADMIN_ENABLED=false` to remove the admin routes when this pod should not serve them
+- Create the first superuser with `manage.py createsuperuser`. The home-page form in production needs `SETUP_TOKEN`
 
-Example:
+What the statistics page shows is in [Run storage-service](getting-started.md).
 
-```bash
-REDIS_URL=redis://redis:6379/0
-```
+## Shared cache
 
-See [PUBLISH.md](https://github.com/shellui/storage-service/blob/develop/PUBLISH.md) for Coolify Redis setup.
+The cache is Redis when `REDIS_URL` is set, and an in-process cache otherwise. Docker defaults to `GUNICORN_WORKERS=2`, so set `REDIS_URL` (for example `redis://redis:6379/0`) or each worker has its own cache. `manage.py check --deploy` emits `authapi.W001` in that case.
 
-## Environment file hygiene (M-12)
+storage-service does not enforce request rate limits. The warning is about the cache not being shared. Webhook delivery does not use Redis.
 
-`.env.example` contains **placeholders only**. Generate `SECRET_KEY` locally; never commit real JWKS private keys, AWS credentials, or production DSNs.
+## Webhook targets
+
+Outbound webhook URLs are checked for private, loopback, and non-global addresses. `ACTIONS_WEBHOOK_ALLOW_PRIVATE` defaults to false in every mode. Staff can allow one rule to call a private URL. See [Webhooks](actions.md).
