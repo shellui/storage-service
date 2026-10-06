@@ -117,7 +117,7 @@ def root(request):
     storage_docs_url = getattr(
         settings,
         'SHELLUI_STORAGE_DOCS_URL',
-        'https://storage.docs.shellui.com',
+        'https://docs.shellui.com/storage',
     ).rstrip('/')
     context = {
         'form': form,
@@ -147,7 +147,7 @@ def root(request):
         'identity_docs_url': getattr(
             settings,
             'SHELLUI_IDENTITY_DOCS_URL',
-            'https://identity.docs.shellui.com',
+            'https://docs.shellui.com/identity',
         ),
         'github_url': getattr(
             settings,

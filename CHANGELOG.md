@@ -30,6 +30,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - **Django admin deletes:** deleting a file or a bucket in Django admin now goes through the same path as the REST API: blobs are removed, quota usage goes down, and `storage.object.deleted` is emitted for each file. It previously left blobs and usage behind and emitted nothing.
 - `storage.bucket.created` now includes the user whose first request provisioned the bucket.
 
+### 📚 Documentation
+
+- **Docs move to docs.shellui.com/storage:** [shellui/shellui](https://github.com/shellui/shellui) now builds and publishes these docs. This repository no longer deploys a docs site: `deploy-docs.yml`, `tools/docusaurus/`, `tools/generate-docs.sh` and the root `CNAME` are removed, and the sidebar moved to `docs/sidebars.js` (now with the event log page). CI gains a **Docs build** job that builds `docs/` with the shellui docs site and fails on broken links.
+
 ## [0.4.0] - 2026-09-29
 
 ### ✨ Feature

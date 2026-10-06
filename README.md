@@ -176,7 +176,7 @@ See [docs/event-log.md](docs/event-log.md).
 uv run python manage.py test
 ```
 
-Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), and a Docker image build.
+Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), a docs build against [shellui/shellui](https://github.com/shellui/shellui), and a Docker image build.
 
 Pull requests **to `main`** also run the pre-release checklist ([`.github/workflows/pre-release.yml`](.github/workflows/pre-release.yml)) — same checks as:
 
@@ -235,7 +235,7 @@ See [JWKS auth](docs/authentication.md) for how to interpret those fields.
 
 ## Documentation
 
-Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `main` and `v*` tags).
+Published at [https://docs.shellui.com/storage](https://docs.shellui.com/storage) by [shellui/shellui](https://github.com/shellui/shellui), which builds the docs of every Shellui service into one site. The sidebar is `docs/sidebars.js`.
 
 - [API overview](docs/index.md)
 - [JWKS auth](docs/authentication.md)
@@ -247,4 +247,4 @@ Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (
 - [Third-party clients (WebDAV / S3)](docs/clients.md)
 - [Signals](docs/signals.md)
 
-Build docs site: `./tools/generate-docs.sh`
+Preview the docs with live reload: clone `shellui` next to this repository, then run `pnpm install` and `DOCS_SERVICES=storage pnpm docs:start` in `../shellui`. See [Build the docs site](https://github.com/shellui/shellui/blob/develop/docs/docs-site.md). CI runs the same build on every pull request (the **Docs build** job), so a broken link or invalid page fails the check.

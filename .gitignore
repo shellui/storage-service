@@ -13,10 +13,8 @@ data/
 /objects/
 *.log
 
-# Node / docs
+# Node (Tailwind CSS build)
 node_modules/
-tools/docusaurus/build/
-tools/docusaurus/.docusaurus/
 
 # Env & secrets
 .env

@@ -4,7 +4,7 @@ Welcome to the `storage-service` documentation.
 
 This backend provides Supabase-compatible object storage under `/storage/v1/*` using Django, authenticated with JWTs from identity-service.
 
-The published site is [https://storage.docs.shellui.com](https://storage.docs.shellui.com).
+The published site is [https://docs.shellui.com/storage](https://docs.shellui.com/storage), built from this repository's `docs/` folder by [shellui/shellui](https://github.com/shellui/shellui).
 
 ## Quick links
 
