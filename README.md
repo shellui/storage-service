@@ -4,6 +4,14 @@
 
 It authenticates with JWTs issued by [identity-service](https://github.com/shellui/identity-service) (JWKS / RS256), stores blobs in **S3** (or local filesystem), enforces **per-company** and optional **per-user** quotas, exposes **WebDAV** for third-party file clients, and fires Django **signals** on upload/delete (including Markdown sidecar extraction).
 
+## Documentation
+
+The handbook is in [`docs/`](docs/index.md). It is published on [docs.shellui.com](https://docs.shellui.com) at `docs.shellui.com/storage`.
+
+Start with the [overview](docs/index.md), then [Run storage-service](docs/getting-started.md) and [Configuration](docs/configuration.md). Buckets, access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, email notifications, the event log, security, maintenance jobs, and the API each have a page in that sidebar.
+
+[shellui/shellui](https://github.com/shellui/shellui) builds the published site from this `docs/` folder. To preview it, clone `shellui` next to this repository, then run `pnpm install` and `DOCS_SERVICES=storage pnpm docs:start` in `../shellui`. See [Build the docs site](https://github.com/shellui/shellui/blob/main/docs/docs-site.md). The **Docs build** job runs that build on every pull request.
+
 ## Features
 
 - Supabase-compatible Storage REST API under `/storage/v1/*` (one company bucket, upload, download, list with folders, move/copy, signed URLs)
@@ -19,6 +27,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
+- **Email notifications** for the same `storage.*` events, forwarded to email-service when `EMAIL_SERVICE_API_KEY` is set. Webhook and email bodies omit sign-in links, tokens, signed URLs, and secret-shaped fields. See [`docs/email.md`](docs/email.md).
 - CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`, credentials off); auth is Bearer JWT — multi-tenant preview origins work without per-slug env lists (see [docs/security.md](docs/security.md))
 
 ## Project structure
@@ -26,9 +35,9 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 - `config/` — Django settings and URL routing
 - `apps/authapi/` — JWKS JWT authentication
 - `apps/storage/` — buckets, objects, quotas, downloads, signals
-- `apps/actions/` — Shellui Actions webhook outbox and admin API
+- `apps/actions/` - Shellui Actions webhook outbox, email-service forwards, and admin API
 - `apps/webdav/` — WebDAV connector
-- `docs/` — topic guides (Docusaurus)
+- `docs/`: handbook pages for docs.shellui.com/storage
 
 ## Main endpoints
 
@@ -148,17 +157,11 @@ docker compose up --build
 
 Default host port: `8001`.
 
-Runtime env vars include `SECRET_KEY`, identity JWKS settings, and optional **`REDIS_URL`** for a shared Django cache. When unset, Django uses in-process LocMem (fine for local dev or a single Gunicorn worker). With **`GUNICORN_WORKERS` > 1** (Docker default is `2`), set `REDIS_URL` so future cache-backed rate limits are shared across workers. `manage.py check --deploy` warns (`authapi.W001`) when production still uses LocMem with multiple workers. See [PUBLISH.md](PUBLISH.md) for Coolify Redis setup.
+Runtime env vars include `SECRET_KEY`, identity JWKS settings, and **`REDIS_URL`**. Redis is required when `DEBUG=false`: the container exits 1 without it, and `manage.py check --deploy` reports `authapi.E004`. With `DEBUG=true` and no Redis, Django uses in-process LocMem and the scheduled jobs do not start. Compose starts a Redis service and defaults `REDIS_URL` to `redis://redis:6379/0`.
 
-### Shellui Actions retries (production)
+The image runs `retry_webhooks` every minute and `purge_expired_data` hourly (minute 17) in a Celery worker next to Gunicorn. `retry_webhooks` retries webhook deliveries and email-service posts. Set `SCHEDULER_ENABLED=false` only when a separate `worker` container or your own scheduler runs those commands. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md) and [docs/email.md](docs/email.md).
 
-Schedule webhook outbox retries every minute (same pattern as identity-service):
-
-```cron
-* * * * * python manage.py retry_webhooks
-```
-
-See [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md) for n8n setup.
+Webhook signing and the n8n workflow are in [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md). The event log is in [docs/event-log.md](docs/event-log.md).
 
 ## Tests
 
@@ -166,7 +169,7 @@ See [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md) for n8n se
 uv run python manage.py test
 ```
 
-Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), and a Docker image build.
+Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), a docs build against [shellui/shellui](https://github.com/shellui/shellui), and a Docker image build.
 
 Pull requests **to `main`** also run the pre-release checklist ([`.github/workflows/pre-release.yml`](.github/workflows/pre-release.yml)) — same checks as:
 
@@ -222,19 +225,3 @@ docker logs storage-service 2>&1 | grep JWT
 Set `LOG_LEVEL=DEBUG` (default when `DEBUG=true`) or `LOG_LEVEL=INFO` in `.env`. JWT verify failures are logged at **WARNING** with algorithm, `kid`, issuer/audience, and which JWKS keys were loaded — the raw token is never logged. When `DEBUG=true`, the 401 body also includes the underlying PyJWT exception.
 
 See [JWKS auth](docs/authentication.md) for how to interpret those fields.
-
-## Documentation
-
-Hosted at [https://storage.docs.shellui.com](https://storage.docs.shellui.com) (published to GitHub Pages on `main` and `v*` tags).
-
-- [API overview](docs/index.md)
-- [JWKS auth](docs/authentication.md)
-- [Access control & grants](docs/access.md)
-- [Share links](docs/sharing.md)
-- [Quotas](docs/quotas.md)
-- [Metrics (Prometheus)](docs/metrics.md)
-- [Downloads](docs/downloads.md)
-- [Third-party clients (WebDAV / S3)](docs/clients.md)
-- [Signals](docs/signals.md)
-
-Build docs site: `./tools/generate-docs.sh`

@@ -2,7 +2,7 @@
 
 How to build, publish, and run the `shellui/storage-service` Docker image on [Docker Hub](https://hub.docker.com/r/shellui/storage-service).
 
-Publishing is **manual** — there is no CI workflow for Docker Hub yet.
+Publishing is **manual**. There is no CI workflow for Docker Hub yet.
 
 ## Image overview
 
@@ -27,7 +27,7 @@ Complete these steps **before** building and pushing a release tag. Prefer the a
 |------|------------------|
 | Version alignment | `pyproject.toml` version matches a dated `CHANGELOG.md` entry (`## [x.y.z] - YYYY-MM-DD`) and `uv.lock` |
 | Build secrets | `.env` / `*.sqlite3` not tracked; `.gitignore` / `.dockerignore` exclude `.env`; built image has no `/app/.env` |
-| Image smoke test | Container serves `/storage/v1/health` with `status=ok` (static `IDENTITY_JWKS` + prod security defaults) |
+| Image smoke test | Throwaway Redis on a Docker network, then the image serves `/storage/v1/health` with `status=ok` (`REDIS_URL` is required when `DEBUG` is false) |
 
 Options: `--skip-docker` (version + git hygiene only), `--image TAG`, `--port PORT`.
 
@@ -37,11 +37,11 @@ Manual equivalents (if you are not using the script):
 
 ### 1. Version alignment
 
-Ensure these match the release version (e.g. `0.4.0`):
+Ensure these match the release version (e.g. `0.5.0`):
 
 - `version` in `pyproject.toml` (OpenAPI / API metadata via `config.settings.VERSION`)
 - `CHANGELOG.md` entry with date
-- Git tag `v0.4.0` (optional but recommended; not enforced by the script)
+- Git tag `v0.5.0` (optional but recommended; not enforced by the script)
 - CI green on the release commit (`.github/workflows/ci.yml` + pre-release workflow)
 
 ### 2. No secrets in the build context
@@ -65,7 +65,7 @@ Covered by `./tools/pre-release-check.sh`. Manual form:
 export SECRET_KEY="$(uv run python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")"
 # Prefer a static JWKS document for offline smoke tests (see the script).
 
-VERSION=0.4.0
+VERSION=0.5.0
 docker build -t "shellui/storage-service:${VERSION}" .
 
 docker run --rm -d --name storage-release-smoke -p 18001:8000 \
@@ -98,38 +98,38 @@ docker login
 
 ### Tagging
 
-For semver release `0.4.0`, typical Docker Hub tags:
+For semver release `0.5.0`, typical Docker Hub tags:
 
 | Tag      | Purpose                                  |
 | -------- | ---------------------------------------- |
-| `0.4.0`  | Exact release (pin in production)        |
-| `0.4`    | Latest patch in the 0.4 line             |
+| `0.5.0`  | Exact release (pin in production)        |
+| `0.5`    | Latest patch in the 0.5 line             |
 | `latest` | Newest published release (use with care) |
 
-### Option A — single platform
+### Option A: single platform
 
 From the repository root:
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 IMAGE=shellui/storage-service
 
 docker build -t "${IMAGE}:${VERSION}" .
 docker push "${IMAGE}:${VERSION}"
 
 # Optional extra tags
-docker tag "${IMAGE}:${VERSION}" "${IMAGE}:0.4"
+docker tag "${IMAGE}:${VERSION}" "${IMAGE}:0.5"
 docker tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
-docker push "${IMAGE}:0.4"
+docker push "${IMAGE}:0.5"
 docker push "${IMAGE}:latest"
 ```
 
-### Option B — multi-arch (recommended for production)
+### Option B: multi-arch (recommended for production)
 
 If you build on Apple Silicon, a plain `docker build` may produce `linux/arm64` only. Most cloud VMs expect `linux/amd64`. Publish both with buildx:
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 IMAGE=shellui/storage-service
 
 docker buildx create --use --name multi 2>/dev/null || docker buildx use multi
@@ -144,14 +144,14 @@ docker buildx build \
 ### Git tag (recommended)
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
 
-Pushes to `main` and `v*` tags that point at `main` run [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml) and publish Docusaurus to GitHub Pages at [https://storage.docs.shellui.com](https://storage.docs.shellui.com).
+The public handbook is [docs.shellui.com/storage](https://docs.shellui.com/storage/). [shellui/shellui](https://github.com/shellui/shellui) builds it from `docs/` on `main`. This repository does not publish a docs site.
 
-Enable Pages once in the GitHub repo (source: `gh-pages` branch) and point a DNS CNAME `storage.docs.shellui.com` at `<org>.github.io`.
+The **Docs build** job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) checks on every pull request that the docs still build.
 
 ## Deploy
 
@@ -168,16 +168,17 @@ docker run -d \
   -e ALLOWED_HOSTS='storage.example.com' \
   -e CSRF_TRUSTED_ORIGINS='https://storage.example.com' \
   -e IDENTITY_JWKS='{"keys":[...]}' \
-  shellui/storage-service:0.4.0
+  -e REDIS_URL='redis://redis:6379/0' \
+  shellui/storage-service:0.5.0
 ```
 
-The entrypoint runs migrations on start, then starts Gunicorn on port 8000.
+The entrypoint runs migrations on start, then starts Gunicorn and the in-container scheduler as user `appuser`. `REDIS_URL` is required when `DEBUG` is false. Env vars `GUNICORN_WORKERS` (default `2`), `GUNICORN_THREADS` (default `2`), and `GUNICORN_TIMEOUT` (default `120`) are passed through.
 
 Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JWKS (`IDENTITY_JWKS` or `IDENTITY_JWKS_FILE`), then `docker compose up --build`.
 
 ### Post-deploy production config check
 
-Quick copy-paste commands and exit-code notes: [README — Post-deploy prod check](README.md#post-deploy-prod-check).
+Quick copy-paste commands and exit-code notes: [README: Post-deploy prod check](README.md#post-deploy-prod-check).
 
 After deploying a release, run the smoke script against the live **storage API** host (`https://storage.shellui.com`), not the Files SPA at `files.shellui.com` (GitHub Pages):
 
@@ -195,7 +196,7 @@ Optional environment:
 | `EXPECTED_IDENTITY_ISSUER` | unset (printed as INFO checklist)            |
 | `EXPECTED_IDENTITY_AUDIENCE` | `shellui`                                  |
 
-Full JWT upload/download flows cannot be verified without identity-service tokens — the script prints guidance for `IDENTITY_JWKS` / `IDENTITY_JWKS_FILE` and `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`.
+Full JWT upload/download flows cannot be verified without identity-service tokens. The script prints guidance for `IDENTITY_JWKS` / `IDENTITY_JWKS_FILE` and `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`.
 
 **Coolify / internal Postgres:** storage parses `POSTGRES_DATABASE_URL` with `ssl_require=false` by default. If boot still fails with SSL errors against an internal Docker Postgres, set `POSTGRES_SSL_REQUIRE=false` in orchestration (same gotcha as identity-service 0.5.0).
 
@@ -218,7 +219,7 @@ chmod +x prod-config-check.sh
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
 
-First superuser: run `python manage.py createsuperuser` inside the container (or exec), or set a one-time `SETUP_TOKEN` and open `/?setup_token=<token>` — the public home form is disabled when `DEBUG=false` and no token is provided.
+First superuser: run `python manage.py createsuperuser` inside the container (or exec), or set a one-time `SETUP_TOKEN` and open `/?setup_token=<token>`. The public home form is disabled when `DEBUG=false` and no token is provided.
 
 ### Optional runtime env vars
 
@@ -229,7 +230,10 @@ First superuser: run `python manage.py createsuperuser` inside the container (or
 | `CORS_ALLOWED_ORIGINS`  | Used when `CORS_ALLOW_ALL_ORIGINS=false`; Shellui / admin front-end origins. |
 | `POSTGRES_DATABASE_URL` | Use Postgres instead of SQLite.                                       |
 | `POSTGRES_SSL_REQUIRE`  | Default `true` when `DEBUG=false`; set `false` for internal DB only.  |
-| `REDIS_URL`             | Shared Redis cache (recommended when `GUNICORN_WORKERS` > 1). Example: `redis://redis:6379/0`. Without it, LocMem is per-worker. |
+| `REDIS_URL`             | **Required when `DEBUG=false`.** Shared cache and scheduled-job broker. Example: `redis://redis:6379/0`. The container exits 1 without it (`authapi.E004`). |
+| `SCHEDULER_ENABLED`     | Default `true`. `false` keeps Celery out of the web container. `REDIS_URL` is still required in production. |
+| `CELERY_BROKER_URL`     | Optional. Defaults to `REDIS_URL`. Does not replace `REDIS_URL`. |
+| `CELERY_WORKER_CONCURRENCY` | Default `2`. Threads in the Celery worker. |
 | `DJANGO_ADMIN_ENABLED`  | Default `true`; set `false` on public API pods (see `docs/security.md`). |
 | `STORAGE_BACKEND`       | `filesystem` (default in the image) or `s3`.                          |
 | `AWS_*`                 | django-storages when `STORAGE_BACKEND=s3`.                            |
@@ -238,6 +242,9 @@ First superuser: run `python manage.py createsuperuser` inside the container (or
 | `SENTRY_DSN`            | Sentry error reporting.                                               |
 | `SENTRY_ENVIRONMENT`    | e.g. `staging`, `production`.                                         |
 | `LOG_LEVEL`             | `DEBUG`, `INFO`, `WARNING`, … (default `DEBUG` when `DEBUG=true`, else `INFO`). |
+| `EMAIL_SERVICE_URL`     | email-service origin. Default `https://email.shellui.com`. No path. |
+| `EMAIL_SERVICE_API_KEY` | `esk_` service key. Empty disables event forwarding. |
+| `EMAIL_SERVICE_ALLOW_PRIVATE` | Set `true` when `EMAIL_SERVICE_URL` is an internal or loopback address. Default `false`. |
 | `SETUP_TOKEN`           | One-time token for web superuser bootstrap when `DEBUG=false`; prefer `createsuperuser`. |
 
 With Postgres:
@@ -246,17 +253,17 @@ With Postgres:
 -e POSTGRES_DATABASE_URL='postgres://user:pass@host:5432/dbname'
 ```
 
-### Redis (Coolify / multi-worker Gunicorn)
+### Redis (required in production)
 
-When `GUNICORN_WORKERS` is greater than 1 (Docker default is `2`), any cache-backed rate limits or throttles rely on Django cache. In-process LocMem is **not** shared between workers.
+`DEBUG=false` (the image default) will not start without `REDIS_URL`. Redis is the shared cache and the broker for `retry_webhooks` (every minute) and `purge_expired_data` (hourly, minute 17). The entrypoint exits 1 with `REDIS_URL is required when DEBUG is false`, and `manage.py check --deploy` reports `authapi.E004`. `SCHEDULER_ENABLED=false` does not remove that requirement.
 
 1. Add a **Redis** service in Coolify (or run Redis on the VPS).
 2. On the storage-service container, set **`REDIS_URL`** to the Redis connection URL, for example:
    - Same Coolify project, internal hostname: `redis://redis:6379/0`
    - Managed Redis with password: `redis://:password@host:6379/0`
-3. Redeploy storage-service. `manage.py check --deploy` warns (`authapi.W001`) if production still uses LocMem with multiple workers.
+3. Redeploy storage-service. Leave `SCHEDULER_ENABLED` unset (default `true`) so the same container runs the jobs. To run them in a second container, set `SCHEDULER_ENABLED=false` on the web service and start the same image with command `worker`.
 
-Local dev and single-worker installs can leave `REDIS_URL` unset.
+Local development (`DEBUG=true`) can leave `REDIS_URL` unset. The web app starts, logs a warning, and does not run the jobs.
 
 With S3:
 

@@ -1,11 +1,41 @@
+import argparse
+
 from django.core.management.base import BaseCommand
 from django.db import connection
 
 from apps.actions.delivery import retry_pending_webhooks
+from apps.actions.scheduled_jobs import TRIGGER_COMMAND, TRIGGERS, run_recorded
+
+JOB = 'retry_webhooks'
+
+
+def run_counts(stats: dict) -> dict[str, int]:
+    """Run summary stored on ``ScheduledJobRun.counts``."""
+
+    def n(key: str) -> int:
+        return int(stats.get(key) or 0)
+
+    email_attempted = n('email_processed')
+    email_succeeded = n('email_delivered')
+    email_failed = n('email_retried')
+    email_given_up = n('email_dead')
+    return {
+        'webhook_deliveries_attempted': n('processed') - email_attempted,
+        'webhook_deliveries_succeeded': n('delivered') - email_succeeded,
+        'webhook_deliveries_failed': n('retried') - email_failed,
+        'webhook_deliveries_given_up': n('dead') - email_given_up,
+        'email_events_attempted': email_attempted,
+        'email_events_succeeded': email_succeeded,
+        'email_events_failed': email_failed,
+        'email_events_given_up': email_given_up,
+    }
 
 
 class Command(BaseCommand):
-    help = 'Retry pending or failed webhook outbox rows (for cron, typically every minute).'
+    help = (
+        'Retry pending or failed webhook and email-service outbox rows '
+        '(every minute when the in-container scheduler is running).'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -29,8 +59,10 @@ class Command(BaseCommand):
         parser.add_argument(
             '--dry-run',
             action='store_true',
-            help='Claim rows but do not perform HTTP delivery.',
+            help='Claim rows but do not perform HTTP delivery (not recorded as a run).',
         )
+        # Set to "celery" by the Celery task; external runs keep the default.
+        parser.add_argument('--trigger', choices=TRIGGERS, default=TRIGGER_COMMAND, help=argparse.SUPPRESS)
 
     def handle(self, *args, **options):
         batch_size = max(1, int(options['batch_size']))
@@ -38,13 +70,24 @@ class Command(BaseCommand):
         concurrency = max(1, int(options['concurrency']))
         dry_run = bool(options['dry_run'])
 
-        stats = retry_pending_webhooks(
-            batch_size=batch_size,
-            max_seconds=max_seconds,
-            concurrency=concurrency,
-            dry_run=dry_run,
-        )
-        connection.close()
+        def work(run_id):
+            stats = retry_pending_webhooks(
+                batch_size=batch_size,
+                max_seconds=max_seconds,
+                concurrency=concurrency,
+                dry_run=dry_run,
+                scheduled_job_run_id=run_id,
+            )
+            return stats, run_counts(stats)
+
+        run_id = None
+        try:
+            if dry_run:
+                stats, _counts = work(None)
+            else:
+                stats, run_id = run_recorded(JOB, options.get('trigger') or TRIGGER_COMMAND, work)
+        finally:
+            connection.close()
         self.stdout.write(
             self.style.SUCCESS(
                 'retry_webhooks: '
@@ -52,5 +95,6 @@ class Command(BaseCommand):
                 f"delivered={stats['delivered']} "
                 f"retried={stats['retried']} "
                 f"dead={stats['dead']}"
+                + (f' run_id={run_id}' if run_id else '')
             )
         )

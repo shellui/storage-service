@@ -1,230 +1,171 @@
+---
+description: Receive storage webhooks in n8n, verify the signature, and handle retries.
+---
+
 # Using Shellui webhooks with n8n
 
-Shellui storage-service can POST signed JSON to an **n8n Webhook** node when storage events happen. This guide matches identity-service and hosting-service Shellui Actions behavior so you can reuse the same n8n workflow patterns.
+Shellui storage can POST signed JSON to an n8n **Webhook** node when a storage event fires. The signing format matches identity-service and hosting-service Shellui Actions.
 
----
+Webhook rules do not send mail. Mail is a separate forward to email-service, described in [Email notifications](email.md), and it uses the same `retry_webhooks` command.
 
-## Before you start
+## Checklist
 
-1. Create a Shellui Actions webhook rule in the Shellui admin app (or `POST /api/v1/actions/rules` on storage-service).
-2. Copy the **production** Webhook URL from n8n when the workflow is **active**.
-3. Set the rule signing secret to the value n8n shows (or a `whsec_…` secret you generate). Plain text and `whsec_<base64>` both work.
-4. Optional: set **Authorization** on the rule if the Webhook node uses Header Auth or Basic Auth.
+1. Add a **Webhook** node (POST). Set **Respond** to **Immediately** so Shellui gets a 2xx before the workflow finishes.
+2. Copy the **Production URL**, or the **Test URL** while you are building. Activate the workflow before you use the production URL.
+3. In Shellui admin, create a Shellui Actions rule: event type, webhook URL, and signing secret (`whsec_…` or plain text).
+4. Optional: set **Authorization** on the rule when the node uses Header Auth or Basic Auth.
+5. Verify the signature on the raw body. Dedupe on `webhook-id`. That id stays the same across retries.
+6. Use **Send test event** in admin while n8n is on **Listen for test event**.
 
-Default HTTP timeout from Shellui is **5 seconds** (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`). In the Webhook node, set **Respond** to **Immediately** so n8n answers before your workflow finishes.
+The default timeout is 5s (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`). Respond immediately in n8n so the first attempt fits in that budget.
 
----
+A WebDAV sync can emit many `storage.object.uploaded` events in one burst. Delivery is at-least-once and not ordered. Dedupe on `webhook-id` so a retry does not run the rest of the workflow twice. The first attempt already left the API thread. Later attempts come from `retry_webhooks`. See [Scheduled jobs](maintenance-jobs.md).
 
-## n8n Webhook node
+## Webhook node setup
 
 | Setting | Value |
-| ------- | ----- |
+| --- | --- |
 | HTTP Method | POST |
-| Path | Your choice (production URL includes the path) |
-| Authentication | None (signature is enough) or Header Auth / Basic Auth matching the rule **Authorization** field |
+| Path | Default or custom |
 | Respond | **Immediately** |
+| Authentication | None on the node if you verify HMAC in a Code node. Or use **Header Auth** / **Basic Auth** and paste the same value into the rule **Authorization** field |
 
-**Production vs test URL:** Shellui always POSTs to the URL saved on the rule. Use the production URL when the workflow is active. n8n returns **404** when the workflow is inactive or you use **Listen for test event** without listening; Shellui **retries** 404 (see retries below).
+n8n shows a test URL while the editor listens once. **Send test event** works with that URL when n8n is listening. For live storage events, activate the workflow and use the production URL.
 
----
+An inactive workflow, or a test URL that is not listening, returns HTTP 404. Shellui treats 404 as retryable, the same as an offline endpoint. Activate the workflow or fix the URL, then use the delivery log and **Requeue**.
 
-## Delivery semantics (storage bursts)
+## Signing secret format
 
-- **At-least-once:** Dedupe on header `webhook-id` (same as envelope `id`).
-- **No ordering guarantee:** WebDAV syncs can emit many `storage.object.uploaded` events in a short window.
-- **Bounded dispatch:** Post-commit delivery uses a small thread pool (`ACTIONS_WEBHOOK_DISPATCH_WORKERS`, default 4). Retries use `retry_webhooks` with `--batch-size`, `--max-seconds`, and `--concurrency` limits.
-- **Same envelope id on retries:** `webhook-id` stays stable; `X-Shellui-Delivery-Attempt` increments.
+Shellui accepts two secret forms:
 
----
+- **Standard Webhooks:** `whsec_` plus base64-encoded random bytes. Use 32 random bytes. Shellui decodes the suffix and uses those bytes as the HMAC key.
+- **Plain text:** any string. The UTF-8 bytes are the HMAC key.
 
-## HTTP headers
+Generate a compatible secret in the storage-service environment:
 
-| Header | Meaning |
-| ------ | ------- |
-| `Content-Type` | `application/json; charset=utf-8` |
-| `webhook-id` | Event id (stable across retries) |
-| `webhook-timestamp` | Unix seconds when signed |
-| `webhook-signature` | `v1,<base64>` HMAC-SHA256 |
-| `X-Shellui-Event` | Event type (e.g. `storage.object.uploaded`) |
-| `X-Shellui-Delivery-Attempt` | Attempt number (1 on first try) |
-
-Verify the **raw request body bytes**, not a pretty-printed re-encoding.
-
----
-
-## Retry behavior (n8n-friendly)
-
-| HTTP result | Shellui behavior |
-| ----------- | ---------------- |
-| 2xx | Delivered |
-| **404**, 408, 409, 425, 429, other retryable 4xx, 5xx, timeouts, connection errors | Failed, scheduled retry (backoff 30s × 2^(n−1), max 1h, up to 8 attempts) |
-| **400**, **401**, **403**, **405**, **410**, **413**, **422** | **Dead** (no retry) |
-| 429 / 503 with `Retry-After` | Next attempt respects `Retry-After` (seconds or HTTP date), capped at 1h |
-
----
-
-## Reference verifier (Node.js)
-
-The repo ships a small CLI that matches Python signing:
-
-```bash
-node docs/examples/verify-shellui-webhook.mjs "$SECRET" /path/to/raw-body.bin
+```python
+from apps.actions.webhook_signing import generate_webhook_signing_secret
+print(generate_webhook_signing_secret())
 ```
 
-Set `WEBHOOK_ID`, `WEBHOOK_TIMESTAMP`, and `WEBHOOK_SIGNATURE` in the environment to match the request headers. CI runs this via `apps/actions/tests/test_webhook_node_verifier.py`.
+Shellui generates a `whsec_` secret when you create a rule without one. The create and rotate-secret responses return the full `secret` once. Later reads expose `has_secret` and `secret_hint` (the last four characters) only.
 
----
+The reference verifier is [verify-shellui-webhook.mjs](examples/verify-shellui-webhook.mjs). Run it with Node.js. Store the same secret in n8n and on the Shellui Actions rule.
 
-## Verify signature in n8n (Code node)
+## Request headers
 
-Add a **Code** node after the Webhook node. Mode: **Run Once for All Items**. Language: **JavaScript**.
+| Header | Meaning |
+| --- | --- |
+| `Content-Type` | `application/json; charset=utf-8` |
+| `webhook-id` | Same as envelope `id`. Stable across retries |
+| `webhook-timestamp` | Unix seconds when the request was signed |
+| `webhook-signature` | `v1,` plus base64 HMAC-SHA256 |
+| `X-Shellui-Event` | Event type, for example `storage.object.uploaded` |
+| `X-Shellui-Delivery-Attempt` | Attempt number. `1` on the first try |
+| `Authorization` | Optional. Copied from the rule |
+
+The body is compact JSON with sorted keys, UTF-8, and non-ASCII characters left as characters. A path such as `docs/résumé.pdf` stays unescaped. Verifiers must use the raw request body bytes.
+
+Signed content is `{webhook-id}.{webhook-timestamp}.{raw body}`.
+
+## Verify the signature in a Code node
+
+Add a **Code** node directly after the Webhook node. Mode: **Run Once for All Items**. Language: **JavaScript**.
+
+The node reads `SHELLUI_WEBHOOK_SECRET` from the n8n environment. It rejects a missing header, a timestamp older than 300s, and a signature that does not match. Configure the Webhook node to pass the raw body as binary when your n8n version can. Otherwise the Code node must see the same bytes Shellui signed.
 
 ```javascript
 const crypto = require('crypto');
-
-const secret = $env.SHELLUI_WEBHOOK_SECRET; // whsec_… or plain string
-const rawBody = $json.body ?? JSON.stringify($json);
-const bodyBuffer = Buffer.isBuffer(rawBody)
-  ? rawBody
-  : Buffer.from(String(rawBody), 'utf8');
-
-const webhookId = $json.headers['webhook-id'];
-const timestamp = $json.headers['webhook-timestamp'];
-const signature = ($json.headers['webhook-signature'] || '').split(',')[1];
-
-const ts = parseInt(timestamp, 10);
-if (!Number.isFinite(ts) || Math.abs(Math.floor(Date.now() / 1000) - ts) > 300) {
-  throw new Error('Webhook timestamp outside 5 minute window');
-}
-
-function hmacKey(secret) {
-  if (secret.startsWith('whsec_')) {
-    return Buffer.from(secret.slice(6), 'base64');
-  }
-  return Buffer.from(secret, 'utf8');
-}
-
-const signed = `${webhookId}.${timestamp}.`;
-const expected = crypto
-  .createHmac('sha256', hmacKey(secret))
-  .update(Buffer.concat([Buffer.from(signed, 'utf8'), bodyBuffer]))
-  .digest('base64');
-
-if (expected !== signature) {
-  throw new Error('Invalid webhook signature');
-}
-
-// Dedupe: store webhookId in n8n static data or an external store
-return $input.all();
+const MAX_AGE_SECONDS = 300;
+const secret = $env.SHELLUI_WEBHOOK_SECRET;
+const item = $input.first();
+const headers = item.json.headers || {};
+const msgId = headers['webhook-id'];
+const msgTs = headers['webhook-timestamp'];
+const msgSig = String(headers['webhook-signature'] || '');
 ```
 
-Configure the Webhook node to pass **Raw Body** when your n8n version supports it so the Code node sees exact bytes.
-
----
-
-## Verify signature in Node.js (plain crypto)
+Paste the next lines into the same Code node. They turn a `whsec_` secret into key bytes, then compare the digest. `body` must be the raw payload, not `JSON.stringify` of a parsed object:
 
 ```javascript
-import crypto from 'node:crypto';
-
-export function verifyShelluiWebhook({
-  secret,
-  rawBody,
-  webhookId,
-  webhookTimestamp,
-  webhookSignature,
-  maxSkewSeconds = 300,
-}) {
-  const ts = Number(webhookTimestamp);
-  const now = Math.floor(Date.now() / 1000);
-  if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewSeconds) {
-    return false;
+function signingKey(value) {
+  if (value.startsWith('whsec_')) {
+    return Buffer.from(value.slice('whsec_'.length), 'base64');
   }
-  const sig = String(webhookSignature || '').replace(/^v1,/, '');
-  const key = secret.startsWith('whsec_')
-    ? Buffer.from(secret.slice(6), 'base64')
-    : Buffer.from(secret, 'utf8');
-  const prefix = Buffer.from(`${webhookId}.${webhookTimestamp}.`, 'utf8');
-  const body = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody, 'utf8');
-  const expected = crypto.createHmac('sha256', key).update(Buffer.concat([prefix, body])).digest('base64');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+  return Buffer.from(value, 'utf8');
 }
+const body = item.binary?.data
+  ? Buffer.from(item.binary.data.data, 'base64')
+  : Buffer.from(item.json.body ?? '', 'utf8');
+const now = Math.floor(Date.now() / 1000);
+const age = Math.abs(now - parseInt(msgTs, 10));
+if (!msgId || !msgTs || !msgSig || Number.isNaN(age) || age > MAX_AGE_SECONDS) {
+  throw new Error('Missing or expired webhook signature headers');
+}
+const signed = `${msgId}.${msgTs}.${body.toString('utf8')}`;
+const digest = crypto.createHmac('sha256', signingKey(secret))
+  .update(signed, 'utf8')
+  .digest('base64');
+const provided = msgSig.split(' ')[0];
+if (provided !== `v1,${digest}`) {
+  throw new Error('Invalid webhook signature');
+}
+return [{
+  json: {verified: true, event: headers['x-shellui-event'], webhook_id: msgId},
+}];
 ```
 
----
+Store `webhook_id` so a retry does not run the rest of the workflow twice. [verify-shellui-webhook.mjs](examples/verify-shellui-webhook.mjs) compares the digest in constant time. Prefer that file when you are not inside n8n.
+
+## Retry behavior
+
+| HTTP result | Outbox |
+| --- | --- |
+| 2xx | Delivered |
+| 404, 408, 409, 425, 429, and other 4xx not listed below | Retry with backoff |
+| 400, 401, 403, 405, 410, 413, 422 | Dead. Fix the rule or the workflow, then requeue |
+| 5xx, timeouts, connection errors | Retry |
+| 429 or 503 with `Retry-After` | Next attempt respects the header, max 1 hour |
+
+Backoff is `30s * 2^(n-1)`, capped at 1 hour, up to 8 attempts. The container runs `retry_webhooks` every minute. See [Scheduled jobs](maintenance-jobs.md).
 
 ## Self-hosted n8n on a private network
 
-Shellui blocks private IP webhook targets by default (SSRF protection). Options:
+Shellui blocks private and localhost webhook URLs (SSRF protection). For n8n on a private address or a Docker DNS name:
 
-- Deploy n8n on a public HTTPS URL, or
-- Set `ACTIONS_WEBHOOK_ALLOW_PRIVATE=true` for the whole deployment, or
-- Staff can enable **allow private URLs** on a single rule in the admin API.
+- Staff can enable **allow private URLs** on that rule, or
+- Set `ACTIONS_WEBHOOK_ALLOW_PRIVATE=true`
 
----
+Unset, that variable stays false even when `DEBUG=true`. A local storage-service does not allow private webhook URLs until you set the variable or the rule flag. Leave the variable off in production unless you accept the risk of the service calling internal addresses.
 
-## Admin workflow
+## Example envelopes
 
-1. **Send test event** (`POST /api/v1/actions/rules/<id>/send-test`): posts a sample envelope (no outbox row). In n8n, use **Listen for test event** on the Webhook node first.
-2. **Delivery log** (`GET /api/v1/actions/deliveries`): inspect attempts and errors (404 while inactive is normal).
-3. **Requeue** (`POST /api/v1/actions/deliveries/<uuid>/requeue`): reset a dead or failed row to pending for the next `retry_webhooks` run.
-
----
-
-## Example storage envelopes
-
-**`storage.object.uploaded`**
+`storage.object.uploaded`:
 
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "type": "storage.object.uploaded",
-  "time": "2026-09-29T08:00:00+00:00",
-  "company": { "id": 10, "slug": "", "name": "" },
+  "time": "2026-10-06T08:00:00+00:00",
+  "company": {"id": 10, "slug": "", "name": ""},
   "data": {
-    "object_id": "550e8400-e29b-41d4-a716-446655440001",
     "bucket_name": "company",
-    "bucket_kind": "company",
     "path": "docs/résumé.pdf",
     "size": 4096,
     "mime_type": "application/pdf",
-    "version": 1,
     "created": true
   }
 }
 ```
 
-**`storage.object.deleted`**
+`storage.object.deleted` uses the same envelope shape with `type` set to `storage.object.deleted` and `data` limited to `bucket_name`, `path`, `size`, and `mime_type`. `storage.bucket.created` sends `bucket_id`, `bucket_name`, and `bucket_kind`.
 
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440000",
-  "type": "storage.object.deleted",
-  "time": "2026-09-29T08:01:00+00:00",
-  "company": { "id": 10, "slug": "", "name": "" },
-  "data": {
-    "bucket_name": "company",
-    "path": "docs/résumé.pdf",
-    "size": 4096,
-    "mime_type": "application/pdf"
-  }
-}
-```
+The full catalog is in [Webhooks](actions.md).
 
-**`storage.bucket.created`**
+## What to do in admin
 
-```json
-{
-  "id": "770e8400-e29b-41d4-a716-446655440000",
-  "type": "storage.bucket.created",
-  "time": "2026-09-29T08:00:00+00:00",
-  "company": { "id": 10, "slug": "", "name": "" },
-  "data": {
-    "bucket_id": "880e8400-e29b-41d4-a716-446655440001",
-    "bucket_name": "company",
-    "bucket_kind": "company"
-  }
-}
-```
+1. **Send test event** on a rule while the n8n test URL is listening.
+2. Open **Deliveries** for status, attempts, and errors.
+3. **Requeue** a dead or failed row after n8n is fixed (workflow active, URL correct, auth aligned).
 
-See also [actions.md](actions.md) for rule API and cron setup.
+API paths and the retry command are in [Webhooks](actions.md).

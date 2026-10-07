@@ -18,6 +18,37 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.5.0] - 2026-10-07
+
+### ✨ Feature
+
+- Scheduled jobs: the image runs `retry_webhooks` every minute and `purge_expired_data` hourly at minute 17, with a Redis lock so one run proceeds across replicas.
+- Staff read job health at `GET /api/v1/scheduled-jobs`. Scheduler series stay on `GET /storage/v1/metrics/all`.
+- With `EMAIL_SERVICE_API_KEY` set, storage events are posted to email-service, and every event is stored for `GET /api/v1/actions/event-log`.
+
+### 🚨 Changed
+
+- Production (`DEBUG` false) requires `REDIS_URL`. The container exits if it is missing.
+
+### 📚 Documentation
+
+- The handbook covers setup, buckets, access, scheduled jobs, email, and the API. The in-repo docs site is removed.
+
+### 🐛 Bug Fixes
+
+- Django admin deletes remove stored blobs and quota usage, and emit `storage.object.deleted`. `storage.bucket.created` includes the acting user.
+- `retry_webhooks` locks the outbox row on Postgres and claims an email delivery that has no action rule.
+
+### 🔒 Security
+
+- Private email-service URLs need `EMAIL_SERVICE_ALLOW_PRIVATE`. Webhook and email bodies omit tokens, sign-in links, signed URLs, and secret-shaped fields.
+- Access logs omit query strings, Referer, and share-link tokens. Sentry drops those, authorization headers, and stack locals.
+
+### ⬆️ Upgrade notes
+
+- Apply migrations through `0004_email_service_outbox`, set `REDIS_URL`, and drop any external cron for these two jobs (or set `SCHEDULER_ENABLED=false`).
+- Set `EMAIL_SERVICE_ALLOW_PRIVATE=true` when `EMAIL_SERVICE_URL` is an internal or loopback address.
+
 ## [0.4.0] - 2026-09-29
 
 ### ✨ Feature

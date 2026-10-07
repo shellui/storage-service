@@ -50,3 +50,49 @@ register_event(
         ),
     )
 )
+
+# Platform events: one per finished scheduled job run. No company, staff only, never sent
+# as a webhook. See docs/maintenance-jobs.md.
+_SCHEDULED_JOB = (
+    EventFieldDoc('run_id', 'ScheduledJobRun id', 1234),
+    EventFieldDoc('job', 'Job name: retry_webhooks or purge_expired_data', 'retry_webhooks'),
+    EventFieldDoc('trigger', 'celery (in-container beat) or command (external scheduler)', 'celery'),
+    EventFieldDoc('duration_ms', 'Run duration in milliseconds', 412),
+    EventFieldDoc(
+        'counts',
+        'Items processed, per kind',
+        {
+            'webhook_deliveries_attempted': 3,
+            'webhook_deliveries_succeeded': 3,
+            'email_events_attempted': 1,
+            'email_events_succeeded': 1,
+        },
+    ),
+    EventFieldDoc('host', 'Host name and process id that ran the job', 'storage-7f9c:41'),
+)
+
+register_event(
+    DomainEventType(
+        id='storage.scheduled_job.succeeded',
+        label='Scheduled job succeeded',
+        description='A scheduled job run finished without error. Platform event, staff only.',
+        payload_fields=_SCHEDULED_JOB,
+        webhook=False,
+        staff_only=True,
+    )
+)
+
+register_event(
+    DomainEventType(
+        id='storage.scheduled_job.failed',
+        label='Scheduled job failed',
+        description='A scheduled job run raised an error. Platform event, staff only.',
+        payload_fields=_SCHEDULED_JOB
+        + (
+            EventFieldDoc('error_key', 'Stable error key (database_error, redis_error, …)', 'database_error'),
+            EventFieldDoc('error_class', 'Exception class name', 'OperationalError'),
+        ),
+        webhook=False,
+        staff_only=True,
+    )
+)

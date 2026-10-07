@@ -1,7 +1,11 @@
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
-from apps.authapi.checks import shared_cache_recommended_for_multi_worker
+from apps.authapi.checks import (
+    REDIS_URL_REQUIRED_MESSAGE,
+    redis_required_in_production,
+    shared_cache_recommended_for_multi_worker,
+)
 from config.settings import _caches_config
 
 
@@ -64,3 +68,30 @@ class SharedCacheDeployCheckTests(SimpleTestCase):
             else:
                 os.environ['GUNICORN_WORKERS'] = prev
         self.assertEqual(warnings, [])
+
+
+class RedisRequiredDeployCheckTests(SimpleTestCase):
+    @override_settings(DEBUG=False, REDIS_URL='')
+    def test_errors_without_redis_in_production(self):
+        errors = redis_required_in_production(None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, 'authapi.E004')
+        self.assertEqual(errors[0].msg, REDIS_URL_REQUIRED_MESSAGE)
+
+    @override_settings(DEBUG=False, REDIS_URL='redis://redis:6379/0')
+    def test_silent_when_redis_set(self):
+        self.assertEqual(redis_required_in_production(None), [])
+
+    @override_settings(DEBUG=True, REDIS_URL='')
+    def test_silent_in_debug(self):
+        self.assertEqual(redis_required_in_production(None), [])
+
+    @override_settings(
+        DEBUG=False,
+        REDIS_URL='   ',
+        SCHEDULER_ENABLED=False,
+        CELERY_BROKER_URL='redis://broker:6379/1',
+    )
+    def test_still_required_when_scheduler_off_or_only_the_broker_is_set(self):
+        errors = redis_required_in_production(None)
+        self.assertEqual([e.id for e in errors], ['authapi.E004'])

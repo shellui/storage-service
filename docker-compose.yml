@@ -13,7 +13,14 @@ services:
       ALLOWED_HOSTS: "${ALLOWED_HOSTS:-}"
       CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-}"
       POSTGRES_DATABASE_URL: "${POSTGRES_DATABASE_URL:-}"
-      REDIS_URL: "${REDIS_URL:-}"
+      # Shared cache and broker for the scheduled jobs (Celery worker + beat in this container).
+      # Required when DEBUG=false: the container refuses to start without it.
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      CELERY_BROKER_URL: "${CELERY_BROKER_URL:-}"
+      # Set false when the storage-worker service below runs the jobs instead (REDIS_URL is
+      # still required: the cache uses it).
+      SCHEDULER_ENABLED: "${SCHEDULER_ENABLED:-true}"
+      CELERY_WORKER_CONCURRENCY: "${CELERY_WORKER_CONCURRENCY:-2}"
       SQLITE_PATH: "/app/data/db.sqlite3"
       MEDIA_ROOT: "/app/data/media"
       STORAGE_BACKEND: "${STORAGE_BACKEND:-filesystem}"
@@ -31,9 +38,37 @@ services:
       SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-}"
       SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
       SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0}"
+      EMAIL_SERVICE_URL: "${EMAIL_SERVICE_URL:-http://host.docker.internal:8003}"
+      EMAIL_SERVICE_API_KEY: "${EMAIL_SERVICE_API_KEY:-}"
+      EMAIL_SERVICE_ALLOW_PRIVATE: "${EMAIL_SERVICE_ALLOW_PRIVATE:-false}"
     volumes:
       - storage-service-data:/app/data
+    depends_on:
+      - redis
     restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    container_name: storage-service-redis
+    restart: unless-stopped
+
+  # Optional: run the scheduled jobs in their own container. Set SCHEDULER_ENABLED=false
+  # on storage-service, then uncomment. Same image and environment, command "worker".
+  # storage-worker:
+  #   image: shellui/storage-service:local
+  #   command: worker
+  #   environment:
+  #     SECRET_KEY: "${SECRET_KEY}"
+  #     DEBUG: "${DEBUG:-true}"
+  #     # Required when DEBUG=false, like on storage-service.
+  #     REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+  #     SQLITE_PATH: "/app/data/db.sqlite3"
+  #     MEDIA_ROOT: "/app/data/media"
+  #   volumes:
+  #     - storage-service-data:/app/data
+  #   depends_on:
+  #     - redis
+  #   restart: unless-stopped
 
 volumes:
   storage-service-data:

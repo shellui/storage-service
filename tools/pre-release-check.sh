@@ -190,8 +190,19 @@ docker run --rm --entrypoint sh "${IMAGE_TAG}" \
 # ---------------------------------------------------------------------------
 log "3/3 Image smoke test (host port ${HOST_PORT})"
 
+NETWORK_NAME="${PRE_RELEASE_NETWORK_NAME:-${CONTAINER_NAME}-net}"
+REDIS_CONTAINER_NAME="${PRE_RELEASE_REDIS_CONTAINER_NAME:-${CONTAINER_NAME}-redis}"
+
+dump_logs() {
+  printf '\n--- docker logs (%s) ---\n' "$1" >&2
+  docker logs "$1" >&2 2>&1 || true
+  printf '%s\n' '--- end docker logs ---' >&2
+}
+
 cleanup() {
   docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+  docker rm -f "${REDIS_CONTAINER_NAME}" >/dev/null 2>&1 || true
+  docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -201,8 +212,31 @@ export IDENTITY_JWKS="${IDENTITY_JWKS:-$(make_smoke_jwks)}"
 export IDENTITY_ISSUER="${IDENTITY_ISSUER:-https://pre-release.test}"
 export IDENTITY_AUDIENCE="${IDENTITY_AUDIENCE:-shellui}"
 
-docker run --rm -d --name "${CONTAINER_NAME}" -p "${HOST_PORT}:8000" \
+# DEBUG is false in the image. The entrypoint exits before migrations without REDIS_URL.
+log 'Starting throwaway Redis'
+docker network create "${NETWORK_NAME}" >/dev/null
+docker run -d --name "${REDIS_CONTAINER_NAME}" --network "${NETWORK_NAME}" \
+  "${PRE_RELEASE_REDIS_IMAGE:-redis:8-alpine}" >/dev/null
+
+redis_ready=0
+for _ in $(seq 1 30); do
+  if docker exec "${REDIS_CONTAINER_NAME}" redis-cli ping 2>/dev/null | grep -q PONG; then
+    redis_ready=1
+    break
+  fi
+  sleep 1
+done
+if [[ "${redis_ready}" -ne 1 ]]; then
+  dump_logs "${REDIS_CONTAINER_NAME}"
+  fail 'Redis did not become ready'
+fi
+
+export REDIS_URL="redis://${REDIS_CONTAINER_NAME}:6379/0"
+
+# No --rm: if the app exits, docker logs still works until the trap removes it.
+docker run -d --name "${CONTAINER_NAME}" --network "${NETWORK_NAME}" -p "${HOST_PORT}:8000" \
   -e SECRET_KEY \
+  -e REDIS_URL \
   -e IDENTITY_JWKS \
   -e IDENTITY_ISSUER \
   -e IDENTITY_AUDIENCE \
@@ -226,9 +260,7 @@ done
 if [[ "${ready}" -ne 1 ]]; then
   printf 'ERROR: service did not become ready on %s (last body: %s)\n' \
     "${HEALTH_PATH}" "${body:-empty}" >&2
-  printf '\n--- docker logs (%s) ---\n' "${CONTAINER_NAME}" >&2
-  docker logs "${CONTAINER_NAME}" 2>&1 >&2 || true
-  printf '--- end docker logs ---\n' >&2
+  dump_logs "${CONTAINER_NAME}"
   exit 1
 fi
 

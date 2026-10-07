@@ -77,9 +77,14 @@ def resolve_webhook_endpoint(url: str, *, allow_private: bool = False) -> Resolv
     _blocked_hostname(hostname, allow_private=allow_private)
     try:
         literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        # SSRFError is a ValueError. Keep it out of the DNS branch below.
         _validate_ip(literal, allow_private=allow_private)
         connect_host = hostname
-    except ValueError:
+        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+    else:
         port = parsed.port or (443 if parsed.scheme == 'https' else 80)
         try:
             infos = socket.getaddrinfo(
@@ -104,8 +109,6 @@ def resolve_webhook_endpoint(url: str, *, allow_private: bool = False) -> Resolv
             break
         if connect_host is None:
             raise SSRFError('Webhook hostname resolves only to private or non-public addresses.')
-    else:
-        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
 
     path = parsed.path or '/'
     if parsed.query:
