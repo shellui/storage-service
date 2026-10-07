@@ -41,7 +41,12 @@ class SentryCeleryIntegrationTests(SimpleTestCase):
         # Settings run sentry_sdk.init at import, so check in a fresh interpreter.
         code = (
             'import django, sentry_sdk; django.setup(); '
-            'print(sorted(sentry_sdk.get_client().integrations))'
+            'client = sentry_sdk.get_client(); '
+            'print(sorted(client.integrations)); '
+            'print("locals", client.options.get("include_local_variables")); '
+            'print("body", client.options.get("max_request_body_size")); '
+            'print("before", client.options.get("before_send") is not None); '
+            'print("pii", client.options.get("send_default_pii"))'
         )
         env = dict(os.environ)
         env.update(
@@ -65,3 +70,7 @@ class SentryCeleryIntegrationTests(SimpleTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("'celery'", result.stdout)
         self.assertIn("'django'", result.stdout)
+        self.assertIn('locals False', result.stdout)
+        self.assertIn('body never', result.stdout)
+        self.assertIn('before True', result.stdout)
+        self.assertIn('pii False', result.stdout)

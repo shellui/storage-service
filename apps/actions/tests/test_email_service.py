@@ -5,7 +5,6 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import jwt
-import requests
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -17,10 +16,12 @@ from apps.actions.delivery import deliver_outbox_row
 from apps.actions.email_service import (
     RedactEmailServiceApiKeyFilter,
     RedactEmailServiceApiKeyFormatter,
+    deliver_email_event,
     email_failure_is_permanent,
 )
 from apps.actions.emit import emit_event
-from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
+from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt, EventLog
+from apps.actions.webhook_transport import WebhookPostResult
 
 _API_KEY = 'esk_test_storage_email_key'  # gitleaks:allow
 
@@ -31,21 +32,18 @@ _EMAIL_SETTINGS = {
 }
 
 
-def _response(status, payload=None, headers=None):
-    class _Response:
-        def __init__(self):
-            self.status_code = status
-            self._payload = {} if payload is None else payload
-            self.headers = headers or {}
-            self.text = json.dumps(self._payload)
+def _result(status, payload=None, retry_after=None):
+    if payload is None:
+        text = ''
+    elif isinstance(payload, str):
+        text = payload
+    else:
+        text = json.dumps(payload)
+    return WebhookPostResult(status=status, excerpt=text, retry_after_seconds=retry_after)
 
-        def json(self):
-            return self._payload
 
-        def close(self):
-            return None
-
-    return _Response()
+def _posted_body(mock_post):
+    return json.loads(mock_post.call_args.kwargs['body'])
 
 
 def _owner_token(*, company_id: int = 42) -> str:
@@ -84,9 +82,9 @@ def _emit(**kwargs):
 
 @override_settings(**_EMAIL_SETTINGS)
 class EmailEventForwardTests(TestCase):
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_forwards_event_with_contract_shape(self, mock_post):
-        mock_post.return_value = _response(202, {'rule_enabled': False, 'skipped_reason': 'rule_disabled', 'messages': []})
+        mock_post.return_value = _result(202, {'rule_enabled': False, 'skipped_reason': 'rule_disabled', 'messages': []})
         with self.captureOnCommitCallbacks(execute=True):
             rows = _emit()
         self.assertEqual(rows, [])
@@ -97,10 +95,10 @@ class EmailEventForwardTests(TestCase):
         mock_post.assert_called_once()
         _args, kwargs = mock_post.call_args
         self.assertEqual(_args[0], 'https://email.test/api/v1/events')
-        self.assertFalse(kwargs['allow_redirects'])
+        self.assertFalse(kwargs['allow_private'])
         self.assertEqual(kwargs['headers']['Authorization'], f'Bearer {_API_KEY}')
         self.assertEqual(kwargs['headers']['Content-Type'], 'application/json; charset=utf-8')
-        body = json.loads(kwargs['data'])
+        body = _posted_body(mock_post)
         self.assertEqual(
             body,
             {
@@ -121,9 +119,9 @@ class EmailEventForwardTests(TestCase):
         )
         self.assertEqual(row.envelope['idempotency_key'], str(row.pk))
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_missing_actor_sends_empty_recipient_hints(self, mock_post):
-        mock_post.return_value = _response(
+        mock_post.return_value = _result(
             202,
             {
                 'idempotent_replay': False,
@@ -138,7 +136,7 @@ class EmailEventForwardTests(TestCase):
                 42,
                 {'bucket_name': 'company', 'bucket_kind': 'company'},
             )
-        body = json.loads(mock_post.call_args.kwargs['data'])
+        body = _posted_body(mock_post)
         self.assertEqual(body['service'], 'storage')
         self.assertEqual(body['event_type'], 'storage.bucket.created')
         self.assertEqual(body['recipients'], [])
@@ -150,20 +148,20 @@ class EmailEventForwardTests(TestCase):
         call_command('retry_webhooks', batch_size=10, max_seconds=5, concurrency=1)
         self.assertEqual(mock_post.call_count, 1)
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_http_waits_until_commit(self, mock_post):
-        mock_post.return_value = _response(202, {})
+        mock_post.return_value = _result(202, {})
         with self.captureOnCommitCallbacks(execute=False):
             _emit()
         mock_post.assert_not_called()
         self.assertEqual(ActionOutbox.objects.count(), 1)
 
     @patch('apps.actions.handlers.webhook.post_webhook_url')
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_webhook_and_email_both_deliver(self, mock_post, mock_webhook):
         from apps.actions.webhook_transport import WebhookPostResult
 
-        mock_post.return_value = _response(202, {'rule_enabled': True, 'messages': []})
+        mock_post.return_value = _result(202, {'rule_enabled': True, 'messages': []})
         mock_webhook.return_value = WebhookPostResult(status=200, excerpt='')
         ActionRule.objects.create(
             company_id=42,
@@ -181,11 +179,11 @@ class EmailEventForwardTests(TestCase):
         mock_post.assert_called_once()
         mock_webhook.assert_called_once()
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_retry_posts_the_same_body(self, mock_post):
         mock_post.side_effect = [
-            _response(500, {'error_code': 'request_failed'}),
-            _response(202, {'rule_enabled': False, 'messages': []}),
+            _result(500, {'error_code': 'request_failed'}),
+            _result(202, {'rule_enabled': False, 'messages': []}),
         ]
         with self.captureOnCommitCallbacks(execute=True):
             _emit()
@@ -198,14 +196,14 @@ class EmailEventForwardTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
         self.assertEqual(mock_post.call_count, 2)
-        first = mock_post.call_args_list[0].kwargs['data']
-        second = mock_post.call_args_list[1].kwargs['data']
+        first = mock_post.call_args_list[0].kwargs['body']
+        second = mock_post.call_args_list[1].kwargs['body']
         self.assertEqual(first, second)
         self.assertEqual(json.loads(first)['idempotency_key'], str(row.pk))
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_lane_paused_and_rate_limit_retry(self, mock_post):
-        mock_post.return_value = _response(409, {'error_code': 'lane_paused'})
+        mock_post.return_value = _result(409, {'error_code': 'lane_paused'})
         with self.captureOnCommitCallbacks(execute=True):
             _emit()
         row = ActionOutbox.objects.get()
@@ -214,15 +212,15 @@ class EmailEventForwardTests(TestCase):
         row.attempt_count = 0
         row.next_attempt_at = None
         row.save()
-        mock_post.return_value = _response(429, {'error_code': 'company_rate_limited'}, headers={'Retry-After': '90'})
+        mock_post.return_value = _result(429, {'error_code': 'company_rate_limited'}, retry_after=90)
         deliver_outbox_row(row.pk)
         row.refresh_from_db()
         self.assertEqual(row.status, ActionOutbox.STATUS_FAILED)
         self.assertGreaterEqual(row.next_attempt_at, timezone.now() + timedelta(seconds=60))
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_client_error_is_dead_and_not_retried(self, mock_post):
-        mock_post.return_value = _response(400, {'error_code': 'validation_failed'})
+        mock_post.return_value = _result(400, {'error_code': 'validation_failed'})
         with self.captureOnCommitCallbacks(execute=True):
             _emit()
         row = ActionOutbox.objects.get()
@@ -232,11 +230,11 @@ class EmailEventForwardTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, ActionOutbox.STATUS_DEAD)
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_404_is_retried_with_the_same_body(self, mock_post):
         mock_post.side_effect = [
-            _response(404, {'error_code': 'not_found'}),
-            _response(202, {'rule_enabled': False, 'skipped_reason': 'rule_disabled', 'messages': []}),
+            _result(404, {'error_code': 'not_found'}),
+            _result(202, {'rule_enabled': False, 'skipped_reason': 'rule_disabled', 'messages': []}),
         ]
         with self.captureOnCommitCallbacks(execute=True):
             _emit()
@@ -249,13 +247,13 @@ class EmailEventForwardTests(TestCase):
         self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
         self.assertEqual(mock_post.call_count, 2)
         self.assertEqual(
-            mock_post.call_args_list[0].kwargs['data'],
-            mock_post.call_args_list[1].kwargs['data'],
+            mock_post.call_args_list[0].kwargs['body'],
+            mock_post.call_args_list[1].kwargs['body'],
         )
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_connection_error_retries_without_logging_api_key(self, mock_post):
-        mock_post.side_effect = requests.ConnectionError(f'connection failed for {_API_KEY}')
+        mock_post.side_effect = OSError(f'connection failed for {_API_KEY}')
         with self.assertLogs('apps.actions.email_service', level='WARNING') as captured:
             with self.captureOnCommitCallbacks(execute=True):
                 _emit()
@@ -303,7 +301,7 @@ class EmailEventForwardTests(TestCase):
 
 class EmailEventUnconfiguredTests(TestCase):
     @override_settings(EMAIL_SERVICE_API_KEY='', EMAIL_SERVICE_URL='https://email.shellui.com')
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_no_key_sends_nothing(self, mock_post):
         with self.captureOnCommitCallbacks(execute=True):
             rows = _emit()
@@ -312,16 +310,16 @@ class EmailEventUnconfiguredTests(TestCase):
         mock_post.assert_not_called()
 
     @override_settings(EMAIL_SERVICE_API_KEY='   ', ACTIONS_WEBHOOK_SYNC_DELIVERY=True)
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_blank_key_sends_nothing(self, mock_post):
         with self.captureOnCommitCallbacks(execute=True):
             _emit()
         mock_post.assert_not_called()
 
     @override_settings(**_EMAIL_SETTINGS)
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_email_rows_are_hidden_from_webhook_delivery_api(self, mock_post):
-        mock_post.return_value = _response(202, {})
+        mock_post.return_value = _result(202, {})
         with self.captureOnCommitCallbacks(execute=True):
             _emit()
         row = ActionOutbox.objects.get()
@@ -348,13 +346,18 @@ class EmailEventUnconfiguredTests(TestCase):
 @override_settings(**_EMAIL_SETTINGS)
 class EmailSecretOmissionTests(TestCase):
     @patch('apps.actions.handlers.webhook.post_webhook_url')
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_email_omits_sign_in_links_and_tokens(self, mock_post, mock_webhook):
         from apps.actions.webhook_transport import WebhookPostResult
 
-        mock_post.return_value = _response(202, {'messages': []})
+        mock_post.return_value = _result(202, {'messages': []})
         mock_webhook.return_value = WebhookPostResult(status=200, excerpt='')
         sign_in = 'https://id.shellui.com/api/v1/magic-link/verify?token=example'
+        signed = (
+            'https://bucket.s3.amazonaws.com/docs/report.pdf'
+            '?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abcdef'
+        )
+        share = 'https://storage.shellui.com/storage/v1/share/link/sekret-token'
         payload = {
             'bucket_name': 'company',
             'path': 'docs/report.pdf',
@@ -362,7 +365,11 @@ class EmailSecretOmissionTests(TestCase):
             'token': 'raw-secret',
             'raw_token': 'raw-secret',
             'access_token': 'jwt-example',
+            'password': 'hunter2',
+            'api_key': 'esk_should_not_leave',
+            'signed_url': signed,
             'note': sign_in,
+            'download': share,
             'meta': {'refresh_token': 'refresh-example', 'path': 'docs/report.pdf'},
         }
         ActionRule.objects.create(
@@ -382,28 +389,40 @@ class EmailSecretOmissionTests(TestCase):
             )
         self.assertEqual(len(rows), 1)
         webhook = ActionOutbox.objects.get(delivery_kind=ActionOutbox.KIND_WEBHOOK)
-        self.assertEqual(webhook.envelope['data']['magic_link_url'], sign_in)
-        self.assertEqual(webhook.envelope['data']['token'], 'raw-secret')
-        self.assertEqual(webhook.envelope['data']['meta']['refresh_token'], 'refresh-example')
-        self.assertEqual(webhook.envelope['actor']['token'], 'actor-token')
+        rendered_webhook = str(webhook.envelope)
         mock_webhook.assert_called_once()
 
-        body = json.loads(mock_post.call_args.kwargs['data'])
+        body = _posted_body(mock_post)
         rendered = json.dumps(body)
         self.assertEqual(body['payload']['bucket_name'], 'company')
         self.assertEqual(body['payload']['path'], 'docs/report.pdf')
         self.assertEqual(body['payload']['company_name'], 'Acme')
         self.assertEqual(body['payload']['meta'], {'path': 'docs/report.pdf'})
         self.assertEqual(body['recipients'], [{'email': 'ada@acme.com', 'user_id': 7}])
-        for secret in (sign_in, 'raw-secret', 'jwt-example', 'refresh-example', 'actor-token', 'token='):
-            self.assertNotIn(secret, rendered)
         posted = mock_webhook.call_args.kwargs['body']
-        self.assertIn(b'magic_link_url', posted)
-        self.assertIn(b'raw-secret', posted)
+        logged = EventLog.objects.get()
+        for secret in (
+            sign_in,
+            signed,
+            share,
+            'sekret-token',
+            'raw-secret',
+            'jwt-example',
+            'refresh-example',
+            'actor-token',
+            'token=',
+            'hunter2',
+            'esk_should_not_leave',
+            'X-Amz-Signature',
+        ):
+            self.assertNotIn(secret, rendered)
+            self.assertNotIn(secret, rendered_webhook)
+            self.assertNotIn(secret.encode(), posted)
+            self.assertNotIn(secret, str(logged.data))
 
-    @patch('apps.actions.email_service.requests.post')
+    @patch('apps.actions.email_service.post_webhook_url')
     def test_staff_only_events_are_not_forwarded(self, mock_post):
-        mock_post.return_value = _response(202, {})
+        mock_post.return_value = _result(202, {})
         with self.captureOnCommitCallbacks(execute=True):
             rows = emit_event(
                 'storage.scheduled_job.succeeded',
@@ -435,3 +454,32 @@ class EmailFailureClassificationTests(TestCase):
         self.assertTrue(email_failure_is_permanent(410, ''))
         self.assertTrue(email_failure_is_permanent(413, ''))
         self.assertTrue(email_failure_is_permanent(422, 'recipient_suppressed'))
+
+
+@override_settings(
+    EMAIL_SERVICE_API_KEY='esk_test_storage_email_key',  # gitleaks:allow
+    ACTIONS_WEBHOOK_TIMEOUT_SECONDS=0.2,
+)
+class EmailServiceSsrfTests(TestCase):
+    def test_private_and_link_local_urls_are_refused(self):
+        for url in (
+            'http://127.0.0.1:9',
+            'http://10.1.2.3',
+            'http://169.254.169.254',
+            'http://[::1]:9',
+        ):
+            with self.subTest(url=url):
+                with override_settings(EMAIL_SERVICE_URL=url, EMAIL_SERVICE_ALLOW_PRIVATE=False):
+                    success, meta = deliver_email_event(
+                        {'event_type': 'storage.object.uploaded', 'company_id': 1}
+                    )
+                self.assertFalse(success)
+                self.assertTrue(meta['permanent'])
+                self.assertIn('Email service URL', meta['error_message'])
+
+    @override_settings(EMAIL_SERVICE_URL='http://127.0.0.1:9', EMAIL_SERVICE_ALLOW_PRIVATE=True)
+    def test_private_url_connects_when_explicitly_allowed(self):
+        success, meta = deliver_email_event({'event_type': 'storage.object.uploaded', 'company_id': 1})
+        self.assertFalse(success)
+        self.assertFalse(meta['permanent'])
+        self.assertIn('failed', meta['error_message'].lower())

@@ -48,9 +48,11 @@ _ONESHOT_STUB = textwrap.dedent(
 )
 
 # Drops the privilege options and runs the command, like the real setpriv.
+# The first line records the invocation so tests can see the uid drop.
 _SETPRIV_STUB = textwrap.dedent(
     '''\
     #!/usr/bin/env bash
+    echo "setpriv $*" >> "${STUB_LOG}"
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
     shift
     exec "$@"
@@ -107,6 +109,24 @@ class DockerEntrypointTests(SimpleTestCase):
     def started(self, name):
         return [line for line in self.calls() if line.startswith(f'{name} ') and line != f'{name} TERM']
 
+    def assert_dropped_privileges(self, command):
+        matches = [
+            line
+            for line in self.calls()
+            if line.startswith('setpriv ')
+            and '--reuid=appuser' in line
+            and '--regid=appuser' in line
+            and command in line
+        ]
+        self.assertTrue(matches, self.calls())
+
+    def assert_access_log_omits_query_and_referer(self):
+        gunicorn = self.started('gunicorn')[0]
+        self.assertIn('%(U)s', gunicorn)
+        self.assertNotIn('%(r)s', gunicorn)
+        self.assertNotIn('%(f)s', gunicorn)
+        self.assertIn('"-"', gunicorn)
+
     def wait_for(self, predicate, timeout=10):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -151,6 +171,9 @@ class DockerEntrypointTests(SimpleTestCase):
         self.assertIn('config.wsgi:application', self.started('gunicorn')[0])
         self.assertIn('--timeout 120', self.started('gunicorn')[0])
         self.assertIn('--workers 2', self.started('gunicorn')[0])
+        self.assert_dropped_privileges('gunicorn')
+        self.assert_dropped_privileges('celery')
+        self.assert_access_log_omits_query_and_referer()
 
     def test_web_exits_when_the_scheduler_dies(self):
         result = self.run_entrypoint(REDIS_URL='redis://redis:6379/0', STUB_CELERY_EXIT='3')
@@ -236,6 +259,7 @@ class DockerEntrypointTests(SimpleTestCase):
         self.assertTrue(self.started('celery'))
         self.assertFalse(self.started('gunicorn'))
         self.assertFalse(self.started('python'), 'worker mode leaves migrations to the web container')
+        self.assert_dropped_privileges('celery')
 
     def test_worker_mode_in_production_without_redis_refuses_to_start(self):
         self.assert_refused_without_redis(self.run_entrypoint('worker', STUB_CELERY_EXIT='0'))
@@ -253,3 +277,4 @@ class DockerEntrypointTests(SimpleTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.started('python'), ['python manage.py purge_expired_data --dry-run'])
         self.assertFalse(self.started('gunicorn'))
+        self.assert_dropped_privileges('python')

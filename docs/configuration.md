@@ -175,12 +175,13 @@ Staff can also set **allow private URLs** on one rule. Changing the URL clears t
 
 ## Email notifications
 
-Set `EMAIL_SERVICE_API_KEY` to forward storage events to email-service. An empty key sends nothing. The email body never includes a sign-in link or a token. Webhook delivery is unchanged. See [Email notifications](email.md).
+Set `EMAIL_SERVICE_API_KEY` to forward storage events to email-service. An empty key sends nothing. Webhook and email bodies omit sign-in links, tokens, signed URLs, and secret-shaped fields. See [Email notifications](email.md).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `EMAIL_SERVICE_URL` | `https://email.shellui.com` | Origin only. storage-service appends `/api/v1/events` |
 | `EMAIL_SERVICE_API_KEY` | empty | Service key (`esk_`). Empty disables forwarding |
+| `EMAIL_SERVICE_ALLOW_PRIVATE` | `false` | Allow a URL that resolves to a private or loopback address. Set this for an internal email-service URL |
 
 ## Event log
 

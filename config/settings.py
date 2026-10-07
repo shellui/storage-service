@@ -629,6 +629,8 @@ EMAIL_SERVICE_URL = (
     or 'https://email.shellui.com'
 )
 EMAIL_SERVICE_API_KEY = os.getenv('EMAIL_SERVICE_API_KEY', '').strip()
+# Private and loopback EMAIL_SERVICE_URL values are refused unless this is true.
+EMAIL_SERVICE_ALLOW_PRIVATE = _env_bool('EMAIL_SERVICE_ALLOW_PRIVATE', False)
 if EMAIL_SERVICE_API_KEY:
     if not EMAIL_SERVICE_API_KEY.startswith('esk_'):
         raise ImproperlyConfigured(
@@ -668,6 +670,9 @@ LOGGING = {
         },
         'redact_email_service_api_key': {
             '()': 'apps.actions.email_service.RedactEmailServiceApiKeyFilter',
+        },
+        'redact_access_secrets': {
+            '()': 'config.access_log.RedactAccessLogFilter',
         },
     },
     'formatters': {
@@ -726,6 +731,7 @@ LOGGING = {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
+            'filters': ['redact_access_secrets'],
         },
         # Celery's own DEBUG output is internals only, so it stops at INFO.
         'celery': {
@@ -761,6 +767,8 @@ if SENTRY_DSN:
     from sentry_sdk.integrations.django import DjangoIntegration
     from sentry_sdk.integrations.logging import LoggingIntegration
 
+    from config.sentry_scrub import scrub_sentry_event
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         integrations=[
@@ -772,5 +780,8 @@ if SENTRY_DSN:
         release=SENTRY_RELEASE,
         traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
         send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size='never',
+        before_send=scrub_sentry_event,
         attach_stacktrace=True,
     )

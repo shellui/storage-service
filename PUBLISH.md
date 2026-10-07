@@ -2,7 +2,7 @@
 
 How to build, publish, and run the `shellui/storage-service` Docker image on [Docker Hub](https://hub.docker.com/r/shellui/storage-service).
 
-Publishing is **manual** — there is no CI workflow for Docker Hub yet.
+Publishing is **manual**. There is no CI workflow for Docker Hub yet.
 
 ## Image overview
 
@@ -27,7 +27,7 @@ Complete these steps **before** building and pushing a release tag. Prefer the a
 |------|------------------|
 | Version alignment | `pyproject.toml` version matches a dated `CHANGELOG.md` entry (`## [x.y.z] - YYYY-MM-DD`) and `uv.lock` |
 | Build secrets | `.env` / `*.sqlite3` not tracked; `.gitignore` / `.dockerignore` exclude `.env`; built image has no `/app/.env` |
-| Image smoke test | Container serves `/storage/v1/health` with `status=ok` (static `IDENTITY_JWKS` + prod security defaults) |
+| Image smoke test | Throwaway Redis on a Docker network, then the image serves `/storage/v1/health` with `status=ok` (`REDIS_URL` is required when `DEBUG` is false) |
 
 Options: `--skip-docker` (version + git hygiene only), `--image TAG`, `--port PORT`.
 
@@ -37,11 +37,11 @@ Manual equivalents (if you are not using the script):
 
 ### 1. Version alignment
 
-Ensure these match the release version (e.g. `0.4.0`):
+Ensure these match the release version (e.g. `0.5.0`):
 
 - `version` in `pyproject.toml` (OpenAPI / API metadata via `config.settings.VERSION`)
 - `CHANGELOG.md` entry with date
-- Git tag `v0.4.0` (optional but recommended; not enforced by the script)
+- Git tag `v0.5.0` (optional but recommended; not enforced by the script)
 - CI green on the release commit (`.github/workflows/ci.yml` + pre-release workflow)
 
 ### 2. No secrets in the build context
@@ -65,7 +65,7 @@ Covered by `./tools/pre-release-check.sh`. Manual form:
 export SECRET_KEY="$(uv run python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")"
 # Prefer a static JWKS document for offline smoke tests (see the script).
 
-VERSION=0.4.0
+VERSION=0.5.0
 docker build -t "shellui/storage-service:${VERSION}" .
 
 docker run --rm -d --name storage-release-smoke -p 18001:8000 \
@@ -98,38 +98,38 @@ docker login
 
 ### Tagging
 
-For semver release `0.4.0`, typical Docker Hub tags:
+For semver release `0.5.0`, typical Docker Hub tags:
 
 | Tag      | Purpose                                  |
 | -------- | ---------------------------------------- |
-| `0.4.0`  | Exact release (pin in production)        |
-| `0.4`    | Latest patch in the 0.4 line             |
+| `0.5.0`  | Exact release (pin in production)        |
+| `0.5`    | Latest patch in the 0.5 line             |
 | `latest` | Newest published release (use with care) |
 
-### Option A — single platform
+### Option A: single platform
 
 From the repository root:
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 IMAGE=shellui/storage-service
 
 docker build -t "${IMAGE}:${VERSION}" .
 docker push "${IMAGE}:${VERSION}"
 
 # Optional extra tags
-docker tag "${IMAGE}:${VERSION}" "${IMAGE}:0.4"
+docker tag "${IMAGE}:${VERSION}" "${IMAGE}:0.5"
 docker tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
-docker push "${IMAGE}:0.4"
+docker push "${IMAGE}:0.5"
 docker push "${IMAGE}:latest"
 ```
 
-### Option B — multi-arch (recommended for production)
+### Option B: multi-arch (recommended for production)
 
 If you build on Apple Silicon, a plain `docker build` may produce `linux/arm64` only. Most cloud VMs expect `linux/amd64`. Publish both with buildx:
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 IMAGE=shellui/storage-service
 
 docker buildx create --use --name multi 2>/dev/null || docker buildx use multi
@@ -144,7 +144,7 @@ docker buildx build \
 ### Git tag (recommended)
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
@@ -168,16 +168,17 @@ docker run -d \
   -e ALLOWED_HOSTS='storage.example.com' \
   -e CSRF_TRUSTED_ORIGINS='https://storage.example.com' \
   -e IDENTITY_JWKS='{"keys":[...]}' \
-  shellui/storage-service:0.4.0
+  -e REDIS_URL='redis://redis:6379/0' \
+  shellui/storage-service:0.5.0
 ```
 
-The entrypoint runs migrations on start, then starts Gunicorn on port 8000.
+The entrypoint runs migrations on start, then starts Gunicorn and the in-container scheduler as user `appuser`. `REDIS_URL` is required when `DEBUG` is false. Env vars `GUNICORN_WORKERS` (default `2`), `GUNICORN_THREADS` (default `2`), and `GUNICORN_TIMEOUT` (default `120`) are passed through.
 
 Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JWKS (`IDENTITY_JWKS` or `IDENTITY_JWKS_FILE`), then `docker compose up --build`.
 
 ### Post-deploy production config check
 
-Quick copy-paste commands and exit-code notes: [README — Post-deploy prod check](README.md#post-deploy-prod-check).
+Quick copy-paste commands and exit-code notes: [README: Post-deploy prod check](README.md#post-deploy-prod-check).
 
 After deploying a release, run the smoke script against the live **storage API** host (`https://storage.shellui.com`), not the Files SPA at `files.shellui.com` (GitHub Pages):
 
@@ -195,7 +196,7 @@ Optional environment:
 | `EXPECTED_IDENTITY_ISSUER` | unset (printed as INFO checklist)            |
 | `EXPECTED_IDENTITY_AUDIENCE` | `shellui`                                  |
 
-Full JWT upload/download flows cannot be verified without identity-service tokens — the script prints guidance for `IDENTITY_JWKS` / `IDENTITY_JWKS_FILE` and `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`.
+Full JWT upload/download flows cannot be verified without identity-service tokens. The script prints guidance for `IDENTITY_JWKS` / `IDENTITY_JWKS_FILE` and `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE`.
 
 **Coolify / internal Postgres:** storage parses `POSTGRES_DATABASE_URL` with `ssl_require=false` by default. If boot still fails with SSL errors against an internal Docker Postgres, set `POSTGRES_SSL_REQUIRE=false` in orchestration (same gotcha as identity-service 0.5.0).
 
@@ -218,7 +219,7 @@ chmod +x prod-config-check.sh
 | `ALLOWED_HOSTS`     | Comma-separated hostnames, no scheme.                                                      |
 | `CSRF_TRUSTED_ORIGINS` | Full URLs with scheme when using browser flows behind HTTPS.                            |
 
-First superuser: run `python manage.py createsuperuser` inside the container (or exec), or set a one-time `SETUP_TOKEN` and open `/?setup_token=<token>` — the public home form is disabled when `DEBUG=false` and no token is provided.
+First superuser: run `python manage.py createsuperuser` inside the container (or exec), or set a one-time `SETUP_TOKEN` and open `/?setup_token=<token>`. The public home form is disabled when `DEBUG=false` and no token is provided.
 
 ### Optional runtime env vars
 
@@ -243,6 +244,7 @@ First superuser: run `python manage.py createsuperuser` inside the container (or
 | `LOG_LEVEL`             | `DEBUG`, `INFO`, `WARNING`, … (default `DEBUG` when `DEBUG=true`, else `INFO`). |
 | `EMAIL_SERVICE_URL`     | email-service origin. Default `https://email.shellui.com`. No path. |
 | `EMAIL_SERVICE_API_KEY` | `esk_` service key. Empty disables event forwarding. |
+| `EMAIL_SERVICE_ALLOW_PRIVATE` | Set `true` when `EMAIL_SERVICE_URL` is an internal or loopback address. Default `false`. |
 | `SETUP_TOKEN`           | One-time token for web superuser bootstrap when `DEBUG=false`; prefer `createsuperuser`. |
 
 With Postgres:

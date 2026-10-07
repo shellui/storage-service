@@ -61,7 +61,7 @@ Staff and company owners change quotas and read Shellui Actions routes. Other me
 
 Provisioning the company bucket, uploading or overwriting a file, and deleting a file each write an event. Folder placeholder objects are omitted. Matching Shellui Actions webhook rules receive a signed POST. Delivery is at-least-once. The in-container `retry_webhooks` job retries failures. There is no separate actions service.
 
-The same job retries the email-service forward. That body never includes a sign-in link or a token. Webhook envelopes stay the original event data. See [Email notifications](email.md).
+The same job retries the email-service forward. That body omits sign-in links, tokens, signed URLs, and secret-shaped fields. Webhook envelopes omit the same fields. See [Email notifications](email.md).
 
 The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7).
 

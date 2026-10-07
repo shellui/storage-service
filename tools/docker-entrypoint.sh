@@ -93,7 +93,9 @@ gunicorn_cmd() {
   # --keep-alive is above the reverse proxy idle time, so the proxy does not reuse a
   # connection gunicorn is closing (that gives random 502s).
   #
-  # Access log format omits the query string: share-link tokens must not land in logs.
+  # %(U)s is the path with no query string. Referer is replaced with "-" so a
+  # setup_token or a sign-in URL in the request line is not written to stdout.
+  # Share-link tokens sit in the path; the gunicorn.access filter redacts them.
   GUNICORN_ARGS=(
     gunicorn
     --bind 0.0.0.0:8000
@@ -108,7 +110,7 @@ gunicorn_cmd() {
     --worker-tmp-dir /dev/shm
     --access-logfile -
     --error-logfile -
-    --access-logformat '%(h)s %(l)s %(u)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "%(a)s" %(M)sms req=%({x-request-id}o)s'
+    --access-logformat '%(h)s %(l)s %(u)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "-" "%(a)s" %(M)sms req=%({x-request-id}o)s'
     config.wsgi:application
   )
 }

@@ -18,11 +18,12 @@ import time
 import uuid
 from typing import Any
 
-import requests
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from apps.actions.webhook_retry import is_permanent_http_status, parse_retry_after_header
+from apps.actions.secret_redaction import redact_secrets
+from apps.actions.webhook_retry import is_permanent_http_status
+from apps.actions.webhook_transport import WebhookHTTPError, post_webhook_url
 from config.request_context import request_id_var
 
 logger = logging.getLogger(__name__)
@@ -33,26 +34,6 @@ _DEFAULT_ORIGIN = 'https://email.shellui.com'
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 _REDACTED = '[redacted]'
 
-# Webhook envelopes keep the original payload (same as hosting-service). Only the
-# email body drops sign-in links and tokens.
-_SENSITIVE_KEYS = frozenset({
-    'magic_link',
-    'magic_link_url',
-    'token',
-    'raw_token',
-    'access_token',
-    'refresh_token',
-    'id_token',
-    'sign_in_url',
-    'sign_in_link',
-    'signin_url',
-    'signin_link',
-})
-_SIGN_IN_URL = re.compile(
-    r'magic[-_]link|/sign-?in(?:[/?#]|$)|[?&#]token=',
-    re.IGNORECASE,
-)
-
 
 def email_service_api_key() -> str:
     return (getattr(settings, 'EMAIL_SERVICE_API_KEY', '') or '').strip()
@@ -61,6 +42,11 @@ def email_service_api_key() -> str:
 def email_service_configured() -> bool:
     """True only when a service key with the ``esk_`` prefix is set."""
     return email_service_api_key().startswith('esk_')
+
+
+def email_service_allow_private() -> bool:
+    """Private and loopback email-service URLs need an explicit opt-in."""
+    return bool(getattr(settings, 'EMAIL_SERVICE_ALLOW_PRIVATE', False))
 
 
 def email_service_origin() -> str:
@@ -130,52 +116,10 @@ def recipient_hints(actor: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [hint]
 
 
-def _sensitive_key(key: str) -> bool:
-    name = str(key).strip().lower().replace('-', '_')
-    return name in _SENSITIVE_KEYS or name.endswith('_token') or name.endswith('_tokens')
-
-
-def _sensitive_string(value: str) -> bool:
-    """True when a string is a sign-in URL or carries a token query parameter."""
-    if '://' not in value:
-        return False
-    return _SIGN_IN_URL.search(value) is not None
-
-
-class _Drop:
-    """Sentinel for a string that must not appear in the email body."""
-
-
-_DROP = _Drop()
-
-
 def email_event_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
-    """Event data for email-service. Sign-in links and tokens are omitted."""
-    return _without_secrets(payload or {})
-
-
-def _without_secrets(value: Any) -> Any:
-    if isinstance(value, dict):
-        cleaned: dict[str, Any] = {}
-        for key, item in value.items():
-            if _sensitive_key(str(key)):
-                continue
-            kept = _without_secrets(item)
-            if kept is _DROP:
-                continue
-            cleaned[str(key)] = kept
-        return cleaned
-    if isinstance(value, list):
-        items = []
-        for item in value:
-            kept = _without_secrets(item)
-            if kept is _DROP:
-                continue
-            items.append(kept)
-        return items
-    if isinstance(value, str) and _sensitive_string(value):
-        return _DROP
-    return value
+    """Event data for email-service. Sign-in links, tokens, and secret-shaped fields are omitted."""
+    cleaned = redact_secrets(payload or {})
+    return cleaned if isinstance(cleaned, dict) else {}
 
 
 def build_email_event_body(
@@ -271,14 +215,21 @@ def _failure_message(status: int | None, error_code: str, detail: str = '') -> s
     return f'Email event was not accepted (HTTP {status}).'
 
 
-def _error_code(response: requests.Response) -> str:
+def _error_code_from_excerpt(excerpt: str) -> str:
     try:
-        payload = response.json()
+        payload = json.loads(excerpt or '')
     except ValueError:
         return ''
     if isinstance(payload, dict):
         return str(payload.get('error_code') or '')
     return ''
+
+
+def _email_service_error_message(exc: WebhookHTTPError) -> str:
+    message = redact_email_service_secret(str(exc))
+    if message.startswith('Webhook URL'):
+        message = 'Email service URL' + message[len('Webhook URL'):]
+    return message
 
 
 def _attempt_meta(
@@ -324,14 +275,26 @@ def deliver_email_event(body: dict) -> tuple[bool, dict]:
     if request_id and request_id != '-':
         headers['X-Request-ID'] = request_id
     try:
-        response = requests.post(
+        result = post_webhook_url(
             email_events_url(),
-            data=encoded,
+            body=encoded,
             headers=headers,
             timeout=_timeout_seconds(),
-            allow_redirects=False,
+            allow_private=email_service_allow_private(),
         )
-    except requests.RequestException as exc:
+    except WebhookHTTPError as exc:
+        message = _email_service_error_message(exc)
+        logger.warning('email_event delivery failed: %s', message)
+        status = exc.status
+        return _attempt_meta(
+            started=started,
+            success=False,
+            http_status=status,
+            error_message=message,
+            permanent=bool(exc.permanent) or email_failure_is_permanent(status),
+            retry_after_seconds=exc.retry_after_seconds if status in (429, 503) else None,
+        )
+    except OSError as exc:
         detail = redact_email_service_secret(str(exc) or exc.__class__.__name__)
         message = _failure_message(None, '', detail)
         logger.warning('email_event delivery failed: %s', message)
@@ -343,28 +306,23 @@ def deliver_email_event(body: dict) -> tuple[bool, dict]:
             permanent=False,
             retry_after_seconds=None,
         )
-    try:
-        status = int(response.status_code)
-        if 200 <= status < 300:
-            return _attempt_meta(
-                started=started,
-                success=True,
-                http_status=status,
-                error_message='',
-                permanent=False,
-                retry_after_seconds=None,
-            )
-        error_code = _error_code(response)
-        retry_after = None
-        if status in (429, 503):
-            retry_after = parse_retry_after_header(response.headers.get('Retry-After'))
+    status = int(result.status)
+    if 200 <= status < 300:
         return _attempt_meta(
             started=started,
-            success=False,
+            success=True,
             http_status=status,
-            error_message=_failure_message(status, error_code),
-            permanent=email_failure_is_permanent(status, error_code),
-            retry_after_seconds=retry_after,
+            error_message='',
+            permanent=False,
+            retry_after_seconds=None,
         )
-    finally:
-        response.close()
+    error_code = _error_code_from_excerpt(result.excerpt or '')
+    retry_after = result.retry_after_seconds if status in (429, 503) else None
+    return _attempt_meta(
+        started=started,
+        success=False,
+        http_status=status,
+        error_message=_failure_message(status, error_code),
+        permanent=email_failure_is_permanent(status, error_code),
+        retry_after_seconds=retry_after,
+    )

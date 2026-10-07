@@ -27,7 +27,7 @@ Start with the [overview](docs/index.md), then [Run storage-service](docs/gettin
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
-- **Email notifications** for the same `storage.*` events, forwarded to email-service when `EMAIL_SERVICE_API_KEY` is set. The email body omits sign-in links and tokens. See [`docs/email.md`](docs/email.md).
+- **Email notifications** for the same `storage.*` events, forwarded to email-service when `EMAIL_SERVICE_API_KEY` is set. Webhook and email bodies omit sign-in links, tokens, signed URLs, and secret-shaped fields. See [`docs/email.md`](docs/email.md).
 - CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`, credentials off); auth is Bearer JWT — multi-tenant preview origins work without per-slug env lists (see [docs/security.md](docs/security.md))
 
 ## Project structure

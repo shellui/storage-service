@@ -18,38 +18,35 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [Unreleased] - 2026-10-07
+## [0.5.0] - 2026-10-07
 
 ### ✨ Feature
 
-- **In-container scheduler:** the Docker image runs a Celery worker and beat next to Gunicorn. `retry_webhooks` runs every minute and `purge_expired_data` runs hourly at minute 17. Redis `SET NX` locks stop the same job from overlapping across replicas. `SCHEDULER_ENABLED` defaults to true. The entrypoint accepts `web` (default) and `worker`. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md).
-- **Scheduled job monitoring:** staff-only `GET /api/v1/scheduled-jobs` (same shape as identity-service), Prometheus metrics `shellui_storage_scheduled_job_*` and `shellui_storage_scheduler_*` on `GET /storage/v1/metrics/all` only, and staff-only events `storage.scheduled_job.succeeded` and `storage.scheduled_job.failed`. Webhook and email-service posts made by a run send `X-Request-ID: sjr-<id>`. Staff run detail lists those email rows as `email_events`.
-- **Email notifications:** when `EMAIL_SERVICE_API_KEY` is set, every `storage.*` event is posted to email-service `POST /api/v1/events` through the existing outbox. The email body omits sign-in links and tokens. Webhook envelopes stay the original event data. `manage.py retry_webhooks` retries with the webhook schedule (8 attempts, `30s * 2^(n-1)`, cap 1 hour). `2xx` is finished, including `skipped_reason` `rule_disabled`, `no_rule`, and `no_recipients`. `404` retries. `400`, `401`, `403`, `405`, `410`, `413`, and `422` do not. Leave the key unset and nothing is forwarded. See [docs/email.md](docs/email.md).
+- Scheduled jobs: the image runs `retry_webhooks` every minute and `purge_expired_data` hourly at minute 17, with a Redis lock so one run proceeds across replicas.
+- Staff read job health at `GET /api/v1/scheduled-jobs`. Scheduler series stay on `GET /storage/v1/metrics/all`.
+- With `EMAIL_SERVICE_API_KEY` set, storage events are posted to email-service, and every event is stored for `GET /api/v1/actions/event-log`.
 
 ### 🚨 Changed
 
-- **Redis is required in production.** When `DEBUG=false` and `REDIS_URL` is unset, the container exits 1 and `manage.py check --deploy` reports `authapi.E004`, including when `SCHEDULER_ENABLED=false`. With `DEBUG=true`, Redis stays optional and the jobs do not start.
-- Run the `apps.actions` migrations `0003_scheduled_job_runs` and `0004_email_service_outbox` after upgrade. `EventLog.company_id` may be null for platform events. List them with `GET /api/v1/actions/event-log?scope=platform` (staff only). `ActionOutbox.action_rule` may be null for email rows.
+- Production (`DEBUG` false) requires `REDIS_URL`. The container exits if it is missing.
 
 ### 📚 Documentation
 
-- **Handbook:** [`docs/index.md`](docs/index.md) is the storage homepage, with [`docs/sidebars.js`](docs/sidebars.js) for the sidebar on `docs.shellui.com/storage`. New pages cover running the service, configuration, buckets and files, maintenance jobs, email notifications, and the API. Access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, the event log, and security hardening are refreshed against `develop`. CI builds the storage docs with shellui/shellui.
-- **Publish note:** [PUBLISH.md](PUBLISH.md) points readers at `docs.shellui.com/storage`. The old `storage.docs.shellui.com` hostname no longer resolves.
-- **In-repo docs site removed:** `deploy-docs.yml`, `tools/docusaurus/`, `tools/generate-docs.sh`, and the root `CNAME` are gone. Docs are published only by [shellui/shellui](https://github.com/shellui/shellui).
-
-### 🏗 Chore
-
-- Allow the handbook placeholder `your_access_token_here` in the gitleaks scan. The upload example passes the token as `$ACCESS_TOKEN`.
-
-### ✨ Feature
-
-- **Event log:** every `storage.*` event is stored, with or without a webhook rule, and listed at `GET /api/v1/actions/event-log` (filters: type, user, date range) for the admin panel **Storage > Log events** page. See [docs/event-log.md](docs/event-log.md).
-- **Data retention:** `EVENT_LOG_RETENTION_DAYS` (default 7). `manage.py purge_expired_data` deletes expired events and finished webhook and email deliveries in short batches. The container runs it every hour. `GET /api/v1/actions/event-log/retention` reports `stale_events` when the job is not running.
+- The handbook covers setup, buckets, access, scheduled jobs, email, and the API. The in-repo docs site is removed.
 
 ### 🐛 Bug Fixes
 
-- **Django admin deletes:** deleting a file or a bucket in Django admin now goes through the same path as the REST API: blobs are removed, quota usage goes down, and `storage.object.deleted` is emitted for each file. It previously left blobs and usage behind and emitted nothing.
-- `storage.bucket.created` now includes the user whose first request provisioned the bucket.
+- Django admin deletes remove stored blobs and quota usage, and emit `storage.object.deleted`. `storage.bucket.created` includes the acting user.
+
+### 🔒 Security
+
+- Private email-service URLs need `EMAIL_SERVICE_ALLOW_PRIVATE`. Webhook and email bodies omit tokens, sign-in links, signed URLs, and secret-shaped fields.
+- Access logs omit query strings, Referer, and share-link tokens. Sentry drops those, authorization headers, and stack locals.
+
+### ⬆️ Upgrade notes
+
+- Apply migrations through `0004_email_service_outbox`, set `REDIS_URL`, and drop any external cron for these two jobs (or set `SCHEDULER_ENABLED=false`).
+- Set `EMAIL_SERVICE_ALLOW_PRIVATE=true` when `EMAIL_SERVICE_URL` is an internal or loopback address.
 
 ## [0.4.0] - 2026-09-29
 

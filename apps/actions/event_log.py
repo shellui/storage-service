@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.actions.models import EventLog
+from apps.actions.secret_redaction import redact_secrets
 
 _EMPTY = (None, '', [], {})
 
@@ -14,7 +15,9 @@ _SKIP = frozenset({'company_id', 'user_id'})
 
 def compact_event_data(payload: dict[str, Any], actor: dict[str, Any] | None = None) -> dict[str, Any]:
     """Payload as stored in the log: no empty values, no ids kept in columns, plus the actor email."""
-    data = {k: v for k, v in payload.items() if k not in _SKIP and v not in _EMPTY and v is not False}
+    raw = {k: v for k, v in payload.items() if k not in _SKIP and v not in _EMPTY and v is not False}
+    cleaned = redact_secrets(raw)
+    data = cleaned if isinstance(cleaned, dict) else {}
     email = (actor or {}).get('email')
     if email:
         data['actor_email'] = email

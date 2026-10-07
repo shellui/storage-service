@@ -69,6 +69,18 @@ Redis is required when `DEBUG=false` (`REDIS_URL`, for example `redis://redis:63
 
 storage-service does not enforce request rate limits. The first webhook POST does not use Redis. Retries do, because they run on the scheduled job.
 
+## Access logs and error reports
+
+Gunicorn writes an access line with the method and the path. The line omits the query string and the Referer header, so `/?setup_token=…` is not copied to stdout. A share-link token in the path is replaced with `[filtered]` before the line is written.
+
+When `SENTRY_DSN` is set, events omit stack locals, request bodies, and cookies. Authorization, Cookie, and Referer headers are removed. Query strings are removed from the request URL before the event is sent. Share-link tokens in that URL are replaced with `[filtered]`.
+
+## Email-service URLs
+
+`EMAIL_SERVICE_URL` is checked the same way as a Shellui Actions webhook URL. A private, loopback, or link-local address is refused unless `EMAIL_SERVICE_ALLOW_PRIVATE=true`. Set that when the email-service URL is internal (for example `http://localhost:8003` or `http://host.docker.internal:8003`). The POST does not follow redirects. The service key is not written to the outbox or to logs.
+
+Webhook envelopes, the event log, and the email body omit tokens, sign-in links, signed URLs, and secret-shaped fields.
+
 ## Webhook targets
 
 Outbound webhook URLs are checked for private, loopback, and non-global addresses. `ACTIONS_WEBHOOK_ALLOW_PRIVATE` defaults to false in every mode. Staff can allow one rule to call a private URL. See [Webhooks](actions.md).
