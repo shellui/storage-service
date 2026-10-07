@@ -136,8 +136,12 @@ def metrics_http_body(company_id: int | None = None) -> bytes:
     if company_id is None:
         for cid in _company_ids():
             _set_company(gauges, cid)
-    else:
-        _set_company(gauges, company_id)
+        body = generate_latest(registry)
+        # Staff metrics live in their own registry and are appended only here.
+        from apps.actions.scheduled_job_metrics import scheduled_jobs_metrics_body
+
+        return body + scheduled_jobs_metrics_body()
+    _set_company(gauges, company_id)
     return generate_latest(registry)
 
 

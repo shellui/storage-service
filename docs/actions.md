@@ -15,13 +15,13 @@ Domain code calls `emit_event` inside the database transaction that changed the 
 1. The event is written to the [event log](event-log.md), whether or not a rule matches.
 2. Each enabled webhook rule for that company and event type gets an outbox row in the same transaction.
 3. After commit, a background thread POSTs the envelope. The API response does not wait for your server.
-4. Each try is stored as a delivery attempt. Further tries come from `manage.py retry_webhooks`.
+4. Each try is stored as a delivery attempt. Further tries come from the `retry_webhooks` scheduled job.
 
-Delivery does not need Celery or Redis. The default HTTP timeout is 5s (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`). Delivery is at-least-once. Retries reuse the envelope `id`, which is also the `webhook-id` header. Dedupe on that value.
+The first POST does not need Redis. The default HTTP timeout is 5s (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`). Delivery is at-least-once. Retries reuse the envelope `id`, which is also the `webhook-id` header. Dedupe on that value.
 
 Post-commit dispatch uses `ACTIONS_WEBHOOK_DISPATCH_WORKERS` threads (default 4). A WebDAV sync can emit many `storage.object.uploaded` events close together. Order is not guaranteed.
 
-The n8n setup, including a signature check, is in [n8n](n8n.md). Scheduling the retry command is in [Maintenance jobs](maintenance-jobs.md).
+The n8n setup, including a signature check, is in [n8n](n8n.md). The retry job is in [Scheduled jobs](maintenance-jobs.md).
 
 ## Event catalog
 
@@ -88,16 +88,12 @@ Backoff is `30s * 2^(n-1)`, capped at 1 hour, with at most 8 attempts (`ACTIONS_
 | 5xx, timeouts, connection errors | Yes |
 | 429 or 503 with `Retry-After` | Yes. The delay is the larger of the backoff and `Retry-After`, still capped at 1 hour |
 
+The container runs `retry_webhooks` every minute when `REDIS_URL` is set and `SCHEDULER_ENABLED` is true (the default). Each attempt stores `trigger` (`dispatch` or `automatic_retry`). Staff also see `scheduled_job_run_id`. Retries from that job send `X-Request-ID: sjr-{run_id}`.
+
 ```bash
 python manage.py retry_webhooks --batch-size 50 --max-seconds 50 --concurrency 4
 ```
 
-Example cron, every minute:
-
-```cron
-* * * * * cd /app && python manage.py retry_webhooks
-```
-
-Run that command from cron, a sidecar, or your platform scheduler. The storage-service container does not run it for you. Delivered and dead deliveries are deleted after `EVENT_LOG_RETENTION_DAYS` by `purge_expired_data`. See [Maintenance jobs](maintenance-jobs.md).
+Delivered and dead deliveries are deleted after `EVENT_LOG_RETENTION_DAYS` by `purge_expired_data`. To run the commands yourself, set `SCHEDULER_ENABLED=false`. See [Scheduled jobs](maintenance-jobs.md).
 
 Webhook URLs that resolve to a private or loopback address are blocked unless the rule has **allow private URLs** (staff) or `ACTIONS_WEBHOOK_ALLOW_PRIVATE` is true. When that variable is unset, it stays false, including while `DEBUG=true`. Changing a rule URL clears **allow private URLs** unless a superuser sets it again.

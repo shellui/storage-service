@@ -117,6 +117,8 @@ def _apply_delivery_result(
     terminal_error: str | None,
     success: bool,
     attempt_meta: dict,
+    trigger: str = DeliveryAttempt.TRIGGER_DISPATCH,
+    scheduled_job_run_id: int | None = None,
 ) -> ActionOutbox:
     attempt_number = row.attempt_count + 1
     if terminal_error:
@@ -142,14 +144,19 @@ def _apply_delivery_result(
         error_message='' if success else attempt_error,
         attempt_number=attempt_number,
         duration_ms=duration_ms,
+        trigger=trigger,
+        scheduled_job_run_id=scheduled_job_run_id,
     )
     logger.info(
-        'webhook_delivery outbox_id=%s attempt=%s success=%s http_status=%s duration_ms=%s',
+        'webhook_delivery outbox_id=%s attempt=%s success=%s http_status=%s duration_ms=%s '
+        'trigger=%s scheduled_job_run_id=%s',
         row.pk,
         attempt_number,
         success,
         http_status,
         duration_ms,
+        trigger,
+        scheduled_job_run_id,
     )
 
     row.attempt_count = attempt_number
@@ -187,7 +194,17 @@ def _apply_delivery_result(
     return row
 
 
-def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
+def deliver_outbox_row(
+    outbox_id,
+    *,
+    trigger: str = DeliveryAttempt.TRIGGER_DISPATCH,
+    scheduled_job_run_id: int | None = None,
+) -> ActionOutbox | None:
+    """
+    Attempt one delivery. ``trigger`` and ``scheduled_job_run_id`` are stored on the
+    ``DeliveryAttempt`` so staff can go from a scheduled job run to its deliveries.
+    """
+    correlation = {'trigger': trigger, 'scheduled_job_run_id': scheduled_job_run_id}
     with transaction.atomic():
         row = (
             ActionOutbox.objects.select_for_update()
@@ -219,6 +236,7 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
                 terminal_error=terminal_error,
                 success=False,
                 attempt_meta={},
+                **correlation,
             )
 
     success, attempt_meta = _perform_http_delivery(
@@ -237,6 +255,7 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
             terminal_error=None,
             success=success,
             attempt_meta=attempt_meta,
+            **correlation,
         )
 
 
@@ -316,12 +335,15 @@ def retry_pending_webhooks(
     concurrency: int = 4,
     dry_run: bool = False,
     now=None,
+    scheduled_job_run_id: int | None = None,
 ) -> dict[str, int]:
     """
     Process a bounded batch of pending/failed webhook deliveries.
 
-    HTTP runs outside DB transactions. Safe for overlapping cron runs via skip-locked + lease.
+    HTTP runs outside DB transactions. Safe for overlapping runs via skip-locked + lease.
+    Every attempt is stored with ``trigger=automatic_retry`` and ``scheduled_job_run_id``.
     """
+    import contextvars
     from concurrent.futures import FIRST_COMPLETED, wait
 
     now = now or timezone.now()
@@ -332,7 +354,11 @@ def retry_pending_webhooks(
 
     def _worker(row_id, before_status: str) -> dict[str, int]:
         connection.close()
-        after = deliver_outbox_row(row_id)
+        after = deliver_outbox_row(
+            row_id,
+            trigger=DeliveryAttempt.TRIGGER_AUTOMATIC_RETRY,
+            scheduled_job_run_id=scheduled_job_run_id,
+        )
         return _summarize_delivery_result(before_status, after)
 
     def _merge(delta: dict[str, int]) -> None:
@@ -377,7 +403,8 @@ def retry_pending_webhooks(
                 _merge(_worker(row.pk, before_status))
                 continue
 
-            fut = executor.submit(_worker, row.pk, before_status)
+            # Copy the context so worker log lines and X-Request-ID keep the run's request id.
+            fut = executor.submit(contextvars.copy_context().run, _worker, row.pk, before_status)
             in_flight.add(fut)
 
         while in_flight and time.monotonic() < deadline + 1.0:

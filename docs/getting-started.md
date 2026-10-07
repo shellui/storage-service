@@ -102,8 +102,8 @@ Before the first request, finish these steps:
 
 1. Set `POSTGRES_DATABASE_URL` if you do not want SQLite on the `/app/data` volume.
 2. Set `STORAGE_BACKEND=s3` when clients should receive signed object-storage URLs. The filesystem backend's sign route is not cryptographic.
-3. Set `REDIS_URL` when `GUNICORN_WORKERS` is greater than 1, so the cache is shared.
-4. Schedule `retry_webhooks` and `purge_expired_data`. The container does not run them. See [Maintenance jobs](maintenance-jobs.md).
+3. Set `REDIS_URL`. Production (`DEBUG=false`) refuses to start without it. Redis is the shared cache and the broker for the scheduled jobs.
+4. Leave `SCHEDULER_ENABLED` at its default (`true`). The container then runs `retry_webhooks` and `purge_expired_data`. See [Scheduled jobs](maintenance-jobs.md).
 5. Run [tools/prod-config-check.sh](../tools/prod-config-check.sh) against the storage API host, for example `https://storage.shellui.com`, not against the Files site at `files.shellui.com`.
 
 Every variable is in [Configuration](configuration.md). Production defaults for HTTPS, CORS, and admin are in [Security hardening](security.md). Image tags and the Coolify notes are in [PUBLISH.md](../PUBLISH.md).

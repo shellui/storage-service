@@ -174,7 +174,7 @@ class PurgeExpiredDataTests(TestCase):
         kept = _log(days_ago=6)
         stats = purge_expired_data(batch_size=1)
         self.assertEqual((stats['events'], stats['webhook_deliveries'], stats['complete']), (1, 1, True))
-        self.assertEqual(list(EventLog.objects.values_list('pk', flat=True)), [kept.pk])
+        self.assertEqual(list(EventLog.objects.filter(company_id=10).values_list('pk', flat=True)), [kept.pk])
         self.assertEqual(list(ActionOutbox.objects.values_list('pk', flat=True)), [self.pending.pk])
 
     @override_settings(EVENT_LOG_RETENTION_DAYS=30)
@@ -189,7 +189,10 @@ class PurgeExpiredDataTests(TestCase):
         self.assertEqual(EventLog.objects.count(), 1)
         out = StringIO()
         call_command('purge_expired_data', stdout=out)
-        self.assertIn('deleted events=1 webhook_deliveries=1 complete=true', out.getvalue())
+        self.assertIn(
+            'deleted events=1 webhook_deliveries=1 scheduled_job_runs=0 complete=true',
+            out.getvalue(),
+        )
 
 
 @override_settings(

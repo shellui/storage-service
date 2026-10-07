@@ -7,6 +7,7 @@ from django.conf import settings
 from apps.actions.webhook_retry import is_permanent_http_status
 from apps.actions.webhook_signing import encode_webhook_envelope, sign_webhook_body
 from apps.actions.webhook_transport import WebhookHTTPError, post_webhook_url
+from config.request_context import request_id_var
 
 
 class WebhookDeliveryError(Exception):
@@ -59,6 +60,10 @@ def deliver_webhook_action(
         'X-Shellui-Delivery-Attempt': str(max(1, int(attempt_number))),
         **sign_webhook_body(secret=secret, body=body, webhook_id=str(webhook_id)),
     }
+    # Same id as storage log lines (request id, or ``sjr-<run id>`` inside a scheduled job).
+    request_id = request_id_var.get()
+    if request_id and request_id != '-':
+        headers['X-Request-ID'] = request_id
     auth_header = (config.get('authorization_header') or '').strip()
     if auth_header:
         headers['Authorization'] = auth_header

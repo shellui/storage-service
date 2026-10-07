@@ -18,7 +18,7 @@ Routes follow the Supabase Storage path shape (`/storage/v1/object/…`, `/stora
 
 ## Who it is for
 
-Use it when a Shellui app needs company files: the Files UI, a script, or a WebDAV client. Company owners set quotas and Shellui Actions webhook rules. Operators run the process, the database, the blob store, and two cron jobs.
+Use it when a Shellui app needs company files: the Files UI, a script, or a WebDAV client. Company owners set quotas and Shellui Actions webhook rules. Operators run the process, the database, the blob store, and Redis.
 
 Your product stays in the shell. storage-service does not replace identity-service, hosting-service, or email-service.
 
@@ -59,7 +59,7 @@ Staff and company owners change quotas and read Shellui Actions routes. Other me
 
 ## Webhooks and the event log
 
-Provisioning the company bucket, uploading or overwriting a file, and deleting a file each write an event. Folder placeholder objects are omitted. Matching Shellui Actions webhook rules receive a signed POST. Delivery is at-least-once. `manage.py retry_webhooks` retries failures. There is no separate actions service.
+Provisioning the company bucket, uploading or overwriting a file, and deleting a file each write an event. Folder placeholder objects are omitted. Matching Shellui Actions webhook rules receive a signed POST. Delivery is at-least-once. The in-container `retry_webhooks` job retries failures. There is no separate actions service.
 
 The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7). storage-service does not email anyone when they happen.
 
@@ -67,7 +67,7 @@ The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7). sto
 
 Copy [`.env.example`](../.env.example) to `.env`, set `SECRET_KEY`, point `IDENTITY_SERVICE_URL` at identity-service, and run migrations. Docker Compose is the local path in [Run storage-service](getting-started.md).
 
-The container runs database migrations, then Gunicorn. It does not run Celery, and it does not schedule jobs. You run `retry_webhooks` every minute and `purge_expired_data` every hour. Redis is optional. Set `REDIS_URL` when more than one Gunicorn worker should share the cache.
+The container runs database migrations, then Gunicorn and a Celery worker with beat. That worker runs `retry_webhooks` every minute and `purge_expired_data` every hour. `REDIS_URL` is required when `DEBUG=false`. With `DEBUG=true` and no Redis, the web app still starts and the jobs do not run.
 
 ## Where to go next
 
@@ -87,7 +87,7 @@ Pick the row that matches what you are doing:
 | Call an HTTPS endpoint on upload | [Webhooks](actions.md) and [n8n](n8n.md) |
 | Read past storage events | [Event log](event-log.md) |
 | Lock down a production install | [Security hardening](security.md) |
-| Schedule retries and retention | [Maintenance jobs](maintenance-jobs.md) |
+| See scheduled retries and retention | [Scheduled jobs](maintenance-jobs.md) |
 | Browse the HTTP API | [API reference](api.md) |
 
 Source and the changelog are on [GitHub](https://github.com/shellui/storage-service). These pages are built from `docs/` by [shellui/shellui](https://github.com/shellui/shellui) and published on [docs.shellui.com](https://docs.shellui.com) at `docs.shellui.com/storage`.

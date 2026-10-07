@@ -6,14 +6,14 @@ description: The EventLog table for every storage event, how long rows are kept,
 
 storage-service records every [catalog event](actions.md#event-catalog) in one table, `EventLog`, whether or not a webhook rule exists for it. The Shellui admin panel reads the same rows for **Storage > Log events**.
 
-The same events can also be delivered as [webhooks](actions.md). Retention for both is one cron job, described in [Maintenance jobs](maintenance-jobs.md).
+The same events can also be delivered as [webhooks](actions.md). Retention for both is the `purge_expired_data` scheduled job, described in [Scheduled jobs](maintenance-jobs.md).
 
 ## Row format
 
 | Column | Content |
 | --- | --- |
 | `id` | Sequential id |
-| `company_id` | Identity company id the event belongs to |
+| `company_id` | Identity company id the event belongs to. Empty for staff-only platform events |
 | `user_id` | Identity user id who uploaded, deleted, or provisioned the bucket, when known |
 | `event_type` | Catalog event type |
 | `data` | Event payload, compacted as described below |
@@ -29,7 +29,7 @@ Two indexes serve listing, the retention check, and the purge: `(company_id, cre
 
 Retention is one setting for the whole service: `EVENT_LOG_RETENTION_DAYS` (default 7). Values below 1 are treated as 1.
 
-Schedule `purge_expired_data` every hour. It deletes events older than the retention, together with delivered and dead webhook deliveries, in short batches:
+The container runs `purge_expired_data` every hour, at minute 17, for at most 5 minutes. It deletes events older than the retention, together with delivered and dead webhook deliveries and scheduled job runs older than 7 days, in short batches:
 
 ```bash
 python manage.py purge_expired_data
@@ -39,11 +39,7 @@ python manage.py purge_expired_data --max-seconds 300
 
 `--dry-run` counts rows and deletes nothing. `--max-seconds 300` stops after 300s. The next run continues.
 
-```cron
-17 * * * * cd /app && python manage.py purge_expired_data --max-seconds 300
-```
-
-The container does not run this command. If the oldest event is older than the retention plus one day, the job is not keeping up. `GET /api/v1/actions/event-log/retention` then reports `stale_events: true`. The Shellui admin panel shows that flag.
+If the oldest event is older than the retention plus one day, the job is not keeping up. `GET /api/v1/actions/event-log/retention` then reports `stale_events: true`. The Shellui admin panel shows that flag.
 
 ## Admin API
 
@@ -66,6 +62,7 @@ Filters on `GET /api/v1/actions/event-log`:
 | `created_after` | ISO 8601 datetime, inclusive |
 | `created_before` | ISO 8601 datetime, exclusive |
 | `page`, `page_size` | Pagination. `page_size` up to 100, default 20 |
+| `scope` | `company` (default) or `platform` |
 
 An unknown `event_type` is 400. Rows have this shape:
 
@@ -89,7 +86,13 @@ An unknown `event_type` is 400. Rows have this shape:
 }
 ```
 
+## Platform events (staff only)
+
+`storage.scheduled_job.succeeded` and `storage.scheduled_job.failed` are written with `company_id` null. They are not webhook rules and they do not appear in `GET /api/v1/actions/event-log/types`.
+
+Staff list them with `GET /api/v1/actions/event-log?scope=platform`. Company owners receive 403 for that scope. The default `scope=company` stays limited to the token company.
+
 ## Related
 
 - [Webhooks](actions.md)
-- [Maintenance jobs](maintenance-jobs.md)
+- [Scheduled jobs](maintenance-jobs.md)
