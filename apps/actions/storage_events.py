@@ -61,7 +61,12 @@ _SCHEDULED_JOB = (
     EventFieldDoc(
         'counts',
         'Items processed, per kind',
-        {'webhook_deliveries_attempted': 3, 'webhook_deliveries_succeeded': 3},
+        {
+            'webhook_deliveries_attempted': 3,
+            'webhook_deliveries_succeeded': 3,
+            'email_events_attempted': 1,
+            'email_events_succeeded': 1,
+        },
     ),
     EventFieldDoc('host', 'Host name and process id that ran the job', 'storage-7f9c:41'),
 )

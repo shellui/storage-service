@@ -10,17 +10,32 @@ JOB = 'retry_webhooks'
 
 
 def run_counts(stats: dict) -> dict[str, int]:
-    """Run summary stored on ``ScheduledJobRun.counts`` (attempted, succeeded, failed, given up)."""
+    """Run summary stored on ``ScheduledJobRun.counts``."""
+
+    def n(key: str) -> int:
+        return int(stats.get(key) or 0)
+
+    email_attempted = n('email_processed')
+    email_succeeded = n('email_delivered')
+    email_failed = n('email_retried')
+    email_given_up = n('email_dead')
     return {
-        'webhook_deliveries_attempted': stats['processed'],
-        'webhook_deliveries_succeeded': stats['delivered'],
-        'webhook_deliveries_failed': stats['retried'],
-        'webhook_deliveries_given_up': stats['dead'],
+        'webhook_deliveries_attempted': n('processed') - email_attempted,
+        'webhook_deliveries_succeeded': n('delivered') - email_succeeded,
+        'webhook_deliveries_failed': n('retried') - email_failed,
+        'webhook_deliveries_given_up': n('dead') - email_given_up,
+        'email_events_attempted': email_attempted,
+        'email_events_succeeded': email_succeeded,
+        'email_events_failed': email_failed,
+        'email_events_given_up': email_given_up,
     }
 
 
 class Command(BaseCommand):
-    help = 'Retry pending or failed webhook outbox rows (every minute).'
+    help = (
+        'Retry pending or failed webhook and email-service outbox rows '
+        '(every minute when the in-container scheduler is running).'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(

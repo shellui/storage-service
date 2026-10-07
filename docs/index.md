@@ -36,7 +36,7 @@ identity-service signs people in and issues the Bearer JWT you send on API calls
 
 hosting-service stores deployment archives in its own filesystem or bucket. storage-service does not receive those archives and does not call hosting-service.
 
-storage-service does not send email. A share link is a URL you send yourself. Company owners attach HTTPS endpoints with Shellui Actions webhooks, and every storage event is stored in the event log. Mail stays with email-service and identity-service.
+storage-service does not send mail itself. When `EMAIL_SERVICE_API_KEY` is set, it forwards each storage event to email-service, which sends mail only after that company enables a rule. A share link is a URL you send yourself. Company owners attach HTTPS endpoints with Shellui Actions webhooks, and every storage event is stored in the event log.
 
 ## Upload and download flow
 
@@ -61,7 +61,9 @@ Staff and company owners change quotas and read Shellui Actions routes. Other me
 
 Provisioning the company bucket, uploading or overwriting a file, and deleting a file each write an event. Folder placeholder objects are omitted. Matching Shellui Actions webhook rules receive a signed POST. Delivery is at-least-once. The in-container `retry_webhooks` job retries failures. There is no separate actions service.
 
-The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7). storage-service does not email anyone when they happen.
+The same job retries the email-service forward. That body never includes a sign-in link or a token. Webhook envelopes stay the original event data. See [Email notifications](email.md).
+
+The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7).
 
 ## Configure and run
 
@@ -85,6 +87,7 @@ Pick the row that matches what you are doing:
 | Mount the bucket in a file client | [WebDAV](clients.md) |
 | See which JWT claims are trusted | [JWT and claim trust](authentication.md) |
 | Call an HTTPS endpoint on upload | [Webhooks](actions.md) and [n8n](n8n.md) |
+| Forward an event to email-service | [Email notifications](email.md) |
 | Read past storage events | [Event log](event-log.md) |
 | Lock down a production install | [Security hardening](security.md) |
 | See scheduled retries and retention | [Scheduled jobs](maintenance-jobs.md) |

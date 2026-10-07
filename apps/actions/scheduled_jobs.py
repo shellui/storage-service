@@ -100,6 +100,10 @@ RETRY_WEBHOOKS = JobSpec(
         'webhook_deliveries_succeeded',
         'webhook_deliveries_failed',
         'webhook_deliveries_given_up',
+        'email_events_attempted',
+        'email_events_succeeded',
+        'email_events_failed',
+        'email_events_given_up',
     ),
 )
 
@@ -111,6 +115,7 @@ PURGE_EXPIRED_DATA = JobSpec(
     item_kinds=(
         'events',
         'webhook_deliveries',
+        'email_events',
         'scheduled_job_runs',
     ),
     cron_minute=17,
@@ -238,8 +243,9 @@ class ScheduledJobFailed(CommandError):
     """
     Raised by the commands after a failed run was recorded and reported.
 
-    A ``CommandError``, so ``manage.py`` prints one line and exits with status 1 (cron
-    alerting works) without a second Sentry report from the uncaught-exception hook.
+    A ``CommandError``, so ``manage.py`` prints one line and exits with status 1 (an
+    external scheduler that alerts on a failed command still works) without a second
+    Sentry report from the uncaught-exception hook.
     """
 
     def __init__(self, run: ScheduledJobRun | None, message: str):
@@ -551,7 +557,7 @@ def compute_health(
     enabled: bool,
 ) -> str:
     """
-    ``disabled``: scheduler off and no run ever recorded (no cron set up yet).
+    ``disabled``: scheduler off and no run ever recorded (no external scheduler yet).
     ``failing``: the last finished run failed. ``overdue``: no success within the limit.
     """
     ever_ran = state.last_started_at is not None or last_finished is not None

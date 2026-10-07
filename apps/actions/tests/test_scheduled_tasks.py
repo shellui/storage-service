@@ -127,6 +127,7 @@ class ScheduledTaskTests(TestCase):
         purge.return_value = {
             'events': 3,
             'webhook_deliveries': 0,
+            'email_events': 0,
             'scheduled_job_runs': 0,
             'complete': True,
         }

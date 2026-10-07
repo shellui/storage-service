@@ -173,11 +173,20 @@ Webhooks do not need Redis. These variables tune delivery. The catalog and the a
 
 Staff can also set **allow private URLs** on one rule. Changing the URL clears that flag unless a superuser sets it again.
 
+## Email notifications
+
+Set `EMAIL_SERVICE_API_KEY` to forward storage events to email-service. An empty key sends nothing. The email body never includes a sign-in link or a token. Webhook delivery is unchanged. See [Email notifications](email.md).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EMAIL_SERVICE_URL` | `https://email.shellui.com` | Origin only. storage-service appends `/api/v1/events` |
+| `EMAIL_SERVICE_API_KEY` | empty | Service key (`esk_`). Empty disables forwarding |
+
 ## Event log
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `EVENT_LOG_RETENTION_DAYS` | `7` | Days to keep event-log rows and finished webhook deliveries. Values below 1 are treated as 1 |
+| `EVENT_LOG_RETENTION_DAYS` | `7` | Days to keep event-log rows and finished webhook and email deliveries. Values below 1 are treated as 1 |
 
 `purge_expired_data` deletes older rows every hour inside the container. See [Event log](event-log.md) and [Scheduled jobs](maintenance-jobs.md).
 

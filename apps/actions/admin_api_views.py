@@ -358,7 +358,7 @@ class ShellUIAdminActionDeliveryListView(_ActionsAdminBase):
             return Response({'error': 'Invalid page or page_size.'}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = (
-            ActionOutbox.objects.filter(company_id=company_id)
+            ActionOutbox.objects.filter(company_id=company_id, delivery_kind=ActionOutbox.KIND_WEBHOOK)
             .select_related('action_rule')
             .order_by('-created_at', '-id')
         )
@@ -437,7 +437,11 @@ class ShellUIAdminActionDeliveryDetailView(_ActionsAdminBase):
         if err:
             return err
         try:
-            row = ActionOutbox.objects.select_related('action_rule').get(pk=delivery_id, company_id=company_id)
+            row = ActionOutbox.objects.select_related('action_rule').get(
+                pk=delivery_id,
+                company_id=company_id,
+                delivery_kind=ActionOutbox.KIND_WEBHOOK,
+            )
         except ActionOutbox.DoesNotExist:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(_delivery_payload(row, include_attempts=True, staff=bool(getattr(actor, 'is_staff', False))))
@@ -456,7 +460,11 @@ class ShellUIAdminActionDeliveryRequeueView(_ActionsAdminBase):
         if err:
             return err
         try:
-            row = ActionOutbox.objects.select_related('action_rule').get(pk=delivery_id, company_id=company_id)
+            row = ActionOutbox.objects.select_related('action_rule').get(
+                pk=delivery_id,
+                company_id=company_id,
+                delivery_kind=ActionOutbox.KIND_WEBHOOK,
+            )
         except ActionOutbox.DoesNotExist:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         ActionOutbox.objects.filter(pk=row.pk).update(

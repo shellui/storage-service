@@ -29,7 +29,7 @@ Two indexes serve listing, the retention check, and the purge: `(company_id, cre
 
 Retention is one setting for the whole service: `EVENT_LOG_RETENTION_DAYS` (default 7). Values below 1 are treated as 1.
 
-The container runs `purge_expired_data` every hour, at minute 17, for at most 5 minutes. It deletes events older than the retention, together with delivered and dead webhook deliveries and scheduled job runs older than 7 days, in short batches:
+The container runs `purge_expired_data` every hour, at minute 17, for at most 5 minutes. It deletes events older than the retention, together with delivered and dead webhook deliveries, finished email-service rows, and scheduled job runs older than 7 days, in short batches:
 
 ```bash
 python manage.py purge_expired_data

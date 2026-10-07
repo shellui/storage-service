@@ -13,7 +13,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.actions.models import DeliveryAttempt, ScheduledJobRun
+from apps.actions.models import ActionOutbox, DeliveryAttempt, ScheduledJobRun
 from apps.actions.scheduled_jobs import JOBS, jobs_overview, run_payload
 from apps.actions.serializers import OpenAPISerializer
 from apps.authapi.permissions import IsAuthenticatedPrincipal
@@ -123,12 +123,12 @@ class ScheduledJobRunsView(APIView):
 @extend_schema_view(
     get=extend_schema(
         tags=['scheduled-jobs'],
-        summary='One scheduled job run with its webhook deliveries (staff)',
+        summary='One scheduled job run with its webhook deliveries and emails (staff)',
         description=(
-            f'`webhook_delivery_attempts`: attempts made by this run (at most {MAX_CORRELATED}), across '
-            f'companies. `webhook_delivery_attempts_truncated` is true when more exist. '
-            '`email_events` is always empty: storage-service does not post events to email-service. '
-            'The key is present so the admin panel can reuse the identity-service response shape.'
+            f'`webhook_delivery_attempts`: webhook attempts made by this run (at most {MAX_CORRELATED}), '
+            f'across companies. `email_events`: email-service outbox rows retried by this run '
+            f'(at most {MAX_CORRELATED}). `*_truncated` is true when more exist. '
+            'The keys match identity-service so the admin panel can reuse its scheduled jobs view.'
         ),
         operation_id='api_v1_scheduled_jobs_runs_retrieve',
         responses={200: OpenApiResponse(description='Run with correlated rows'), 404: OpenApiResponse(), **_STAFF_RESPONSES},
@@ -146,8 +146,19 @@ class ScheduledJobRunDetailView(APIView):
         if run is None:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         attempts = list(
-            DeliveryAttempt.objects.filter(scheduled_job_run_id=run.pk)
+            DeliveryAttempt.objects.filter(
+                scheduled_job_run_id=run.pk,
+                outbox__delivery_kind=ActionOutbox.KIND_WEBHOOK,
+            )
             .select_related('outbox')
+            .order_by('created_at', 'id')[: MAX_CORRELATED + 1]
+        )
+        emails = list(
+            ActionOutbox.objects.filter(
+                delivery_kind=ActionOutbox.KIND_EMAIL,
+                delivery_attempts__scheduled_job_run_id=run.pk,
+            )
+            .distinct()
             .order_by('created_at', 'id')[: MAX_CORRELATED + 1]
         )
         payload = run_payload(run)
@@ -167,6 +178,16 @@ class ScheduledJobRunDetailView(APIView):
             for a in attempts[:MAX_CORRELATED]
         ]
         payload['webhook_delivery_attempts_truncated'] = len(attempts) > MAX_CORRELATED
-        payload['email_events'] = []
-        payload['email_events_truncated'] = False
+        payload['email_events'] = [
+            {
+                'id': str(row.pk),
+                'company_id': row.company_id,
+                'event_type': row.event_type,
+                'status': row.status,
+                'attempt_count': row.attempt_count,
+                'delivered_at': row.delivered_at.isoformat() if row.delivered_at else None,
+            }
+            for row in emails[:MAX_CORRELATED]
+        ]
+        payload['email_events_truncated'] = len(emails) > MAX_CORRELATED
         return Response(payload)

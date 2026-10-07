@@ -56,12 +56,27 @@ class ActionOutbox(models.Model):
         (STATUS_DEAD, 'Dead'),
     ]
 
+    KIND_WEBHOOK = 'webhook'
+    KIND_EMAIL = 'email'
+    KIND_CHOICES = [
+        (KIND_WEBHOOK, 'Webhook'),
+        (KIND_EMAIL, 'Email'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company_id = models.PositiveIntegerField(db_index=True)
     action_rule = models.ForeignKey(
         ActionRule,
         on_delete=models.CASCADE,
         related_name='outbox_rows',
+        null=True,
+        blank=True,
+    )
+    delivery_kind = models.CharField(
+        max_length=16,
+        choices=KIND_CHOICES,
+        default=KIND_WEBHOOK,
+        db_index=True,
     )
     event_type = models.CharField(max_length=128)
     envelope = models.JSONField()
@@ -88,7 +103,8 @@ class ActionOutbox(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f'{self.event_type} → rule {self.action_rule_id} ({self.status})'
+        target = self.action_rule_id if self.action_rule_id else self.delivery_kind
+        return f'{self.event_type} → {target} ({self.status})'
 
 
 class DeliveryAttempt(models.Model):

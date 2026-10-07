@@ -1,7 +1,7 @@
 """
 Prometheus metrics for the scheduled jobs, served by ``GET /storage/v1/metrics/all`` only.
 
-Runs happen in the Celery worker or a cron process, not in gunicorn, so values are read
+Runs happen in the Celery worker or an external scheduler, not in gunicorn, so values are read
 from the database at scrape time (``ScheduledJobCounter``, ``ScheduledJobState``) instead
 of in-process counters. A dedicated registry keeps them out of the company-scoped
 ``GET /storage/v1/metrics``. Labels: ``job``, ``status`` and ``kind`` only (low cardinality).

@@ -190,7 +190,7 @@ class PurgeExpiredDataTests(TestCase):
         out = StringIO()
         call_command('purge_expired_data', stdout=out)
         self.assertIn(
-            'deleted events=1 webhook_deliveries=1 scheduled_job_runs=0 complete=true',
+            'deleted events=1 webhook_deliveries=1 email_events=0 scheduled_job_runs=0 complete=true',
             out.getvalue(),
         )
 

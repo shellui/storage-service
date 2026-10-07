@@ -6,7 +6,7 @@ description: Shellui Actions webhook rules for storage events, the admin API, si
 
 Company owners and staff can POST a signed JSON body to an HTTPS endpoint when a storage event happens. Each Shellui Actions rule maps one catalog event, such as `storage.object.uploaded`, to one webhook URL.
 
-storage-service delivers those webhooks itself. There is no central actions service and no message bus.
+storage-service delivers those webhooks itself. There is no central actions service and no message bus. When `EMAIL_SERVICE_API_KEY` is set, the same event is also forwarded to email-service. That forward is not a webhook rule. See [Email notifications](email.md).
 
 ## How a delivery runs
 
@@ -88,7 +88,7 @@ Backoff is `30s * 2^(n-1)`, capped at 1 hour, with at most 8 attempts (`ACTIONS_
 | 5xx, timeouts, connection errors | Yes |
 | 429 or 503 with `Retry-After` | Yes. The delay is the larger of the backoff and `Retry-After`, still capped at 1 hour |
 
-The container runs `retry_webhooks` every minute when `REDIS_URL` is set and `SCHEDULER_ENABLED` is true (the default). Each attempt stores `trigger` (`dispatch` or `automatic_retry`). Staff also see `scheduled_job_run_id`. Retries from that job send `X-Request-ID: sjr-{run_id}`.
+The container runs `retry_webhooks` every minute when `REDIS_URL` is set and `SCHEDULER_ENABLED` is true (the default). That job retries webhook deliveries and email-service posts. Each attempt stores `trigger` (`dispatch` or `automatic_retry`). Staff also see `scheduled_job_run_id`. Retries from that job send `X-Request-ID: sjr-{run_id}` on the webhook and on the email-service post.
 
 ```bash
 python manage.py retry_webhooks --batch-size 50 --max-seconds 50 --concurrency 4

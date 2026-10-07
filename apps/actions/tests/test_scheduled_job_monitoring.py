@@ -112,6 +112,10 @@ class RunRecordingTests(TestCase):
                 'webhook_deliveries_succeeded': 1,
                 'webhook_deliveries_failed': 1,
                 'webhook_deliveries_given_up': 1,
+                'email_events_attempted': 0,
+                'email_events_succeeded': 0,
+                'email_events_failed': 0,
+                'email_events_given_up': 0,
             },
         )
         self.assertEqual(retry.call_args.kwargs['scheduled_job_run_id'], run.pk)
@@ -135,6 +139,7 @@ class RunRecordingTests(TestCase):
         purge.return_value = {
             'events': 2,
             'webhook_deliveries': 1,
+            'email_events': 0,
             'scheduled_job_runs': 4,
             'complete': True,
         }
@@ -456,7 +461,27 @@ class StaffApiTests(TestCase):
         self.assertEqual(len(data['webhook_delivery_attempts']), 1)
         self.assertEqual(data['webhook_delivery_attempts'][0]['delivery_id'], str(outbox.pk))
         self.assertEqual(data['webhook_delivery_attempts'][0]['company_id'], 10)
-        self.assertEqual(data['email_events'], [])
+        email = ActionOutbox.objects.create(
+            company_id=10,
+            delivery_kind=ActionOutbox.KIND_EMAIL,
+            event_type='storage.object.uploaded',
+            envelope={'event_type': 'storage.object.uploaded'},
+            status=ActionOutbox.STATUS_DELIVERED,
+            attempt_count=1,
+            delivered_at=timezone.now(),
+        )
+        DeliveryAttempt.objects.create(
+            outbox=email,
+            status='success',
+            attempt_number=1,
+            trigger='automatic_retry',
+            scheduled_job_run_id=self.run.pk,
+        )
+        data = self.client.get(f'/api/v1/scheduled-jobs/runs/{self.run.pk}', **self._auth(staff=True)).json()
+        self.assertEqual(len(data['email_events']), 1)
+        self.assertEqual(data['email_events'][0]['id'], str(email.pk))
+        self.assertEqual(data['email_events'][0]['status'], 'delivered')
+        self.assertEqual(data['email_events'][0]['event_type'], 'storage.object.uploaded')
         self.assertFalse(data['email_events_truncated'])
         self.assertFalse(data['webhook_delivery_attempts_truncated'])
 
@@ -601,3 +626,35 @@ class DeliveryCorrelationTests(TestCase):
         attempt = DeliveryAttempt.objects.get(outbox=second)
         self.assertEqual((attempt.trigger, attempt.scheduled_job_run_id), ('automatic_retry', 77))
         self.assertEqual(post.call_args.kwargs['headers']['X-Request-ID'], 'sjr-77')
+
+    @override_settings(
+        EMAIL_SERVICE_API_KEY='esk_test_storage_email_key',  # gitleaks:allow
+        EMAIL_SERVICE_URL='https://email.shellui.com',
+    )
+    @mock.patch('apps.actions.email_service.requests.post')
+    def test_email_retry_carries_run_id_and_request_id_header(self, post):
+        response = mock.Mock(status_code=202, headers={})
+        response.json.return_value = {'rule_enabled': True, 'messages': []}
+        response.text = ''
+        response.close.return_value = None
+        post.return_value = response
+        row = ActionOutbox.objects.create(
+            company_id=10,
+            delivery_kind=ActionOutbox.KIND_EMAIL,
+            event_type='storage.object.uploaded',
+            envelope={'event_type': 'storage.object.uploaded', 'idempotency_key': 'k1', 'service': 'storage'},
+            status=ActionOutbox.STATUS_FAILED,
+            next_attempt_at=timezone.now(),
+        )
+        token = request_id_var.set('sjr-88')
+        try:
+            stats = retry_pending_webhooks(concurrency=1, max_seconds=5, scheduled_job_run_id=88)
+        finally:
+            request_id_var.reset(token)
+        row.refresh_from_db()
+        self.assertEqual(stats['email_delivered'], 1)
+        self.assertEqual(stats['delivered'], 1)
+        attempt = DeliveryAttempt.objects.get(outbox=row)
+        self.assertEqual((attempt.trigger, attempt.scheduled_job_run_id), ('automatic_retry', 88))
+        self.assertEqual(post.call_args.kwargs['headers']['X-Request-ID'], 'sjr-88')
+        self.assertNotIn('esk_test_storage_email_key', str(post.call_args.kwargs.get('data') or ''))

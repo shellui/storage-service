@@ -19,7 +19,8 @@ _FINISHED_DELIVERY = Q(status__in=(ActionOutbox.STATUS_DELIVERED, ActionOutbox.S
 
 _PURGE_TARGETS: tuple[tuple[str, type[Model], Q], ...] = (
     ('events', EventLog, Q()),
-    ('webhook_deliveries', ActionOutbox, _FINISHED_DELIVERY),
+    ('webhook_deliveries', ActionOutbox, _FINISHED_DELIVERY & Q(delivery_kind=ActionOutbox.KIND_WEBHOOK)),
+    ('email_events', ActionOutbox, _FINISHED_DELIVERY & Q(delivery_kind=ActionOutbox.KIND_EMAIL)),
 )
 
 
@@ -72,7 +73,7 @@ def purge_expired_data(
     now: datetime | None = None,
 ) -> dict:
     """
-    Delete event log rows and finished webhook deliveries older than ``EVENT_LOG_RETENTION_DAYS``.
+    Delete event log rows and finished webhook and email deliveries older than ``EVENT_LOG_RETENTION_DAYS``.
 
     Returns per-target counts and ``complete=False`` when ``max_seconds`` ran out first
     (the next run picks up where this one stopped).

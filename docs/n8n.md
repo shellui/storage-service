@@ -6,6 +6,8 @@ description: Receive storage webhooks in n8n, verify the signature, and handle r
 
 Shellui storage can POST signed JSON to an n8n **Webhook** node when a storage event fires. The signing format matches identity-service and hosting-service Shellui Actions.
 
+Webhook rules do not send mail. Mail is a separate forward to email-service, described in [Email notifications](email.md), and it uses the same `retry_webhooks` command.
+
 ## Checklist
 
 1. Add a **Webhook** node (POST). Set **Respond** to **Immediately** so Shellui gets a 2xx before the workflow finishes.

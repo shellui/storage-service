@@ -241,6 +241,8 @@ First superuser: run `python manage.py createsuperuser` inside the container (or
 | `SENTRY_DSN`            | Sentry error reporting.                                               |
 | `SENTRY_ENVIRONMENT`    | e.g. `staging`, `production`.                                         |
 | `LOG_LEVEL`             | `DEBUG`, `INFO`, `WARNING`, … (default `DEBUG` when `DEBUG=true`, else `INFO`). |
+| `EMAIL_SERVICE_URL`     | email-service origin. Default `https://email.shellui.com`. No path. |
+| `EMAIL_SERVICE_API_KEY` | `esk_` service key. Empty disables event forwarding. |
 | `SETUP_TOKEN`           | One-time token for web superuser bootstrap when `DEBUG=false`; prefer `createsuperuser`. |
 
 With Postgres:

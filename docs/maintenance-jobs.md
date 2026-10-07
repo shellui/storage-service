@@ -1,5 +1,5 @@
 ---
-description: The two scheduled jobs storage-service runs - webhook retries and data purge - how the container runs them, and how to monitor them.
+description: How storage-service runs webhook retries, email-service retries, and data retention inside the container, and how to watch those jobs.
 ---
 
 # Scheduled jobs
@@ -8,8 +8,8 @@ storage-service runs two maintenance jobs on a schedule. The Docker image runs t
 
 | Job | Schedule | What happens if it never runs |
 | --- | --- | --- |
-| `purge_expired_data` | Every hour, at minute 17, for at most 5 minutes | The event log and finished webhook deliveries increase without a limit. `GET /api/v1/actions/event-log/retention` reports `stale_events` once events are more than one day past retention |
-| `retry_webhooks` | Every minute | Failed [webhook](actions.md) deliveries are never retried. The first attempt still goes out right after each event |
+| `purge_expired_data` | Every hour, at minute 17, for at most 5 minutes | The event log and finished webhook and email deliveries increase without a limit. `GET /api/v1/actions/event-log/retention` reports `stale_events` once events are more than one day past retention |
+| `retry_webhooks` | Every minute | Failed [webhook](actions.md) deliveries and [email-service](email.md) posts are never retried. The first attempt still goes out right after each event |
 
 Both jobs are safe to run when there is nothing to do: they finish after one or two indexed queries.
 
@@ -75,14 +75,23 @@ The web container runs migrations. The worker needs the same database. With SQLi
 
 ### Turn the in-container scheduler off
 
-Set `SCHEDULER_ENABLED=false` and run the management commands from any scheduler, with the same image, environment variables and database as the web service. Examples are in [Run the commands yourself](#run-the-commands-yourself).
+Set `SCHEDULER_ENABLED=false` and run the management commands from your own scheduler, with the same image, environment variables, and database as the web service.
+
+- `retry_webhooks` every minute
+- `purge_expired_data --max-seconds 300` every hour, at minute 17
+
+```bash
+python manage.py retry_webhooks
+python manage.py purge_expired_data --max-seconds 300
+```
 
 ## `purge_expired_data`
 
 Deletes rows older than `EVENT_LOG_RETENTION_DAYS` (default **7 days**):
 
 - [event log](event-log.md) rows, including staff-only platform events that have no company
-- finished webhook deliveries (`delivered` or `dead`) with their delivery attempts. `pending` and `failed` rows are kept so retries continue
+- finished webhook deliveries (`delivered` or `dead`) and their attempts. `pending` and `failed` rows stay so retries continue
+- finished email-service outbox rows, on the same rule
 - [scheduled job runs](#monitoring) older than 7 days
 
 ```bash
@@ -100,7 +109,7 @@ python manage.py purge_expired_data --max-seconds 300
 Output example:
 
 ```text
-purge_expired_data: deleted events=1840 webhook_deliveries=12 scheduled_job_runs=168 complete=true run_id=1235
+purge_expired_data: deleted events=1840 webhook_deliveries=12 email_events=3 scheduled_job_runs=168 complete=true run_id=1235
 ```
 
 The hourly schedule keeps each delete small, so retention stays within about an hour of the setting and a missed run is caught by the next one. Minute 17 stays off the top of the hour, where many jobs start.
@@ -109,7 +118,7 @@ When the oldest event of a company is older than **retention + 1 day**, `GET /ap
 
 ## `retry_webhooks`
 
-Retries webhook deliveries whose first attempt failed, with exponential backoff (details in [Webhooks](actions.md)).
+Retries webhook deliveries whose first attempt failed, and email-service posts in the same pass. Backoff is in [Webhooks](actions.md) and [Email notifications](email.md).
 
 ```bash
 python manage.py retry_webhooks
@@ -118,59 +127,7 @@ python manage.py retry_webhooks --batch-size 50 --max-seconds 50 --concurrency 4
 
 Keep `--max-seconds` (default 50) under 60 so a run finishes before the next one starts. Overlapping runs are still safe: rows are claimed with skip-locked leases, and the Redis lock stops a second container from starting the same job.
 
-While a run is in progress, webhook POSTs from that run include `X-Request-ID: sjr-{run_id}`, the same id as `[req=sjr-{run_id}]` on storage log lines.
-
-## Run the commands yourself
-
-Only needed with `SCHEDULER_ENABLED=false`, or with `DEBUG=true` and no Redis. Run the commands with the **same image, environment variables and database** as the web service.
-
-```text
-17 * * * * cd /app && python manage.py purge_expired_data --max-seconds 300
-*  * * * * cd /app && python manage.py retry_webhooks
-```
-
-### Coolify
-
-Set `SCHEDULER_ENABLED=false`, then on the storage-service resource open **Scheduled Tasks** and add:
-
-| Name | Command | Frequency |
-| --- | --- | --- |
-| Purge expired data | `python manage.py purge_expired_data --max-seconds 300` | `17 * * * *` |
-| Retry webhooks | `python manage.py retry_webhooks` | `* * * * *` |
-
-### Docker Compose (host crontab)
-
-```text
-17 * * * * cd /srv/storage-service && docker compose exec -T -u appuser storage-service python manage.py purge_expired_data --max-seconds 300
-*  * * * * cd /srv/storage-service && docker compose exec -T -u appuser storage-service python manage.py retry_webhooks
-```
-
-### Kubernetes
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: storage-purge-expired-data
-spec:
-  schedule: "17 * * * *"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      backoffLimit: 0
-      template:
-        spec:
-          restartPolicy: Never
-          containers:
-            - name: purge
-              image: shellui/storage-service:latest
-              command: ["python", "manage.py", "purge_expired_data", "--max-seconds", "300"]
-              envFrom:
-                - secretRef:
-                    name: storage-service-env
-```
-
-Use the same pattern with `schedule: "* * * * *"` and `["python", "manage.py", "retry_webhooks"]` for webhook retries. On Kubernetes you can also run a `worker` Deployment instead of CronJobs.
+While a run is in progress, webhook POSTs and email-service posts from that run include `X-Request-ID: sjr-{run_id}`, the same id as `[req=sjr-{run_id}]` on storage log lines.
 
 ## Monitoring
 
@@ -191,9 +148,9 @@ The management command records its own run, so the Celery path and an external s
 | `host` | Host name and process id |
 | `event_log_id` | The platform event written for this run |
 
-`counts` for `retry_webhooks`: `webhook_deliveries_attempted`, `webhook_deliveries_succeeded`, `webhook_deliveries_failed` (will be retried), `webhook_deliveries_given_up` (now `dead`).
+`counts` for `retry_webhooks`: `webhook_deliveries_attempted`, `webhook_deliveries_succeeded`, `webhook_deliveries_failed` (will be retried), `webhook_deliveries_given_up` (now `dead`), and the same four with the `email_events_` prefix.
 
-`counts` for `purge_expired_data`: rows deleted per type (`events`, `webhook_deliveries`, `scheduled_job_runs`) and `complete` (false when `--max-seconds` ran out).
+`counts` for `purge_expired_data`: rows deleted (`events`, `webhook_deliveries`, `email_events`, `scheduled_job_runs`) and `complete` (false when `--max-seconds` ran out).
 
 Some runs are not stored:
 
@@ -227,26 +184,25 @@ Two more signals cover the scheduler itself:
 
 ### Admin API (staff only)
 
-The endpoints use the same Bearer JWT as other admin endpoints. They need Django `is_staff`: other callers get `403`, including company owners, and calls without a token get `401`. No `company_id` is needed. Responses contain keys and enums only (`health`, `status`, `error_key`, count names), which the admin panel translates. The shape matches identity-service, including empty `email_events` lists, so the same panel can read storage-service.
+The endpoints use the same Bearer JWT as other admin endpoints. They need Django `is_staff`: other callers get `403`, including company owners, and calls without a token get `401`. No `company_id` is needed. Responses contain keys and enums only (`health`, `status`, `error_key`, count names), which the admin panel translates. The shape matches identity-service, including `email_events` on a run, so the same panel can read storage-service.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/scheduled-jobs` | `scheduler_enabled`, `redis_reachable`, `beat_last_seen_at`, `beat_stale`, and per job: `health`, `overdue`, `last_run`, `last_success_at`, `last_failure_at`, `last_skipped_at`, `last_duration_ms`, `last_counts`, `next_expected_at`, `last_24h`, `skipped_locked_total` |
 | `GET` | `/api/v1/scheduled-jobs/{job}/runs?limit=20&status=failed` | Recent runs, newest first. `limit` 1 to 100, `status` optional |
-| `GET` | `/api/v1/scheduled-jobs/runs/{id}` | One run with the webhook delivery attempts it made |
+| `GET` | `/api/v1/scheduled-jobs/runs/{id}` | One run, the webhook attempts it made, and the email-service rows it retried (`email_events`) |
 | `GET` | `/api/v1/actions/event-log?scope=platform` | The platform events of the runs (see [Event log](event-log.md#platform-events-staff-only)) |
 
-### From a run to its webhooks
+### From a run to its webhooks and emails
 
-Every webhook delivery attempt stores a `trigger` and, for retries, the run that made it:
+Every delivery attempt stores a `trigger`:
 
-- `trigger=dispatch`: the first try, right after the event
-- `trigger=automatic_retry`: a `retry_webhooks` run, with `scheduled_job_run_id`
+- `dispatch`: the first try, right after the event
+- `automatic_retry`: a `retry_webhooks` run, with `scheduled_job_run_id`
 
-Staff can go both ways:
+While a job runs, storage-service sends `X-Request-ID: sjr-{run_id}` on webhook POSTs and on email-service `POST /api/v1/events`. Log lines for that run use the same request id.
 
-- run to deliveries: `GET /api/v1/scheduled-jobs/runs/{id}` lists the attempts of every company, and `GET /api/v1/actions/deliveries?scheduled_job_run_id={id}` filters the delivery log of the token company
-- delivery to run: each attempt in `GET /api/v1/actions/deliveries/{id}` has `scheduled_job_run_id` for staff
+Staff can open `GET /api/v1/scheduled-jobs/runs/{id}` for the attempts (every company) and the email rows. `GET /api/v1/actions/deliveries?scheduled_job_run_id={id}` lists webhook deliveries of the token company that this run touched. Each attempt on `GET /api/v1/actions/deliveries/{id}` includes `scheduled_job_run_id` for staff.
 
 Company owners see `trigger` on their own delivery attempts, so they know a retry was automatic, and they never see `scheduled_job_run_id` or any run detail. Filtering by `scheduled_job_run_id` as an owner returns `403`.
 
@@ -314,4 +270,5 @@ The overdue alert covers a stopped beat, a stuck worker and a missing external s
 
 - [Event log](event-log.md)
 - [Webhooks](actions.md)
+- [Email notifications](email.md)
 - [Configuration](configuration.md)

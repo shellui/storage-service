@@ -8,7 +8,7 @@ It authenticates with JWTs issued by [identity-service](https://github.com/shell
 
 The handbook is in [`docs/`](docs/index.md). It is published on [docs.shellui.com](https://docs.shellui.com) at `docs.shellui.com/storage`.
 
-Start with the [overview](docs/index.md), then [Run storage-service](docs/getting-started.md) and [Configuration](docs/configuration.md). Buckets, access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, the event log, security, maintenance jobs, and the API each have a page in that sidebar.
+Start with the [overview](docs/index.md), then [Run storage-service](docs/getting-started.md) and [Configuration](docs/configuration.md). Buckets, access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, email notifications, the event log, security, maintenance jobs, and the API each have a page in that sidebar.
 
 [shellui/shellui](https://github.com/shellui/shellui) builds the published site from this `docs/` folder. To preview it, clone `shellui` next to this repository, then run `pnpm install` and `DOCS_SERVICES=storage pnpm docs:start` in `../shellui`. See [Build the docs site](https://github.com/shellui/shellui/blob/main/docs/docs-site.md). The **Docs build** job runs that build on every pull request.
 
@@ -27,6 +27,7 @@ Start with the [overview](docs/index.md), then [Run storage-service](docs/gettin
 - Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
 - OpenAPI docs (Swagger + ReDoc) and a simple home page
 - Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
+- **Email notifications** for the same `storage.*` events, forwarded to email-service when `EMAIL_SERVICE_API_KEY` is set. The email body omits sign-in links and tokens. See [`docs/email.md`](docs/email.md).
 - CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`, credentials off); auth is Bearer JWT — multi-tenant preview origins work without per-slug env lists (see [docs/security.md](docs/security.md))
 
 ## Project structure
@@ -34,7 +35,7 @@ Start with the [overview](docs/index.md), then [Run storage-service](docs/gettin
 - `config/` — Django settings and URL routing
 - `apps/authapi/` — JWKS JWT authentication
 - `apps/storage/` — buckets, objects, quotas, downloads, signals
-- `apps/actions/` — Shellui Actions webhook outbox and admin API
+- `apps/actions/` - Shellui Actions webhook outbox, email-service forwards, and admin API
 - `apps/webdav/` — WebDAV connector
 - `docs/`: handbook pages for docs.shellui.com/storage
 
@@ -158,7 +159,7 @@ Default host port: `8001`.
 
 Runtime env vars include `SECRET_KEY`, identity JWKS settings, and **`REDIS_URL`**. Redis is required when `DEBUG=false`: the container exits 1 without it, and `manage.py check --deploy` reports `authapi.E004`. With `DEBUG=true` and no Redis, Django uses in-process LocMem and the scheduled jobs do not start. Compose starts a Redis service and defaults `REDIS_URL` to `redis://redis:6379/0`.
 
-The image runs `retry_webhooks` every minute and `purge_expired_data` hourly (minute 17) in a Celery worker next to Gunicorn. Set `SCHEDULER_ENABLED=false` only when a separate `worker` container or your own scheduler runs those commands. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md).
+The image runs `retry_webhooks` every minute and `purge_expired_data` hourly (minute 17) in a Celery worker next to Gunicorn. `retry_webhooks` retries webhook deliveries and email-service posts. Set `SCHEDULER_ENABLED=false` only when a separate `worker` container or your own scheduler runs those commands. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md) and [docs/email.md](docs/email.md).
 
 Webhook signing and the n8n workflow are in [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md). The event log is in [docs/event-log.md](docs/event-log.md).
 

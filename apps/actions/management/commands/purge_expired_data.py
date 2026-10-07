@@ -11,8 +11,8 @@ JOB = 'purge_expired_data'
 
 class Command(BaseCommand):
     help = (
-        'Delete event log rows, finished webhook deliveries and old scheduled job runs '
-        'past EVENT_LOG_RETENTION_DAYS (every hour).'
+        'Delete event log rows, finished webhook and email deliveries, and old scheduled job runs '
+        'past EVENT_LOG_RETENTION_DAYS (hourly when the in-container scheduler is running).'
     )
 
     def add_arguments(self, parser):
@@ -63,6 +63,7 @@ class Command(BaseCommand):
                 f'purge_expired_data: {verb} '
                 f"events={stats['events']} "
                 f"webhook_deliveries={stats['webhook_deliveries']} "
+                f"email_events={stats['email_events']} "
                 f"scheduled_job_runs={stats['scheduled_job_runs']} "
                 f"complete={str(stats['complete']).lower()}"
                 + (f' run_id={run_id}' if run_id else '')
