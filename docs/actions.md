@@ -1,72 +1,99 @@
-# Shellui Actions (outbound webhooks)
+---
+description: Shellui Actions webhook rules for storage events, the admin API, signing, and retries.
+---
 
-Company owners and Django staff can configure **webhook Shellui Actions rules** that fire when storage domain events occur. Rules are managed through the **Shellui admin API** at `/api/v1/actions/*` (same JWT and `company_id` query pattern as identity-service).
+# Storage webhooks
 
-Storage-service delivers webhooks directly from its own database outbox. There is no central actions service, message bus, or Celery worker.
+Company owners and staff can POST a signed JSON body to an HTTPS endpoint when a storage event happens. Each Shellui Actions rule maps one catalog event, such as `storage.object.uploaded`, to one webhook URL.
 
-The same outbox forwards events to email-service when `EMAIL_SERVICE_API_KEY` is set. That path is not a webhook rule. See [email.md](email.md).
+storage-service delivers those webhooks itself. There is no central actions service and no message bus. When `EMAIL_SERVICE_API_KEY` is set, the same event is also forwarded to email-service. That forward is not a webhook rule. See [Email notifications](email.md).
 
-For **n8n**, see [n8n.md](n8n.md).
+## How a delivery runs
 
-## Event catalog (`storage.*`)
+Domain code calls `emit_event` inside the database transaction that changed the object:
+
+1. The event is written to the [event log](event-log.md), whether or not a rule matches.
+2. Each enabled webhook rule for that company and event type gets an outbox row in the same transaction.
+3. After commit, a background thread POSTs the envelope. The API response does not wait for your server.
+4. Each try is stored as a delivery attempt. Further tries come from the `retry_webhooks` scheduled job.
+
+The first POST does not need Redis. The default HTTP timeout is 5s (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`). Delivery is at-least-once. Retries reuse the envelope `id`, which is also the `webhook-id` header. Dedupe on that value.
+
+Post-commit dispatch uses `ACTIONS_WEBHOOK_DISPATCH_WORKERS` threads (default 4). A WebDAV sync can emit many `storage.object.uploaded` events close together. Order is not guaranteed.
+
+The n8n setup, including a signature check, is in [n8n](n8n.md). The retry job is in [Scheduled jobs](maintenance-jobs.md).
+
+## Event catalog
+
+Payloads carry object metadata. They do not include file bytes, pre-signed URLs, or storage backend keys. Folder placeholder objects (`.emptyFolderPlaceholder`) do not emit upload or delete events.
 
 | Event type | When it fires |
-| ---------- | ------------- |
-| `storage.bucket.created` | The system company bucket is provisioned for a company |
-| `storage.object.uploaded` | A file is uploaded or overwritten (REST or WebDAV). Folder placeholders are omitted. |
-| `storage.object.deleted` | An object and its blob are removed |
+| --- | --- |
+| `storage.bucket.created` | The company bucket is created on first use. The actor is the caller who triggered that request |
+| `storage.object.uploaded` | A file is uploaded or overwritten (REST, WebDAV, or an internal write). `created` is false on overwrite |
+| `storage.object.deleted` | An object row and its blob are removed, including a delete from Django admin |
 
-Payloads include object metadata only. They never include file contents, presigned URLs, or storage backend keys.
+The body is UTF-8 JSON with sorted keys and non-ASCII characters left as characters (`ensure_ascii=false`). Verify the signature over the raw body bytes, not over a re-serialized object.
 
-## Signing and body
+Extra headers: `X-Shellui-Event`, `X-Shellui-Delivery-Attempt`. Signing secrets are plain text or Standard Webhooks `whsec_` plus base64. Shellui decodes the `whsec_` suffix and uses those bytes as the HMAC key.
 
-- JSON body: UTF-8, compact keys, `ensure_ascii=False` (non-ASCII paths such as `résumé.pdf` stay unescaped).
-- Verifiers must HMAC the **raw request body bytes**.
-- Signing secret: plain string or Standard Webhooks `whsec_<base64>` (base64 decodes to the HMAC key). New rules can omit `secret` on create to auto-generate `whsec_…`. The plaintext `secret` is returned **only** on `POST /api/v1/actions/rules` (create) and `POST /api/v1/actions/rules/<id>/rotate-secret`. Other responses expose `config.has_secret` and `config.secret_hint` (last four characters).
-- Headers: `webhook-id` (stable across retries), `webhook-timestamp`, `webhook-signature` (`v1,<base64>`), `X-Shellui-Event`, `X-Shellui-Delivery-Attempt`.
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "storage.object.uploaded",
+  "time": "2026-10-06T08:00:00+00:00",
+  "company": {"id": 10, "slug": "", "name": ""},
+  "data": {
+    "object_id": "660e8400-e29b-41d4-a716-446655440001",
+    "bucket_name": "company",
+    "bucket_kind": "company",
+    "path": "docs/report.pdf",
+    "size": 4096,
+    "mime_type": "application/pdf",
+    "version": 1,
+    "created": true
+  }
+}
+```
 
-Default webhook HTTP timeout: **5 seconds** (`ACTIONS_WEBHOOK_TIMEOUT_SECONDS`).
+`company.slug` and `company.name` are empty. storage-service has no company table, so the envelope carries the numeric id only. When the request had an authenticated user, the envelope also includes `actor` with `user_id` and, when present, `email` and `username`.
+
+The `id` above is a sample. A real delivery uses a new id, and the same id again on every retry of that delivery.
+
+## Admin API
+
+Paths match identity-service. Authorize with a Bearer JWT. Staff may pass any `company_id` query parameter. Company owners may omit it, and the token `company_id` is used. Another company returns 403. Anyone else receives 403.
+
+- `GET /api/v1/actions/events`: catalog, including a `sample_envelope` for each type
+- `GET` and `POST /api/v1/actions/rules`: list or create webhook rules. Create returns `secret` once when one was generated
+- `GET`, `PATCH`, and `DELETE /api/v1/actions/rules/{id}`
+- `POST /api/v1/actions/rules/{id}/rotate-secret`: new signing secret, returned once
+- `POST /api/v1/actions/rules/{id}/send-test`
+- `GET /api/v1/actions/deliveries`: paginated delivery log
+- `GET /api/v1/actions/deliveries/{uuid}`: one delivery and its attempts
+- `POST /api/v1/actions/deliveries/{uuid}/requeue`
+
+Later reads of a rule expose `has_secret` and `secret_hint` (the last four characters), not the secret. Omit `secret` on create and storage-service generates a `whsec_` value.
 
 ## Retries
 
-After each commit, the service attempts delivery once off the request thread. Failed rows retry with backoff **30s × 2^(attempt−1)**, capped at **1 hour**, up to **8** attempts, then status **`dead`**.
+Backoff is `30s * 2^(n-1)`, capped at 1 hour, with at most 8 attempts (`ACTIONS_OUTBOX_MAX_ATTEMPTS`).
 
-| HTTP result | Behavior |
-| ----------- | -------- |
-| 2xx | Delivered |
-| 404, 408, 409, 425, 429, other retryable 4xx, 5xx, timeouts, connection errors | Retry |
-| 400, 401, 403, 405, 410, 413, 422 | Dead (no retry) |
-| 429 / 503 with `Retry-After` | Next attempt uses `Retry-After` (capped at 1h) |
+| Result | Retry? |
+| --- | --- |
+| 2xx | No. The delivery is delivered |
+| 404, 408, 409, 425, 429 | Yes. 404 covers an inactive n8n workflow |
+| 400, 401, 403, 405, 410, 413, 422 | No. The delivery is dead |
+| Other 4xx | Yes |
+| 5xx, timeouts, connection errors | Yes |
+| 429 or 503 with `Retry-After` | Yes. The delay is the larger of the backoff and `Retry-After`, still capped at 1 hour |
 
-Post-commit dispatch is bounded by `ACTIONS_WEBHOOK_DISPATCH_WORKERS` (default 4). Large WebDAV syncs can emit many events; delivery is at-least-once with no ordering guarantee (see [n8n.md](n8n.md)).
+The container runs `retry_webhooks` every minute when `REDIS_URL` is set and `SCHEDULER_ENABLED` is true (the default). That job retries webhook deliveries and email-service posts. Each attempt stores `trigger` (`dispatch` or `automatic_retry`). Staff also see `scheduled_job_run_id`. Retries from that job send `X-Request-ID: sjr-{run_id}` on the webhook and on the email-service post.
 
-Run a cron job every minute. It retries webhook deliveries and email-service forwards:
-
-```cron
-* * * * * python manage.py retry_webhooks
+```bash
+python manage.py retry_webhooks --batch-size 50 --max-seconds 50 --concurrency 4
 ```
 
-Options: `--batch-size 50`, `--max-seconds 50`, `--concurrency 4`, `--dry-run`.
+Delivered and dead deliveries are deleted after `EVENT_LOG_RETENTION_DAYS` by `purge_expired_data`. To run the commands yourself, set `SCHEDULER_ENABLED=false`. See [Scheduled jobs](maintenance-jobs.md).
 
-Delivered and dead deliveries are deleted after `EVENT_LOG_RETENTION_DAYS` by the hourly `purge_expired_data` job (see [event-log.md](event-log.md#retention)).
-
-## Event log
-
-Every catalog event is also stored in the event log, with or without a matching rule. See [event-log.md](event-log.md).
-
-## Admin REST API
-
-| Method | Path |
-| ------ | ---- |
-| `GET` | `/api/v1/actions/events` |
-| `GET` / `POST` | `/api/v1/actions/rules` |
-| `GET` / `PATCH` / `DELETE` | `/api/v1/actions/rules/<id>` |
-| `POST` | `/api/v1/actions/rules/<id>/send-test` |
-| `POST` | `/api/v1/actions/rules/<id>/rotate-secret` |
-| `GET` | `/api/v1/actions/deliveries` |
-| `GET` | `/api/v1/actions/deliveries/<uuid>` |
-| `POST` | `/api/v1/actions/deliveries/<uuid>/requeue` |
-
-Auth: Bearer JWT from identity-service. Callers must be staff or company owner. Pass `company_id` as a query parameter (defaults to the token `company_id` for owners).
-
-See identity-service [actions.md](https://github.com/shellui/identity-service/blob/develop/docs/actions.md) for shared envelope conventions.
+Webhook URLs that resolve to a private or loopback address are blocked unless the rule has **allow private URLs** (staff) or `ACTIONS_WEBHOOK_ALLOW_PRIVATE` is true. When that variable is unset, it stays false, including while `DEBUG=true`. Changing a rule URL clears **allow private URLs** unless a superuser sets it again.

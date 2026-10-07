@@ -30,11 +30,12 @@ exclude = [
   '^https?://id\.example(/|$)',
   # Angle-bracket placeholders in docs tables
   '^https?://<',
+  # Service pages on docs.shellui.com go live when shellui/shellui deploys the
+  # central docs site. Until then the Docs build job in ci.yml builds these pages.
+  '^https://docs\.shellui\.com/(identity|storage|hosting|email)(/|$)',
 ]
 
 exclude_path = [
-  'tools/docusaurus/build',
-  'tools/docusaurus/node_modules',
   '\.venv',
 ]
 

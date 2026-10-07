@@ -15,7 +15,6 @@ from apps.actions.company import CompanyContext
 from apps.authapi.jwks_client import reset_jwks_client
 from apps.actions.delivery import deliver_outbox_row
 from apps.actions.email_service import (
-    EMAIL_EVENT_ENVELOPE_KEY,
     RedactEmailServiceApiKeyFilter,
     RedactEmailServiceApiKeyFormatter,
     email_failure_is_permanent,
@@ -90,8 +89,9 @@ class EmailEventForwardTests(TestCase):
         mock_post.return_value = _response(202, {'rule_enabled': False, 'skipped_reason': 'rule_disabled', 'messages': []})
         with self.captureOnCommitCallbacks(execute=True):
             rows = _emit()
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows, [])
         row = ActionOutbox.objects.get()
+        self.assertEqual(row.delivery_kind, ActionOutbox.KIND_EMAIL)
         self.assertIsNone(row.action_rule_id)
         self.assertEqual(row.status, ActionOutbox.STATUS_DELIVERED)
         mock_post.assert_called_once()
@@ -119,7 +119,7 @@ class EmailEventForwardTests(TestCase):
                 'service': 'storage',
             },
         )
-        self.assertEqual(row.envelope[EMAIL_EVENT_ENVELOPE_KEY]['idempotency_key'], str(row.pk))
+        self.assertEqual(row.envelope['idempotency_key'], str(row.pk))
 
     @patch('apps.actions.email_service.requests.post')
     def test_missing_actor_sends_empty_recipient_hints(self, mock_post):
@@ -174,7 +174,9 @@ class EmailEventForwardTests(TestCase):
         )
         with self.captureOnCommitCallbacks(execute=True):
             rows = _emit()
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].delivery_kind, ActionOutbox.KIND_WEBHOOK)
+        self.assertEqual(ActionOutbox.objects.filter(delivery_kind=ActionOutbox.KIND_EMAIL).count(), 1)
         self.assertEqual(ActionOutbox.objects.filter(status=ActionOutbox.STATUS_DELIVERED).count(), 2)
         mock_post.assert_called_once()
         mock_webhook.assert_called_once()
@@ -341,6 +343,76 @@ class EmailEventUnconfiguredTests(TestCase):
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.data['count'], 0)
         self.assertEqual(detail.status_code, 404)
+
+
+@override_settings(**_EMAIL_SETTINGS)
+class EmailSecretOmissionTests(TestCase):
+    @patch('apps.actions.handlers.webhook.post_webhook_url')
+    @patch('apps.actions.email_service.requests.post')
+    def test_email_omits_sign_in_links_and_tokens(self, mock_post, mock_webhook):
+        from apps.actions.webhook_transport import WebhookPostResult
+
+        mock_post.return_value = _response(202, {'messages': []})
+        mock_webhook.return_value = WebhookPostResult(status=200, excerpt='')
+        sign_in = 'https://id.shellui.com/api/v1/magic-link/verify?token=example'
+        payload = {
+            'bucket_name': 'company',
+            'path': 'docs/report.pdf',
+            'magic_link_url': sign_in,
+            'token': 'raw-secret',
+            'raw_token': 'raw-secret',
+            'access_token': 'jwt-example',
+            'note': sign_in,
+            'meta': {'refresh_token': 'refresh-example', 'path': 'docs/report.pdf'},
+        }
+        ActionRule.objects.create(
+            company_id=42,
+            name='Hook',
+            event_type='storage.object.uploaded',
+            action_kind=ActionRule.ACTION_WEBHOOK,
+            config={'url': 'https://example.com/hook', 'secret': 'whsec_test'},
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            rows = emit_event(
+                'storage.object.uploaded',
+                42,
+                payload,
+                company=CompanyContext(id=42, name='Acme'),
+                actor={'user_id': 7, 'email': 'ada@acme.com', 'token': 'actor-token', 'magic_link_url': sign_in},
+            )
+        self.assertEqual(len(rows), 1)
+        webhook = ActionOutbox.objects.get(delivery_kind=ActionOutbox.KIND_WEBHOOK)
+        self.assertEqual(webhook.envelope['data']['magic_link_url'], sign_in)
+        self.assertEqual(webhook.envelope['data']['token'], 'raw-secret')
+        self.assertEqual(webhook.envelope['data']['meta']['refresh_token'], 'refresh-example')
+        self.assertEqual(webhook.envelope['actor']['token'], 'actor-token')
+        mock_webhook.assert_called_once()
+
+        body = json.loads(mock_post.call_args.kwargs['data'])
+        rendered = json.dumps(body)
+        self.assertEqual(body['payload']['bucket_name'], 'company')
+        self.assertEqual(body['payload']['path'], 'docs/report.pdf')
+        self.assertEqual(body['payload']['company_name'], 'Acme')
+        self.assertEqual(body['payload']['meta'], {'path': 'docs/report.pdf'})
+        self.assertEqual(body['recipients'], [{'email': 'ada@acme.com', 'user_id': 7}])
+        for secret in (sign_in, 'raw-secret', 'jwt-example', 'refresh-example', 'actor-token', 'token='):
+            self.assertNotIn(secret, rendered)
+        posted = mock_webhook.call_args.kwargs['body']
+        self.assertIn(b'magic_link_url', posted)
+        self.assertIn(b'raw-secret', posted)
+
+    @patch('apps.actions.email_service.requests.post')
+    def test_staff_only_events_are_not_forwarded(self, mock_post):
+        mock_post.return_value = _response(202, {})
+        with self.captureOnCommitCallbacks(execute=True):
+            rows = emit_event(
+                'storage.scheduled_job.succeeded',
+                42,
+                {'job': 'retry_webhooks', 'run_id': 1},
+            )
+        self.assertEqual(rows, [])
+        self.assertEqual(ActionOutbox.objects.count(), 0)
+        mock_post.assert_not_called()
 
 
 class EmailFailureClassificationTests(TestCase):

@@ -26,11 +26,11 @@ def emit_event(
     Validate ``event_type``, record it in the event log, then write outbox rows for enabled
     webhook ``ActionRule`` rows of ``company_id``.
 
-    When ``EMAIL_SERVICE_API_KEY`` is set, also enqueue the same event for email-service.
-    That row uses the same outbox and is delivered after commit. No key means no email row.
+    When ``EMAIL_SERVICE_API_KEY`` is set, also enqueue one email-service row on the same
+    outbox. Staff-only platform events are not forwarded. No key means no email row.
 
     Schedules a best-effort delivery attempt after the surrounding database transaction commits.
-    The request thread does not call email-service.
+    The request thread does not call email-service. Returns webhook rows only.
     """
     event = get_event_type(event_type)
     if not event.emit_by_default and not force:
@@ -65,18 +65,20 @@ def emit_event(
                     envelope=envelope,
                 )
             )
-    email_row = enqueue_email_event(
-        event_type,
-        int(company_id),
-        payload,
-        actor=actor,
-        company=ctx,
-    )
+    email_row = None
+    if not getattr(event, 'staff_only', False):
+        email_row = enqueue_email_event(
+            event_type,
+            int(company_id),
+            payload,
+            actor=actor,
+            company=ctx,
+        )
+    delivery_ids = [row.pk for row in outbox_rows]
     if email_row is not None:
-        outbox_rows.append(email_row)
-    if not outbox_rows:
-        return []
-    schedule_outbox_delivery([row.pk for row in outbox_rows])
+        delivery_ids.append(email_row.pk)
+    if delivery_ids:
+        schedule_outbox_delivery(delivery_ids)
     return outbox_rows
 
 

@@ -1,14 +1,24 @@
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('actions', '0002_event_log'),
+        ('actions', '0003_scheduled_job_runs'),
     ]
 
     operations = [
+        migrations.AddField(
+            model_name='actionoutbox',
+            name='delivery_kind',
+            field=models.CharField(
+                choices=[('webhook', 'Webhook'), ('email', 'Email')],
+                db_index=True,
+                default='webhook',
+                max_length=16,
+            ),
+        ),
         migrations.AlterField(
             model_name='actionoutbox',
             name='action_rule',

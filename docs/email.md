@@ -1,33 +1,54 @@
+---
+description: Forward storage events to email-service so a company rule can send mail. The email body omits sign-in links and tokens.
+---
+
 # Email notifications
 
-storage-service can forward each `storage.*` event to email-service. A company email rule there decides whether to send mail. Forwarding runs only when `EMAIL_SERVICE_API_KEY` is set. With no key, storage-service does not call email-service, and uploads, deletes, and Shellui Actions webhooks behave as they do today.
+storage-service posts each catalog event to [email-service](https://github.com/shellui/email-service) when `EMAIL_SERVICE_API_KEY` is set. email-service sends mail only when that company has an enabled rule for the event. With the key unset, storage-service does not call email-service.
 
-## What gets forwarded
+[Shellui Actions](actions.md) webhooks are a separate path. A webhook rule does not send mail, and mail does not require a webhook rule. Webhook envelopes, signing, and retries stay the same as identity-service and hosting-service.
 
-Every catalog event that storage-service already emits for webhooks is posted to `POST /api/v1/events`:
+## Events that are forwarded
 
-- `storage.bucket.created`
-- `storage.object.uploaded`
-- `storage.object.deleted`
+storage-service posts every catalog event it already emits for webhooks. Folder placeholder objects (`.emptyFolderPlaceholder`) stay omitted. Catalog defaults in email-service do not send mail by themselves. A company receives mail only after it creates a rule there.
 
-Folder placeholders stay omitted, the same as webhooks. email-service applies the company rule. Storage events default to off in the email catalog, so a company gets mail only after it enables the rule. A disabled rule returns `skipped_reason: rule_disabled`. storage-service treats that response as delivered and does not post the event again.
+| Event type | When it is posted |
+| --- | --- |
+| `storage.bucket.created` | The company bucket is created on first use |
+| `storage.object.uploaded` | A file is uploaded or overwritten |
+| `storage.object.deleted` | An object row and its blob are removed |
 
-Webhook rules stay on Shellui Actions, and n8n workflows keep using those signed POSTs. See [actions.md](actions.md) and [n8n.md](n8n.md).
+storage-service does not store those email rules. A disabled rule returns `skipped_reason: rule_disabled`. storage-service treats that response as delivered and does not post the event again.
 
 ## Configuration
 
+Set both variables on the storage-service process. Names match the [email-service integration contract](https://github.com/shellui/email-service/blob/main/docs/integration.md).
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `EMAIL_SERVICE_URL` | `https://email.shellui.com` | Origin only. storage-service appends `/api/v1/events`. |
-| `EMAIL_SERVICE_API_KEY` | empty | Service key from email-service. Prefix `esk_`. Sent as `Authorization: Bearer`. |
+| `EMAIL_SERVICE_URL` | `https://email.shellui.com` | Origin only. storage-service appends `/api/v1/events` |
+| `EMAIL_SERVICE_API_KEY` | empty | Service key with prefix `esk_`. Sent as `Authorization: Bearer` |
 
-Leave `EMAIL_SERVICE_API_KEY` empty to keep forwarding off. Issue the key for service name `storage`, lane `transactional`, and template prefix `storage.`. The key is not written to logs.
+Issue the key in email-service for service `storage`, lane `transactional`, and template prefix `storage.`. Store it in the storage-service secret store. An empty key disables forwarding, including when the URL stays at the default. The key is not written to logs.
 
 `EMAIL_SERVICE_URL` is the origin, with no path. `https://email.shellui.com/api/v1` is not a valid value.
 
+Local email-service:
+
+```bash
+EMAIL_SERVICE_URL=http://localhost:8003
+EMAIL_SERVICE_API_KEY=esk_your_service_key_here
+```
+
+Docker Compose passes the same variables through. Inside Compose the default origin is `http://host.docker.internal:8003`. The full list is in [Configuration](configuration.md).
+
 ## Request body
 
-storage-service posts the event it already recorded, plus recipient hints from the actor on the request:
+The forward runs after the database commit, on the same worker pool as webhook delivery. The API response does not wait for email-service.
+
+`POST /api/v1/events` sends the storage event data and one recipient hint. The hint is the acting user's email and user id, when the JWT included them. The body omits `language` so the company rule can choose it.
+
+The email copy drops sign-in links and tokens before it is stored. Dropped keys include `magic_link_url`, `token`, `raw_token`, and any `*_token` name. A value that is a sign-in URL is dropped too, including a `magic-link` path or a `token` query parameter. The webhook envelope still carries the original `data` object.
 
 ```json
 {
@@ -47,34 +68,27 @@ storage-service posts the event it already recorded, plus recipient hints from t
 }
 ```
 
-`payload` is the webhook object metadata. `company_name` is optional. storage-service sends it only when the emitter already has a company name. email-service otherwise uses a name stored from an earlier call, the company provider `from_name` when that name is not `Shellui`, or the template default (`your company`).
+`payload` is the webhook `data` object after that omission. `company_name` is included only when the emitter already has a company name. email-service otherwise uses a name stored from an earlier call, or the template default.
 
-`recipients` holds the actor when the token includes an email address. That is the hint email-service uses when the rule's `recipient_mode` is `hints`. A company that wants a fixed list sets `static` recipients on the rule. email-service then ignores this hint. An empty `recipients` list, including a token with no email, returns `202` and `skipped_reason: no_recipients`. That response is finished.
+When the JWT has no email, `recipients` is `[]`. email-service answers `202` with `skipped_reason: no_recipients`. storage-service treats that response as delivered. `202` with `skipped_reason: no_rule` or `rule_disabled` is delivered too.
 
-`idempotency_key` is the outbox row id. Retries send the same key and the same body. `language` is omitted, so email-service uses the rule language, then `en`.
+`idempotency_key` is the outbox row id. Retries send this stored body again, including the same key. The API key is not written into the outbox row or into logs.
+
+The Shellui Actions deliveries API lists webhook rows only. Email rows stay on the outbox until `retry_webhooks` finishes them.
 
 ## Retries
 
-The HTTP call runs after the database commit, off the request thread. Failures stay on the Shellui Actions outbox. The cron you already run for webhooks retries them:
-
-```cron
-* * * * * python manage.py retry_webhooks
-```
+`python manage.py retry_webhooks` retries email rows with webhook rows. The in-container scheduler runs that command every minute. See [Scheduled jobs](maintenance-jobs.md). Backoff is `30s * 2^(n-1)`, capped at 1 hour, for 8 attempts. HTTP timeout is `ACTIONS_WEBHOOK_TIMEOUT_SECONDS` (default 5s).
 
 | Result | What storage-service does |
 | --- | --- |
-| 2xx | Delivered. `skipped_reason` of `rule_disabled` or `no_recipients` is finished. |
-| 404, 408, 409, 425, 429, other 4xx, 5xx, timeouts, connection errors | Retry with the same idempotency key and the same body. |
-| 400, 401, 403, 405, 410, 413, 422 | Dead. That body is not posted again. |
+| 2xx | Delivered. `skipped_reason` of `rule_disabled`, `no_rule`, or `no_recipients` is finished |
+| 404, 408, 409, 425, 429, other 4xx not listed below, 5xx, timeouts, connection errors | Retry with the same body and `idempotency_key` |
+| 429 or 503 with `Retry-After` | Retry. The wait is `Retry-After`, capped at 1 hour |
+| 400, 401, 403, 405, 410, 413, 422 | Dead. That body is not sent again |
 
-HTTP 404 is retried, the same as a Shellui Actions webhook. Backoff is **30s × 2^(attempt−1)**, capped at **1 hour**, up to **8** attempts. `429` and `503` honor `Retry-After`, still capped at 1 hour. The timeout is `ACTIONS_WEBHOOK_TIMEOUT_SECONDS` (default 5 seconds).
+`404` retries, the same way a Shellui Actions webhook retries an inactive n8n workflow. See [n8n](n8n.md).
 
-`purge_expired_data` deletes finished email rows with finished webhook deliveries after `EVENT_LOG_RETENTION_DAYS`. See [event-log.md](event-log.md).
+A post made by the scheduled job sends `X-Request-ID: sjr-{run_id}`.
 
-## Try it locally
-
-1. Run email-service and create a service key for `storage` (`allowed_lanes`: `transactional`, `allowed_template_prefixes`: `storage.`).
-2. Set `EMAIL_SERVICE_URL` to `http://localhost:8003` and set `EMAIL_SERVICE_API_KEY`. In Docker Compose the container uses `http://host.docker.internal:8003`.
-3. Restart storage-service and keep `python manage.py retry_webhooks` on a one-minute cron if you want retries without waiting for the in-process attempt.
-4. Upload a file with a user token that includes `email`.
-5. Enable the `storage.object.uploaded` rule for that company when you want a message queued. With the catalog default, email-service accepts the event and skips it.
+Finished rows are deleted with webhook deliveries after `EVENT_LOG_RETENTION_DAYS`.

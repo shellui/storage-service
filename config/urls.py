@@ -9,12 +9,28 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from apps.actions.scheduled_job_views import (
+    ScheduledJobRunDetailView,
+    ScheduledJobRunsView,
+    ScheduledJobsView,
+)
 from apps.storage.admin import storage_admin_site
 
 from . import views
 
 urlpatterns = [
     path('', views.root, name='root'),
+    path('api/v1/scheduled-jobs', ScheduledJobsView.as_view(), name='storage-scheduled-jobs'),
+    path(
+        'api/v1/scheduled-jobs/runs/<int:pk>',
+        ScheduledJobRunDetailView.as_view(),
+        name='storage-scheduled-job-run',
+    ),
+    path(
+        'api/v1/scheduled-jobs/<str:job>/runs',
+        ScheduledJobRunsView.as_view(),
+        name='storage-scheduled-job-runs',
+    ),
     path('api/v1/actions/', include('apps.actions.urls')),
     path('storage/v1/', include('apps.storage.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

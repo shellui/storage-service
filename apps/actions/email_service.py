@@ -23,15 +23,35 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from apps.actions.webhook_retry import is_permanent_http_status, parse_retry_after_header
+from config.request_context import request_id_var
 
 logger = logging.getLogger(__name__)
 
 SERVICE_NAME = 'storage'
 EVENTS_PATH = '/api/v1/events'
-EMAIL_EVENT_ENVELOPE_KEY = 'email_event'
 _DEFAULT_ORIGIN = 'https://email.shellui.com'
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 _REDACTED = '[redacted]'
+
+# Webhook envelopes keep the original payload (same as hosting-service). Only the
+# email body drops sign-in links and tokens.
+_SENSITIVE_KEYS = frozenset({
+    'magic_link',
+    'magic_link_url',
+    'token',
+    'raw_token',
+    'access_token',
+    'refresh_token',
+    'id_token',
+    'sign_in_url',
+    'sign_in_link',
+    'signin_url',
+    'signin_link',
+})
+_SIGN_IN_URL = re.compile(
+    r'magic[-_]link|/sign-?in(?:[/?#]|$)|[?&#]token=',
+    re.IGNORECASE,
+)
 
 
 def email_service_api_key() -> str:
@@ -110,6 +130,54 @@ def recipient_hints(actor: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [hint]
 
 
+def _sensitive_key(key: str) -> bool:
+    name = str(key).strip().lower().replace('-', '_')
+    return name in _SENSITIVE_KEYS or name.endswith('_token') or name.endswith('_tokens')
+
+
+def _sensitive_string(value: str) -> bool:
+    """True when a string is a sign-in URL or carries a token query parameter."""
+    if '://' not in value:
+        return False
+    return _SIGN_IN_URL.search(value) is not None
+
+
+class _Drop:
+    """Sentinel for a string that must not appear in the email body."""
+
+
+_DROP = _Drop()
+
+
+def email_event_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Event data for email-service. Sign-in links and tokens are omitted."""
+    return _without_secrets(payload or {})
+
+
+def _without_secrets(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if _sensitive_key(str(key)):
+                continue
+            kept = _without_secrets(item)
+            if kept is _DROP:
+                continue
+            cleaned[str(key)] = kept
+        return cleaned
+    if isinstance(value, list):
+        items = []
+        for item in value:
+            kept = _without_secrets(item)
+            if kept is _DROP:
+                continue
+            items.append(kept)
+        return items
+    if isinstance(value, str) and _sensitive_string(value):
+        return _DROP
+    return value
+
+
 def build_email_event_body(
     *,
     event_type: str,
@@ -120,7 +188,7 @@ def build_email_event_body(
     company: Any | None = None,
 ) -> dict[str, Any]:
     """Stable ``POST /api/v1/events`` body. Retries must send this object unchanged."""
-    data = dict(payload)
+    data = email_event_payload(payload)
     company_name = (getattr(company, 'name', '') or '').strip()
     if company_name and not str(data.get('company_name') or '').strip():
         data['company_name'] = company_name
@@ -135,14 +203,13 @@ def build_email_event_body(
 
 
 def is_email_outbox(row) -> bool:
-    envelope = row.envelope if isinstance(row.envelope, dict) else {}
-    return isinstance(envelope.get(EMAIL_EVENT_ENVELOPE_KEY), dict)
+    return getattr(row, 'delivery_kind', '') == 'email'
 
 
 def email_event_body(row) -> dict | None:
     if not is_email_outbox(row):
         return None
-    return row.envelope[EMAIL_EVENT_ENVELOPE_KEY]
+    return row.envelope if isinstance(row.envelope, dict) else None
 
 
 def enqueue_email_event(
@@ -171,8 +238,9 @@ def enqueue_email_event(
         id=event_id,
         company_id=int(company_id),
         action_rule=None,
+        delivery_kind=ActionOutbox.KIND_EMAIL,
         event_type=event_type,
-        envelope={EMAIL_EVENT_ENVELOPE_KEY: body},
+        envelope=body,
     )
 
 
@@ -252,6 +320,9 @@ def deliver_email_event(body: dict) -> tuple[bool, dict]:
         'Accept': 'application/json',
         'User-Agent': 'shellui-storage-service/1.0',
     }
+    request_id = request_id_var.get()
+    if request_id and request_id != '-':
+        headers['X-Request-ID'] = request_id
     try:
         response = requests.post(
             email_events_url(),

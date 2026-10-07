@@ -19,7 +19,8 @@ _FINISHED_DELIVERY = Q(status__in=(ActionOutbox.STATUS_DELIVERED, ActionOutbox.S
 
 _PURGE_TARGETS: tuple[tuple[str, type[Model], Q], ...] = (
     ('events', EventLog, Q()),
-    ('webhook_deliveries', ActionOutbox, _FINISHED_DELIVERY),
+    ('webhook_deliveries', ActionOutbox, _FINISHED_DELIVERY & Q(delivery_kind=ActionOutbox.KIND_WEBHOOK)),
+    ('email_events', ActionOutbox, _FINISHED_DELIVERY & Q(delivery_kind=ActionOutbox.KIND_EMAIL)),
 )
 
 
@@ -72,7 +73,7 @@ def purge_expired_data(
     now: datetime | None = None,
 ) -> dict:
     """
-    Delete event log rows and finished webhook deliveries older than ``EVENT_LOG_RETENTION_DAYS``.
+    Delete event log rows and finished webhook and email deliveries older than ``EVENT_LOG_RETENTION_DAYS``.
 
     Returns per-target counts and ``complete=False`` when ``max_seconds`` ran out first
     (the next run picks up where this one stopped).
@@ -81,6 +82,7 @@ def purge_expired_data(
     cutoff = now - timedelta(days=retention_days())
     deadline = time.monotonic() + max_seconds if max_seconds else None
     stats: dict = {label: 0 for label, *_ in _PURGE_TARGETS}
+    stats['scheduled_job_runs'] = 0
     stats['complete'] = True
     for label, model, extra in _PURGE_TARGETS:
         qs = model.objects.filter(extra, created_at__lt=cutoff)
@@ -92,4 +94,13 @@ def purge_expired_data(
         if not finished:
             stats['complete'] = False
             return stats
+    from apps.actions.scheduled_jobs import count_old_runs, purge_old_runs
+
+    if dry_run:
+        stats['scheduled_job_runs'] = count_old_runs(now=now)
+        return stats
+    deleted, finished = purge_old_runs(now=now, batch_size=batch_size, deadline=deadline)
+    stats['scheduled_job_runs'] = deleted
+    if not finished:
+        stats['complete'] = False
     return stats

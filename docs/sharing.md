@@ -1,26 +1,32 @@
+---
+description: Create a secret link that downloads one file without a JWT, with an expiry or a download cap.
+---
+
 # Share links
 
-Capability URLs let anyone with the link download **one file** without signing in. They are **not** a public file browser and are **not** registered in a public directory — only the creator (and company owners/staff) can list or revoke them.
+A share link downloads one file for anyone who has the token. It is not a public folder, and it is not listed for anonymous callers. The creator, a company owner, or staff can list and revoke the links for that object.
 
-## Limits
+Use a link when the recipient has no Shellui account. Use an [access grant](access.md) when they do.
 
-Each link must have at least one of:
+## What you must set
 
-- **`expires_at`** — absolute ISO-8601 end time  
-- **`max_downloads`** — positive integer cap  
+Each link needs at least one limit:
 
-Both may be set. The link becomes inactive when expired, exhausted, or revoked (`410 share_inactive`).
+- `expires_at`: an absolute ISO 8601 end time
+- `max_downloads`: a positive integer
+
+You may set both. The link is inactive when it is past `expires_at`, when `download_count` has reached `max_downloads`, or when `revoked_at` is set. Redeeming an inactive link returns 410 `share_inactive`.
 
 ## REST
 
 | Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| `POST` | `/storage/v1/share/{bucket}/{*path}` | JWT (write on object) | Create link; response includes `token` once |
-| `GET` | `/storage/v1/share/{bucket}/{*path}` | JWT (write on object) | List links for that object (creator / owners) |
+| --- | --- | --- | --- |
+| `POST` | `/storage/v1/share/{bucket}/{path}` | JWT, write on the object | Create a link. `token` is returned once |
+| `GET` | `/storage/v1/share/{bucket}/{path}` | JWT, write on the object | List links for that object |
 | `GET` | `/storage/v1/share/link/{token}` | None | Download the file |
-| `DELETE` | `/storage/v1/share/link/{token}` | JWT (creator or owner/staff) | Revoke |
+| `DELETE` | `/storage/v1/share/link/{token}` | JWT, creator or owner or staff | Revoke |
 
-Create body example:
+Create body:
 
 ```json
 {
@@ -30,15 +36,17 @@ Create body example:
 }
 ```
 
-Response includes `token` and `path_url` (`/storage/v1/share/link/{token}`). The frontend should build the absolute URL and send it out-of-band (email, chat). Do not scrape or publish a gallery of active tokens.
+The response includes `token` and `path_url` (`/storage/v1/share/link/{token}`). Build the absolute URL on your host and send it yourself. The download streams through Django, the same way an authenticated `GET` does.
 
-## vs signed URLs
+Deleting the object deletes its links.
 
-| | Share link | `POST /object/sign/...` |
-|--|------------|-------------------------|
-| Audience | Anyone with the token | Usually short-lived S3/media URL for an already-authorized client |
+## Share links and signed URLs
+
+| | Share link | `POST /storage/v1/object/sign/…` |
+| --- | --- | --- |
+| Who can fetch | Anyone with the token | Whoever has the URL |
 | Download cap | Yes | No |
-| Revocation registry | Yes (`ObjectShareLink`) | Relies on expiry only |
-| Auth to redeem | None | None (URL secret) |
+| Revocation | Yes, on the `ObjectShareLink` row | Expiry only |
+| Auth to redeem | None | None |
 
-Prefer share links for human sharing; keep signed URLs for app-side download offload.
+Prefer a share link when a person should receive the file. Prefer a signed URL when an already authorized client should fetch bytes from S3. Signed URL rules are in [Downloads and signed URLs](downloads.md).

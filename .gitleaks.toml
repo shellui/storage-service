@@ -1,0 +1,8 @@
+# Extends the built-in rules. CI runs `gitleaks detect` with full history,
+# so this allowlist also covers the handbook placeholder in earlier commits.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Docs placeholder for an identity-service access token"
+regexes = ['''your_access_token_here''']

@@ -12,7 +12,13 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.actions.email_service import deliver_email_event, email_event_body, email_service_configured, is_email_outbox
+from apps.actions.email_service import (
+    deliver_email_event,
+    email_event_body,
+    email_service_configured,
+    is_email_outbox,
+    redact_email_service_secret,
+)
 from apps.actions.handlers.webhook import WebhookDeliveryError, deliver_webhook_action
 from apps.actions.models import ActionOutbox, ActionRule, DeliveryAttempt
 from apps.actions.webhook_retry import compute_retry_delay_seconds
@@ -120,6 +126,8 @@ def _apply_delivery_result(
     terminal_error: str | None,
     success: bool,
     attempt_meta: dict,
+    trigger: str = DeliveryAttempt.TRIGGER_DISPATCH,
+    scheduled_job_run_id: int | None = None,
 ) -> ActionOutbox:
     attempt_number = row.attempt_count + 1
     if terminal_error:
@@ -137,6 +145,7 @@ def _apply_delivery_result(
             response_excerpt=attempt_meta.get('response_excerpt') or '',
         )
         permanent = bool(attempt_meta.get('permanent'))
+    attempt_error = redact_email_service_secret(attempt_error)
 
     DeliveryAttempt.objects.create(
         outbox=row,
@@ -145,16 +154,21 @@ def _apply_delivery_result(
         error_message='' if success else attempt_error,
         attempt_number=attempt_number,
         duration_ms=duration_ms,
+        trigger=trigger,
+        scheduled_job_run_id=scheduled_job_run_id,
     )
-    channel = 'email_event' if is_email_outbox(row) else 'webhook_delivery'
+    channel = 'email_delivery' if row.delivery_kind == ActionOutbox.KIND_EMAIL else 'webhook_delivery'
     logger.info(
-        '%s outbox_id=%s attempt=%s success=%s http_status=%s duration_ms=%s',
+        '%s outbox_id=%s attempt=%s success=%s http_status=%s duration_ms=%s '
+        'trigger=%s scheduled_job_run_id=%s',
         channel,
         row.pk,
         attempt_number,
         success,
         http_status,
         duration_ms,
+        trigger,
+        scheduled_job_run_id,
     )
 
     row.attempt_count = attempt_number
@@ -192,7 +206,17 @@ def _apply_delivery_result(
     return row
 
 
-def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
+def deliver_outbox_row(
+    outbox_id,
+    *,
+    trigger: str = DeliveryAttempt.TRIGGER_DISPATCH,
+    scheduled_job_run_id: int | None = None,
+) -> ActionOutbox | None:
+    """
+    Attempt one delivery. ``trigger`` and ``scheduled_job_run_id`` are stored on the
+    ``DeliveryAttempt`` so staff can go from a scheduled job run to its deliveries.
+    """
+    correlation = {'trigger': trigger, 'scheduled_job_run_id': scheduled_job_run_id}
     with transaction.atomic():
         row = (
             ActionOutbox.objects.select_for_update()
@@ -229,6 +253,7 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
                 terminal_error=terminal_error,
                 success=False,
                 attempt_meta={},
+                **correlation,
             )
 
     if email_body is not None:
@@ -250,6 +275,7 @@ def deliver_outbox_row(outbox_id) -> ActionOutbox | None:
             terminal_error=None,
             success=success,
             attempt_meta=attempt_meta,
+            **correlation,
         )
 
 
@@ -306,8 +332,21 @@ def claim_next_pending_outbox(*, now=None) -> ActionOutbox | None:
         return row
 
 
+def _empty_retry_stats() -> dict[str, int]:
+    return {
+        'processed': 0,
+        'delivered': 0,
+        'retried': 0,
+        'dead': 0,
+        'email_processed': 0,
+        'email_delivered': 0,
+        'email_retried': 0,
+        'email_dead': 0,
+    }
+
+
 def _summarize_delivery_result(before_status: str, after: ActionOutbox | None) -> dict[str, int]:
-    delta = {'processed': 0, 'delivered': 0, 'retried': 0, 'dead': 0}
+    delta = _empty_retry_stats()
     if after is None:
         return delta
     delta['processed'] = 1
@@ -319,6 +358,11 @@ def _summarize_delivery_result(before_status: str, after: ActionOutbox | None) -
         delta['retried'] = 1
     elif before_status in (ActionOutbox.STATUS_PENDING, ActionOutbox.STATUS_FAILED):
         delta['retried'] = 1
+    if after.delivery_kind == ActionOutbox.KIND_EMAIL:
+        delta['email_processed'] = delta['processed']
+        delta['email_delivered'] = delta['delivered']
+        delta['email_retried'] = delta['retried']
+        delta['email_dead'] = delta['dead']
     return delta
 
 
@@ -329,23 +373,31 @@ def retry_pending_webhooks(
     concurrency: int = 4,
     dry_run: bool = False,
     now=None,
+    scheduled_job_run_id: int | None = None,
 ) -> dict[str, int]:
     """
-    Process a bounded batch of pending/failed webhook deliveries.
+    Process a bounded batch of pending/failed webhook and email deliveries.
 
-    HTTP runs outside DB transactions. Safe for overlapping cron runs via skip-locked + lease.
+    HTTP runs outside DB transactions. Safe for overlapping runs via skip-locked + lease.
+    Every attempt is stored with ``trigger=automatic_retry`` and ``scheduled_job_run_id``.
+    ``email_*`` keys are the email-service subset of the totals.
     """
+    import contextvars
     from concurrent.futures import FIRST_COMPLETED, wait
 
     now = now or timezone.now()
-    stats = {'processed': 0, 'delivered': 0, 'retried': 0, 'dead': 0}
+    stats = _empty_retry_stats()
     deadline = time.monotonic() + max(0.1, float(max_seconds))
     workers = max(1, int(concurrency))
     in_flight: set = set()
 
     def _worker(row_id, before_status: str) -> dict[str, int]:
         connection.close()
-        after = deliver_outbox_row(row_id)
+        after = deliver_outbox_row(
+            row_id,
+            trigger=DeliveryAttempt.TRIGGER_AUTOMATIC_RETRY,
+            scheduled_job_run_id=scheduled_job_run_id,
+        )
         return _summarize_delivery_result(before_status, after)
 
     def _merge(delta: dict[str, int]) -> None:
@@ -383,6 +435,8 @@ def retry_pending_webhooks(
             before_status = row.status
             if dry_run:
                 stats['processed'] += 1
+                if row.delivery_kind == ActionOutbox.KIND_EMAIL:
+                    stats['email_processed'] += 1
                 ActionOutbox.objects.filter(pk=row.pk).update(locked_until=None)
                 continue
 
@@ -390,7 +444,8 @@ def retry_pending_webhooks(
                 _merge(_worker(row.pk, before_status))
                 continue
 
-            fut = executor.submit(_worker, row.pk, before_status)
+            # Copy the context so worker log lines and X-Request-ID keep the run's request id.
+            fut = executor.submit(contextvars.copy_context().run, _worker, row.pk, before_status)
             in_flight.add(fut)
 
         while in_flight and time.monotonic() < deadline + 1.0:
