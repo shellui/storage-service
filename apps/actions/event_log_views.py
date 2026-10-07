@@ -11,7 +11,12 @@ from rest_framework.views import APIView
 
 from apps.actions.admin_auth import require_staff_or_company_owner
 from apps.actions.models import EventLog
-from apps.actions.registry import all_event_types, get_event_type, is_registered_event
+from apps.actions.registry import (
+    company_event_types,
+    get_event_type,
+    is_registered_event,
+    staff_only_event_types,
+)
 from apps.actions.retention import retention_status
 from apps.actions.serializers import OpenAPISerializer
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
@@ -39,6 +44,16 @@ def _event_payload(row: EventLog) -> dict:
         'user_email': data.get('actor_email'),
         'data': data,
     }
+
+
+def _platform_events() -> QuerySet:
+    """Staff-only platform events (scheduled job runs). They never have a company."""
+    types = [e.id for e in staff_only_event_types()]
+    return EventLog.objects.filter(company_id__isnull=True, event_type__in=types)
+
+
+def _scope(request) -> str:
+    return (request.GET.get('scope') or 'company').strip().lower()
 
 
 def _filtered_events(request, company_id: int) -> tuple[QuerySet | None, Response | None]:
@@ -83,6 +98,18 @@ class _EventLogBase(APIView):
         ),
         operation_id='api_v1_actions_event_log_list',
         parameters=[
+            OpenApiParameter(
+                name='scope',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=['company', 'platform'],
+                description=(
+                    '`company` (default): events of the company in the token. `platform`: staff-only platform '
+                    'events without a company (`storage.scheduled_job.succeeded`, `storage.scheduled_job.failed`). '
+                    'Non-staff callers get 403.'
+                ),
+            ),
             OpenApiParameter(name='user_id', type=int, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(
                 name='user',
@@ -120,17 +147,25 @@ class _EventLogBase(APIView):
 )
 class ShellUIAdminEventLogListView(_EventLogBase):
     def get(self, request):
-        _actor, company_id, err = require_staff_or_company_owner(request)
+        actor, company_id, err = require_staff_or_company_owner(request)
         if err:
             return err
+        scope = _scope(request)
+        if scope not in {'company', 'platform'}:
+            return _bad_request('Invalid scope.')
+        if scope == 'platform' and not getattr(actor, 'is_staff', False):
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
         try:
             page = max(1, int(request.GET.get('page') or 1))
             page_size = min(_MAX_PAGE_SIZE, max(1, int(request.GET.get('page_size') or 20)))
         except (TypeError, ValueError):
             return _bad_request('Invalid page or page_size.')
-        qs, err = _filtered_events(request, company_id)
-        if err:
-            return err
+        if scope == 'platform':
+            qs = _platform_events()
+        else:
+            qs, err = _filtered_events(request, company_id)
+            if err:
+                return err
         total = qs.count()
         start = (page - 1) * page_size
         return Response(
@@ -148,15 +183,32 @@ class ShellUIAdminEventLogListView(_EventLogBase):
         tags=['event-log'],
         summary='Retrieve event log row (staff or company owner)',
         operation_id='api_v1_actions_event_log_retrieve',
+        parameters=[
+            OpenApiParameter(
+                name='scope',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=['company', 'platform'],
+            ),
+        ],
         responses={200: OpenApiResponse(description='Event log row')},
     ),
 )
 class ShellUIAdminEventLogDetailView(_EventLogBase):
     def get(self, request, pk):
-        _actor, company_id, err = require_staff_or_company_owner(request)
+        actor, company_id, err = require_staff_or_company_owner(request)
         if err:
             return err
-        row = EventLog.objects.filter(company_id=company_id, pk=pk).first()
+        scope = _scope(request)
+        if scope not in {'company', 'platform'}:
+            return _bad_request('Invalid scope.')
+        if scope == 'platform':
+            if not getattr(actor, 'is_staff', False):
+                return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+            row = _platform_events().filter(pk=pk).first()
+        else:
+            row = EventLog.objects.filter(company_id=company_id, pk=pk).first()
         if row is None:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(_event_payload(row))
@@ -177,8 +229,8 @@ class ShellUIAdminEventLogTypesView(_EventLogBase):
         return Response(
             {
                 'results': [
-                    {'type': e.id, 'label': e.label, 'description': e.description, 'webhook': True}
-                    for e in all_event_types()
+                    {'type': e.id, 'label': e.label, 'description': e.description, 'webhook': e.webhook}
+                    for e in company_event_types()
                     if e.emit_by_default
                 ]
             }

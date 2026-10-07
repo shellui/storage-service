@@ -9,3 +9,4 @@ class ActionsConfig(AppConfig):
     def ready(self) -> None:
         from apps.actions import storage_events  # noqa: F401
         from apps.actions import storage_hooks  # noqa: F401
+        from apps.actions import admin as actions_admin  # noqa: F401

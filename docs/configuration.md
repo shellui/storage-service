@@ -114,15 +114,23 @@ WebDAV uses the same grants, quotas, and upload signals as the REST API. See [We
 | `SQLITE_PATH` | `db.sqlite3`, `/app/data/db.sqlite3` in Docker | SQLite file |
 | `POSTGRES_SSL_REQUIRE` | `true` when `DEBUG=false` | Require TLS to PostgreSQL. Set `false` for a private database without TLS |
 
-## Cache
+## Cache and scheduled jobs
 
-`REDIS_URL` is optional. When it is set, Django uses Redis as the cache. When it is unset, each process uses an in-memory cache. With `GUNICORN_WORKERS` greater than 1, set Redis so that cache is shared. `manage.py check --deploy` reports `authapi.W001` when production still uses the in-memory cache with multiple workers.
+`REDIS_URL` is required when `DEBUG=false`. Redis is the shared cache and the broker for the scheduled jobs. Without it, the container logs `REDIS_URL is required when DEBUG is false` and exits with status 1, and `manage.py check --deploy` reports `authapi.E004`. That check still fails when `SCHEDULER_ENABLED=false` or when only `CELERY_BROKER_URL` is set.
+
+With `DEBUG=true` and `REDIS_URL` unset, each process uses an in-memory cache and the scheduled jobs do not start. `authapi.W001` remains a warning when production still uses that in-memory cache with more than one Gunicorn worker.
 
 ```bash
 REDIS_URL=redis://redis:6379/0
 ```
 
-This service does not apply request rate limits. Redis is not a job broker here. Webhook retries do not need it.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SCHEDULER_ENABLED` | `true` | `false` keeps the Celery worker out of this container |
+| `CELERY_BROKER_URL` | `REDIS_URL` | A different Redis for the jobs. Does not replace `REDIS_URL` |
+| `CELERY_WORKER_CONCURRENCY` | `2` | Threads in the worker |
+
+Schedules, locks, the staff API and metrics are in [Scheduled jobs](maintenance-jobs.md).
 
 ## CORS and HTTPS
 
@@ -142,7 +150,7 @@ API auth is the Bearer JWT, not a cookie. Permissive CORS is the default for tha
 
 ## Gunicorn
 
-The image entrypoint runs migrations, then Gunicorn. It does not start a worker process for cron. Schedule the commands in [Maintenance jobs](maintenance-jobs.md) yourself.
+The image entrypoint runs migrations, `check --deploy`, then Gunicorn. In `web` mode it also starts the Celery worker and beat unless `SCHEDULER_ENABLED=false` or, with `DEBUG=true`, Redis is unset. `worker` mode starts only the scheduler. See [Scheduled jobs](maintenance-jobs.md).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -171,7 +179,7 @@ Staff can also set **allow private URLs** on one rule. Changing the URL clears t
 | --- | --- | --- |
 | `EVENT_LOG_RETENTION_DAYS` | `7` | Days to keep event-log rows and finished webhook deliveries. Values below 1 are treated as 1 |
 
-`manage.py purge_expired_data` deletes older rows. Nothing in the container runs that command. See [Event log](event-log.md) and [Maintenance jobs](maintenance-jobs.md).
+`purge_expired_data` deletes older rows every hour inside the container. See [Event log](event-log.md) and [Scheduled jobs](maintenance-jobs.md).
 
 ## Error reporting
 

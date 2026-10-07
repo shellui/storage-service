@@ -65,9 +65,9 @@ What the statistics page shows is in [Run storage-service](getting-started.md).
 
 ## Shared cache
 
-The cache is Redis when `REDIS_URL` is set, and an in-process cache otherwise. Docker defaults to `GUNICORN_WORKERS=2`, so set `REDIS_URL` (for example `redis://redis:6379/0`) or each worker has its own cache. `manage.py check --deploy` emits `authapi.W001` in that case.
+Redis is required when `DEBUG=false` (`REDIS_URL`, for example `redis://redis:6379/0`). It is the shared cache and the broker for the scheduled jobs. Without it the container exits 1, and `manage.py check --deploy` reports `authapi.E004`. `authapi.W001` is still a warning when production uses the in-process cache with more than one Gunicorn worker.
 
-storage-service does not enforce request rate limits. The warning is about the cache not being shared. Webhook delivery does not use Redis.
+storage-service does not enforce request rate limits. The first webhook POST does not use Redis. Retries do, because they run on the scheduled job.
 
 ## Webhook targets
 

@@ -39,7 +39,8 @@ Paths below are on the storage host, for example `http://localhost:8001`.
 | Stats | `GET /storage/v1/stats` |
 | Metrics | `GET /storage/v1/metrics`, `GET /storage/v1/metrics/all` |
 | Shellui Actions | `/api/v1/actions/events`, `/rules`, `/deliveries` |
-| Event log | `GET /api/v1/actions/event-log` |
+| Event log | `GET /api/v1/actions/event-log` (`scope=platform` is staff only) |
+| Scheduled jobs | `GET /api/v1/scheduled-jobs` (staff only) |
 | WebDAV | `/dav/{bucket}/…` when `WEBDAV_ENABLED` is true |
 
 `{name}` and `{bucket}` are bucket slugs. The company bucket slug is `company`. `{path}` is the object path inside the bucket.
@@ -53,8 +54,9 @@ Company members with `company_id` in the token use that company's bucket. Grants
 | `GET /storage/v1/stats` | The caller's company. Staff receive every company |
 | `GET /storage/v1/quota` | The caller's company |
 | `PUT /storage/v1/quota/…` | Staff, or a company owner for their own company id |
-| `GET /storage/v1/metrics` | Staff or a company owner. Company id comes from the token. A `company_id` query parameter is 400 |
-| `GET /storage/v1/metrics/all` | Staff, or a personal access token with the `pat_agm` claim |
+| `GET /storage/v1/metrics` | Staff or a company owner. Company id comes from the token. A `company_id` query parameter is 400. Scheduled-job metrics are omitted |
+| `GET /storage/v1/metrics/all` | Staff, or a personal access token with the `pat_agm` claim. Includes `shellui_storage_scheduled_job_*` |
+| `GET /api/v1/scheduled-jobs` | Staff only. Company owners receive 403 |
 | `/api/v1/actions/*` | Staff, or a company owner scoped to the token `company_id` |
 
 ## Metrics
@@ -71,5 +73,7 @@ Metrics responses are Prometheus text, not JSON. Gauges are labeled with `compan
 - `shellui_storage_quota_used_bytes`, `shellui_storage_quota_max_bytes`
 
 Document counts use the same MIME families as the Django admin statistics page.
+
+`GET /storage/v1/metrics/all` also appends the scheduler gauges (`shellui_storage_scheduled_job_*` and `shellui_storage_scheduler_*`). `GET /storage/v1/metrics` does not. Names and alert examples are in [Scheduled jobs](maintenance-jobs.md).
 
 Error JSON on `/storage/v1/` uses `statusCode`, `error`, and `message`. Responses include `X-Request-ID`.

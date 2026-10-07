@@ -18,7 +18,17 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [Unreleased] - 2026-10-06
+## [Unreleased] - 2026-10-07
+
+### ✨ Feature
+
+- **In-container scheduler:** the Docker image runs a Celery worker and beat next to Gunicorn. `retry_webhooks` runs every minute and `purge_expired_data` runs hourly at minute 17. Redis `SET NX` locks stop the same job from overlapping across replicas. `SCHEDULER_ENABLED` defaults to true. The entrypoint accepts `web` (default) and `worker`. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md).
+- **Scheduled job monitoring:** staff-only `GET /api/v1/scheduled-jobs` (same shape as identity-service), Prometheus metrics `shellui_storage_scheduled_job_*` and `shellui_storage_scheduler_*` on `GET /storage/v1/metrics/all` only, and staff-only events `storage.scheduled_job.succeeded` and `storage.scheduled_job.failed`. Webhook retries from a job send `X-Request-ID: sjr-<id>`.
+
+### 🚨 Changed
+
+- **Redis is required in production.** When `DEBUG=false` and `REDIS_URL` is unset, the container exits 1 and `manage.py check --deploy` reports `authapi.E004`, including when `SCHEDULER_ENABLED=false`. With `DEBUG=true`, Redis stays optional and the jobs do not start.
+- Run the `apps.actions` migration `0003_scheduled_job_runs` after upgrade. `EventLog.company_id` may be null for platform events. List them with `GET /api/v1/actions/event-log?scope=platform` (staff only).
 
 ### 📚 Documentation
 
@@ -33,7 +43,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### ✨ Feature
 
 - **Event log:** every `storage.*` event is stored, with or without a webhook rule, and listed at `GET /api/v1/actions/event-log` (filters: type, user, date range) for the admin panel **Storage > Log events** page. See [docs/event-log.md](docs/event-log.md).
-- **Data retention:** `EVENT_LOG_RETENTION_DAYS` (default 7). New `manage.py purge_expired_data` deletes expired events and finished webhook deliveries in short batches; schedule it every hour. `GET /api/v1/actions/event-log/retention` reports `stale_events` when the job is not running.
+- **Data retention:** `EVENT_LOG_RETENTION_DAYS` (default 7). `manage.py purge_expired_data` deletes expired events and finished webhook deliveries in short batches. The container runs it every hour. `GET /api/v1/actions/event-log/retention` reports `stale_events` when the job is not running.
 
 ### 🐛 Bug Fixes
 

@@ -156,27 +156,11 @@ docker compose up --build
 
 Default host port: `8001`.
 
-Runtime env vars include `SECRET_KEY`, identity JWKS settings, and optional **`REDIS_URL`** for a shared Django cache. When unset, Django uses in-process LocMem (fine for local dev or a single Gunicorn worker). With **`GUNICORN_WORKERS` > 1** (Docker default is `2`), set `REDIS_URL` so future cache-backed rate limits are shared across workers. `manage.py check --deploy` warns (`authapi.W001`) when production still uses LocMem with multiple workers. See [PUBLISH.md](PUBLISH.md) for Coolify Redis setup.
+Runtime env vars include `SECRET_KEY`, identity JWKS settings, and **`REDIS_URL`**. Redis is required when `DEBUG=false`: the container exits 1 without it, and `manage.py check --deploy` reports `authapi.E004`. With `DEBUG=true` and no Redis, Django uses in-process LocMem and the scheduled jobs do not start. Compose starts a Redis service and defaults `REDIS_URL` to `redis://redis:6379/0`.
 
-### Shellui Actions retries (production)
+The image runs `retry_webhooks` every minute and `purge_expired_data` hourly (minute 17) in a Celery worker next to Gunicorn. Set `SCHEDULER_ENABLED=false` only when a separate `worker` container or your own scheduler runs those commands. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md).
 
-Schedule webhook outbox retries every minute (same pattern as identity-service):
-
-```cron
-* * * * * python manage.py retry_webhooks
-```
-
-See [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md) for n8n setup.
-
-### Event log purge (production)
-
-Every storage event is stored in an event log, kept for `EVENT_LOG_RETENTION_DAYS` (default 7). Schedule the purge every hour:
-
-```cron
-17 * * * * python manage.py purge_expired_data --max-seconds 300
-```
-
-See [docs/event-log.md](docs/event-log.md).
+Webhook signing and the n8n workflow are in [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md). The event log is in [docs/event-log.md](docs/event-log.md).
 
 ## Tests
 

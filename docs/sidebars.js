@@ -46,7 +46,7 @@ const sidebars = {
     ]),
     category('Operations', [
       doc('security', 'Security hardening'),
-      doc('maintenance-jobs', 'Maintenance jobs'),
+      doc('maintenance-jobs', 'Scheduled jobs'),
     ]),
     category('API', [
       doc('api', 'API reference'),
