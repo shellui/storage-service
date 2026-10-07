@@ -22,7 +22,7 @@ class DomainEventType:
     emit_by_default: bool = True
     # False: recorded in the event log only, never offered as a webhook rule trigger.
     webhook: bool = True
-    # Platform event (no company): visible to Django staff only, never listed for company
+    # Platform event (no company): Django staff only, never listed for company
     # owners and never offered as a webhook rule. Implies ``webhook=False``.
     staff_only: bool = False
 

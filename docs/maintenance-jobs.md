@@ -8,7 +8,7 @@ storage-service runs two maintenance jobs on a schedule. The Docker image runs t
 
 | Job | Schedule | What happens if it never runs |
 | --- | --- | --- |
-| `purge_expired_data` | Every hour, at minute 17, for at most 5 minutes | The event log and finished webhook deliveries grow without limit. `GET /api/v1/actions/event-log/retention` reports `stale_events` once events are more than one day past retention |
+| `purge_expired_data` | Every hour, at minute 17, for at most 5 minutes | The event log and finished webhook deliveries increase without a limit. `GET /api/v1/actions/event-log/retention` reports `stale_events` once events are more than one day past retention |
 | `retry_webhooks` | Every minute | Failed [webhook](actions.md) deliveries are never retried. The first attempt still goes out right after each event |
 
 Both jobs are safe to run when there is nothing to do: they finish after one or two indexed queries.

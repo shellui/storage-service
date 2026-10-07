@@ -2,8 +2,8 @@
 Run recording and health for the scheduled jobs (``retry_webhooks``, ``purge_expired_data``).
 
 The management commands record their own runs (``record_run``), so runs started by the
-in-container Celery beat (``trigger=celery``) and by an external cron (``trigger=command``)
-are both visible. Each finished run writes:
+in-container Celery beat (``trigger=celery``) and by an external scheduler (``trigger=command``)
+are both recorded. Each finished run writes:
 
 - one ``ScheduledJobRun`` row (kept ``RUN_RETENTION_DAYS``)
 - the latest timestamps in ``ScheduledJobState``
@@ -11,7 +11,7 @@ are both visible. Each finished run writes:
 - one staff-only platform event (``storage.scheduled_job.succeeded`` / ``.failed``)
 
 A failed run logs at ERROR with the run id as request id (``[req=sjr-<id>]``), which also
-reports it to Sentry when ``SENTRY_DSN`` is set. See docs/scheduled-jobs.md#monitoring.
+reports it to Sentry when ``SENTRY_DSN`` is set. See docs/maintenance-jobs.md.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from datetime import timezone as dt_timezone
 from django.conf import settings
 from django.core.management.base import CommandError
 from django.db import DatabaseError
-from django.db.models import Count, F, Q
+from django.db.models import F
 from django.utils import timezone
 
 from apps.actions.models import ScheduledJobCounter, ScheduledJobRun, ScheduledJobState
@@ -601,15 +601,17 @@ def jobs_overview(*, now: datetime | None = None, check_redis: bool = True) -> d
     last_runs = _last_runs(names)
     last_finished = _last_finished_runs(names)
     since = now - timedelta(hours=24)
-    window = {
-        row['job']: row
-        for row in ScheduledJobRun.objects.filter(job__in=names, started_at__gte=since)
-        .values('job')
-        .annotate(
-            succeeded=Count('id', filter=Q(status=ScheduledJobRun.STATUS_SUCCEEDED)),
-            failed=Count('id', filter=Q(status=ScheduledJobRun.STATUS_FAILED)),
-        )
-    }
+    # Count in Python: a conditional aggregate named after a CSS utility would be
+    # picked up by the landing-page Tailwind scan.
+    window: dict[str, dict[str, int]] = {}
+    for job_name, status in ScheduledJobRun.objects.filter(job__in=names, started_at__gte=since).values_list(
+        'job', 'status'
+    ):
+        bucket = window.setdefault(job_name, {'succeeded': 0, 'failed': 0})
+        if status == ScheduledJobRun.STATUS_SUCCEEDED:
+            bucket['succeeded'] += 1
+        elif status == ScheduledJobRun.STATUS_FAILED:
+            bucket['failed'] += 1
     skipped = {
         c.job: c.value
         for c in ScheduledJobCounter.objects.filter(
