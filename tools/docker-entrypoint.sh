@@ -95,7 +95,7 @@ gunicorn_cmd() {
   #
   # %(U)s is the path with no query string. Referer is replaced with "-" so a
   # setup_token or a sign-in URL in the request line is not written to stdout.
-  # Share-link tokens sit in the path; the gunicorn.access filter redacts them.
+  # Share-link tokens sit in the path; gunicorn.access redacts them.
   GUNICORN_ARGS=(
     gunicorn
     --bind 0.0.0.0:8000

@@ -37,6 +37,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🐛 Bug Fixes
 
 - Django admin deletes remove stored blobs and quota usage, and emit `storage.object.deleted`. `storage.bucket.created` includes the acting user.
+- `retry_webhooks` locks the outbox row on Postgres and claims an email delivery that has no action rule.
 
 ### 🔒 Security
 

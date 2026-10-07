@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -252,6 +253,28 @@ class RetryCommandTests(TestCase):
         claimed = claim_next_pending_outbox()
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.pk, row.pk)
+
+    def test_claim_email_row_without_action_rule_on_postgres(self):
+        """FOR UPDATE must not cover the nullable action_rule outer join."""
+        if connection.vendor != 'postgresql':
+            self.skipTest('SQLite ignores FOR UPDATE')
+        row = ActionOutbox.objects.create(
+            company_id=self.company_id,
+            action_rule=None,
+            delivery_kind=ActionOutbox.KIND_EMAIL,
+            event_type='storage.object.uploaded',
+            envelope={'event_type': 'storage.object.uploaded', 'payload': {}},
+            status=ActionOutbox.STATUS_FAILED,
+            next_attempt_at=timezone.now(),
+        )
+        claimed = claim_next_pending_outbox()
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.pk, row.pk)
+        self.assertIsNone(claimed.action_rule_id)
+        delivered = deliver_outbox_row(row.pk)
+        self.assertIsNotNone(delivered)
+        self.assertEqual(delivered.status, ActionOutbox.STATUS_DEAD)
+        self.assertIn('not configured', delivered.last_error)
 
 
 class WebhookSigningTests(TestCase):

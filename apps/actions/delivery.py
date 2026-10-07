@@ -218,8 +218,10 @@ def deliver_outbox_row(
     """
     correlation = {'trigger': trigger, 'scheduled_job_run_id': scheduled_job_run_id}
     with transaction.atomic():
+        # of=('self',): action_rule is nullable. Postgres rejects FOR UPDATE
+        # on the nullable side of that outer join.
         row = (
-            ActionOutbox.objects.select_for_update()
+            ActionOutbox.objects.select_for_update(of=('self',))
             .select_related('action_rule')
             .filter(pk=outbox_id)
             .first()
@@ -314,13 +316,18 @@ def _pending_outbox_filter(now):
 
 
 def claim_next_pending_outbox(*, now=None) -> ActionOutbox | None:
-    """Claim one retryable row with skip-locked and a short lease."""
+    """Claim one retryable row with skip-locked and a short lease.
+
+    ``of=('self',)`` locks the outbox row only. ``action_rule`` is nullable,
+    and Postgres rejects FOR UPDATE on the nullable side of that outer join.
+    Email rows have no rule, so the join is what made ``retry_webhooks`` fail.
+    """
     now = now or timezone.now()
     lease_until = now + timedelta(seconds=_lease_seconds())
     with transaction.atomic():
         row = (
             _pending_outbox_filter(now)
-            .select_for_update(skip_locked=True)
+            .select_for_update(skip_locked=True, of=('self',))
             .select_related('action_rule')
             .order_by('next_attempt_at', 'created_at')
             .first()

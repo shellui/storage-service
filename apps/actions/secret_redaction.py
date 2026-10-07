@@ -1,7 +1,7 @@
 """Drop secrets before they are stored or sent.
 
 Webhook envelopes, the event log, and email-service bodies all use this.
-A storage catalog payload does not carry credentials. The filter still runs
+A storage catalog payload does not carry credentials. Redaction still runs
 so a token, sign-in link, signed URL, or secret-shaped field cannot leave
 the process.
 """

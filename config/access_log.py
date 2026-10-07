@@ -2,7 +2,7 @@
 
 Share links put the secret in the path (`/storage/v1/share/link/<token>`).
 The access format already drops the query string and the Referer header.
-This filter removes the token that remains in the path.
+This step removes the token that remains in the path.
 """
 
 from __future__ import annotations

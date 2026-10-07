@@ -20,6 +20,20 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: storage
+          POSTGRES_PASSWORD: storage
+          POSTGRES_DB: storage
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U storage -d storage"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       SECRET_KEY: ci-only-not-for-production-0123456789abcdef
       DEBUG: 'true'
@@ -61,6 +75,17 @@ jobs:
 
       - name: Run tests
         run: uv run python manage.py test --verbosity=1
+
+      # SQLite ignores FOR UPDATE, so this job's Postgres service runs the
+      # nullable action_rule lock regression on its own.
+      - name: Postgres regression (FOR UPDATE)
+        env:
+          POSTGRES_DATABASE_URL: postgres://storage:storage@localhost:5432/storage
+          POSTGRES_SSL_REQUIRE: 'false'
+        run: >-
+          uv run python manage.py test
+          apps.actions.tests.test_actions.RetryCommandTests.test_claim_email_row_without_action_rule_on_postgres
+          --verbosity=1
 
   security:
     name: Security & hygiene
