@@ -157,19 +157,15 @@ class JWKSClient:
         if kid and kid in self._keys:
             return self._keys[kid]
         if kid:
+            # A new kid during rotation is not in the cache yet. Refresh once,
+            # then fail closed. Do not verify with a different key.
             self._refresh(force=True)
             if kid in self._keys:
                 return self._keys[kid]
+            self._reject_unknown_kid(kid, alg)
+        # Tokens that omit kid can use the only loaded key. A present kid never does.
         if len(self._keys) == 1:
-            only_kid, only_key = next(iter(self._keys.items()))
-            if kid and kid != only_kid:
-                logger.warning(
-                    'JWT kid=%r not in JWKS; using sole available key kid=%s alg=%s',
-                    kid,
-                    only_kid,
-                    alg,
-                )
-            return only_key
+            return next(iter(self._keys.values()))
         if not self._keys:
             logger.warning(
                 'JWKS has no keys (url=%s static=%s) for token alg=%s kid=%r',
@@ -185,6 +181,24 @@ class JWKSClient:
             alg,
             list(self._keys),
         )
+        raise jwt.InvalidTokenError(f'Unable to find a signing key that matches kid={kid!r}')
+
+    def _reject_unknown_kid(self, kid: str, alg: str | None) -> None:
+        if not self._keys:
+            logger.warning(
+                'JWKS has no keys (url=%s static=%s) for token alg=%s kid=%r',
+                self.url or None,
+                self._static_document is not None,
+                alg,
+                kid,
+            )
+        else:
+            logger.warning(
+                'JWT kid=%r not in JWKS; refusing another key alg=%s available kids=%s',
+                kid,
+                alg,
+                list(self._keys),
+            )
         raise jwt.InvalidTokenError(f'Unable to find a signing key that matches kid={kid!r}')
 
 
