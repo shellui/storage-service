@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.5.1] - 2026-10-21
+
+### 🛠 Improvements
+
+- **Errors:** Error pages use the Shellui design, and API errors always return JSON.
+
 ## [0.5.0] - 2026-10-07
 
 ### ✨ Feature

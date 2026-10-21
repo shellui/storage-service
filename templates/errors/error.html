@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    {% load static %}
+    {% include "includes/shellui_favicons.html" %}
+    <link rel="stylesheet" href="{% static 'css/site.css' %}" />
+    <title>{{ title }} · Shellui Storage</title>
+    <script>
+      (function () {
+        var stored = null;
+        try { stored = localStorage.getItem("theme"); } catch (e) {}
+        var theme =
+          stored ||
+          (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        if (theme === "dark") document.documentElement.classList.add("dark");
+      })();
+    </script>
+  </head>
+  <body class="flex min-h-full flex-col bg-background text-foreground antialiased">
+    {% include "includes/shellui_logo_sprite.html" %}
+    <header class="border-b border-border/50 bg-background page-x">
+      <nav class="mx-auto flex h-16 max-w-5xl items-center" aria-label="Global">
+        <a
+          href="/"
+          class="inline-flex shrink-0 items-center text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          aria-label="Shellui Storage"
+          translate="no"
+        >
+          <svg class="size-8.5" viewBox="0 0 1080 1080" role="img" aria-hidden="true">
+            <use href="#logo-shellui-mark"></use>
+          </svg>
+        </a>
+      </nav>
+    </header>
+    <main class="flex flex-1 items-center page-x py-16">
+      <div class="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm" data-status="{{ status_code }}">
+        <p class="text-sm font-medium text-primary-ink dark:text-primary">{{ status_code }}</p>
+        <h1 class="mt-2 text-xl font-semibold tracking-tight text-balance text-foreground">{{ title }}</h1>
+        <p class="mt-3 text-sm leading-relaxed text-muted-foreground">{{ message }}</p>
+        <a
+          href="/"
+          class="mt-6 inline-flex min-h-11 items-center justify-center rounded-md bg-foreground px-5 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >{{ home_label }}</a
+        >
+      </div>
+    </main>
+  </body>
+</html>

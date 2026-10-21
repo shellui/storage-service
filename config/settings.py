@@ -236,6 +236,11 @@ REST_FRAMEWORK = {
         'apps.authapi.permissions.IsAuthenticatedPrincipal',
     ],
     'EXCEPTION_HANDLER': 'config.exceptions.exception_handler',
+    # JSON only: browsers get the same error body as API clients, never the
+    # browsable API page. Views that need another format set renderer_classes.
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -292,6 +297,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+# Branded page for browsers, JSON under the API prefixes (config/errors.py).
+CSRF_FAILURE_VIEW = 'config.errors.csrf_failure'
 
 # Shared cache, and the broker for the scheduled jobs. Required when DEBUG=false:
 # authapi.E004 and the Docker entrypoint refuse to start without it.
