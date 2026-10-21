@@ -31,6 +31,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - `.env.example` is generated from `config/env_registry.py` and lists only required settings, with optional ones commented out.
 - With `DEBUG=false`, a `SECRET_KEY` shorter than 50 characters or a placeholder refuses to start.
 
+### 🔒 Security
+
+- certifi upgraded to 2026.10.19 (PYSEC-2026-4320).
+
 ## [0.5.0] - 2026-10-07
 
 ### ✨ Feature
