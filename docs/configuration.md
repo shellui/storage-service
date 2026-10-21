@@ -8,16 +8,22 @@ storage-service reads configuration from environment variables. Copy [`.env.exam
 
 An empty boolean uses the default. `1`, `true`, `yes`, and `on` are true. Any other value, including `false`, is false. Byte sizes accept a bare integer or a `K`, `M`, `G`, or `T` suffix. Each suffix is a multiple of 1024, so `10G` is 10737418240 bytes.
 
-## Required to start
+`.env.example` is generated from `config/env_registry.py`, the single list of settings. It keeps only the settings you need active. Optional ones are commented out with the default the code uses. After changing a setting, run `python manage.py generate_env --example > .env.example`. A test fails when the code, the registry, `.env.example` and this page drift apart.
 
-`SECRET_KEY` is required in every mode. Django uses it to sign sessions and CSRF tokens. Generate one with:
+## Generate production settings
+
+`manage.py generate_env` prints every setting production needs, with a fresh `SECRET_KEY`. It runs before Django settings load, so it works with no env, database or Redis:
 
 ```bash
-python - <<'PY'
-from django.core.management.utils import get_random_secret_key
-print(get_random_secret_key())
-PY
+python manage.py generate_env --host storage.example.com
+python manage.py generate_env --host storage.example.com --optional  # also list optional settings with defaults
 ```
+
+`--host` fills `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`. Replace every `change-me`. The output holds a secret: store it in a secret manager and do not commit it.
+
+## Required to start
+
+`SECRET_KEY` is required in every mode. Django uses it to sign sessions and CSRF tokens. With `DEBUG=false` it must be at least 50 characters and not a placeholder. `generate_env` makes one.
 
 ## Required when DEBUG is false
 
@@ -27,6 +33,9 @@ The Docker image sets `DEBUG=false`. Startup fails until these are set:
 | --- | --- |
 | `IDENTITY_ISSUER` | JWT `iss` must match this value |
 | `IDENTITY_AUDIENCE` | JWT `aud` must match this value |
+| `REDIS_URL` | Shared cache and job broker. The entrypoint exits without it |
+
+Error messages name the missing setting and never print a value.
 
 `JWT_HS256_FALLBACK_SECRET` is refused unless you also set `ALLOW_JWT_HS256_FALLBACK=true`. `CORS_ALLOW_ALL_ORIGINS=true` together with `CORS_ALLOW_CREDENTIALS=true` is also refused.
 
@@ -129,6 +138,7 @@ REDIS_URL=redis://redis:6379/0
 | `SCHEDULER_ENABLED` | `true` | `false` keeps the Celery worker out of this container |
 | `CELERY_BROKER_URL` | `REDIS_URL` | A different Redis for the jobs. Does not replace `REDIS_URL` |
 | `CELERY_WORKER_CONCURRENCY` | `2` | Threads in the worker |
+| `CELERY_BEAT_SCHEDULE_FILE` | `/tmp/celerybeat-schedule` | Beat schedule state file |
 
 Schedules, locks, the staff API and metrics are in [Scheduled jobs](maintenance-jobs.md).
 
@@ -157,6 +167,10 @@ The image entrypoint runs migrations, `check --deploy`, then Gunicorn. In `web` 
 | `GUNICORN_WORKERS` | `2` | Worker processes |
 | `GUNICORN_THREADS` | `2` | Threads per worker |
 | `GUNICORN_TIMEOUT` | `120` | Seconds before Gunicorn kills a silent worker. Sized for large uploads |
+| `GUNICORN_GRACEFUL_TIMEOUT` | `30` | Seconds a worker gets to finish requests on shutdown |
+| `GUNICORN_KEEP_ALIVE` | `75` | Seconds to keep an idle connection open |
+| `GUNICORN_MAX_REQUESTS` | `1000` | Requests before a worker restarts |
+| `GUNICORN_MAX_REQUESTS_JITTER` | `200` | Random spread added to `GUNICORN_MAX_REQUESTS` |
 
 ## Shellui Actions
 

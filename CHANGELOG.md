@@ -18,6 +18,19 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.6.0] - 2026-10-21
+
+### ✨ Feature
+
+- Docker `HEALTHCHECK` on the new `GET /health/live` liveness probe, with no database or Redis work.
+- Publishing a GitHub release pushes the multi-arch image (amd64, arm64) to Docker Hub.
+- `manage.py generate_env` prints the production settings with a fresh `SECRET_KEY`.
+
+### 🚨 Changed
+
+- `.env.example` is generated from `config/env_registry.py` and lists only required settings, with optional ones commented out.
+- With `DEBUG=false`, a `SECRET_KEY` shorter than 50 characters or a placeholder refuses to start.
+
 ## [0.5.0] - 2026-10-07
 
 ### ✨ Feature

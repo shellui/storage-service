@@ -30,7 +30,8 @@ print('has_admin=' + str(has_admin))
 def _settings_check(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()
     merged.update(env)
-    merged.setdefault('SECRET_KEY', 'test-secret-key-for-settings-check-only')
+    # Not setdefault: the CI SECRET_KEY is shorter than the 50 characters DEBUG=false requires.
+    merged['SECRET_KEY'] = env.get('SECRET_KEY', 'test-secret-key-for-settings-check-only-0123456789abcdef')
     return subprocess.run(
         [sys.executable, str(MANAGE_PY), 'check'],
         cwd=PROJECT_ROOT,
@@ -126,7 +127,7 @@ class DjangoAdminDisabledTests(unittest.TestCase):
         env = os.environ.copy()
         env.update(
             {
-                'SECRET_KEY': 'test-secret-key-for-settings-check-only',
+                'SECRET_KEY': 'test-secret-key-for-settings-check-only-0123456789abcdef',
                 'DEBUG': 'true',
                 'DJANGO_ADMIN_ENABLED': 'false',
             }
