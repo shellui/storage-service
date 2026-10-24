@@ -6,6 +6,11 @@ import sys
 
 def main():
     """Run administrative tasks."""
+    if sys.argv[1:2] == ['generate_env']:
+        # Runs without settings, env, database or Redis: it prints the env to start with.
+        from config.generate_env import main as generate_env
+
+        sys.exit(generate_env(sys.argv[2:]))
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
     try:
         from django.core.management import execute_from_command_line

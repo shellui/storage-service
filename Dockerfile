@@ -52,4 +52,8 @@ VOLUME ["/app/data"]
 
 EXPOSE 8000
 
+# Liveness only (no DB or Redis). Passes in worker mode. See tools/healthcheck.py.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=5s --retries=3 \
+  CMD ["python", "/app/tools/healthcheck.py"]
+
 ENTRYPOINT ["/app/tools/docker-entrypoint.sh"]

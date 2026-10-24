@@ -55,7 +55,8 @@ print('has_admin=' + str(has_admin))
 def _merged_env(env: dict[str, str]) -> dict[str, str]:
     merged = os.environ.copy()
     merged.update(env)
-    merged.setdefault('SECRET_KEY', LONG_SECRET_KEY)
+    # Not setdefault: the CI SECRET_KEY is shorter than the 50 characters DEBUG=false requires.
+    merged['SECRET_KEY'] = env.get('SECRET_KEY', LONG_SECRET_KEY)
     return merged
 
 
@@ -166,8 +167,7 @@ class ProductionSettingsValidationTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         output = _output(result)
-        self.assertIn('authapi.E005', output)
-        self.assertIn('shorter than 50 characters', output)
+        self.assertIn('SECRET_KEY is shorter than 50 characters or a placeholder', output)
 
     def test_production_rejects_placeholder_secret_key(self):
         result = _settings_check(
@@ -182,8 +182,7 @@ class ProductionSettingsValidationTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         output = _output(result)
-        self.assertIn('authapi.E005', output)
-        self.assertIn('published placeholder', output)
+        self.assertIn('SECRET_KEY is shorter than 50 characters or a placeholder', output)
         self.assertNotIn('abcdefghij', output)
 
     def test_production_check_deploy_rejects_published_example_key(self):
@@ -198,7 +197,7 @@ class ProductionSettingsValidationTests(unittest.TestCase):
             '--deploy',
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('authapi.E005', _output(result))
+        self.assertIn('SECRET_KEY is shorter than 50 characters or a placeholder', _output(result))
 
     def test_empty_secret_key_refuses_to_start(self):
         result = _settings_check({'DEBUG': 'true', 'SECRET_KEY': ''})
@@ -324,7 +323,7 @@ class DjangoAdminDisabledTests(unittest.TestCase):
         env = os.environ.copy()
         env.update(
             {
-                'SECRET_KEY': 'test-secret-key-for-settings-check-only',
+                'SECRET_KEY': 'test-secret-key-for-settings-check-only-0123456789abcdef',
                 'DEBUG': 'true',
                 'DJANGO_ADMIN_ENABLED': 'false',
             }

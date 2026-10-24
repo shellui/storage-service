@@ -2,7 +2,7 @@
 
 How to build, publish, and run the `shellui/storage-service` Docker image on [Docker Hub](https://hub.docker.com/r/shellui/storage-service).
 
-Publishing is **manual**. There is no CI workflow for Docker Hub yet.
+Publishing is automatic: publishing a GitHub release builds and pushes the image. Manual steps remain as a fallback.
 
 ## Image overview
 
@@ -85,7 +85,31 @@ docker stop storage-release-smoke
 
 ## Publish to Docker Hub
 
-### Prerequisites
+### Automatic publish (GitHub Actions)
+
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml) builds and pushes the image.
+
+- **Trigger:** publishing a GitHub release. You can also rerun it from **workflow_dispatch** with a release tag (for example `v0.6.0`). A manual rerun always moves `latest`, so only rerun the newest release.
+- **Build:** buildx multi-arch for `linux/amd64` and `linux/arm64`.
+- **Tags:** `X.Y.Z`, `X.Y` and `latest`. Pre-releases do not get `latest`.
+- **Checks:** the pre-release check workflow runs on pull requests, so make sure it passes before you publish.
+
+Required secrets:
+
+| Secret               | Value                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DOCKERHUB_USERNAME` | Docker Hub organization name, `shellui`                                                               |
+| `DOCKERHUB_TOKEN`    | Docker Hub organization access token with image push scope on the service repos and read access to public repositories (base image pulls go through the token after login), with expiry |
+
+Store them as GitHub organization secrets shared only with the service repos, so you set them once.
+
+**Health check:** the image has a built-in Docker `HEALTHCHECK` (`tools/healthcheck.py`). It calls `GET /health/live` on `127.0.0.1:8000` every 30s, with a 60s start period for migrations. Leave Coolify's own health check off, or point it at `GET /health/live` on port `8000`. `/health/live` needs no auth, skips sessions and the database, and is never redirected to https, so a slow database or Redis does not restart the container. In `worker` mode the check passes as long as the Celery process runs.
+
+### Manual publish (fallback)
+
+Use these steps if the workflow is unavailable.
+
+#### Prerequisites
 
 1. Docker Hub account with push access to the `shellui` organization (or your namespace).
 2. Docker CLI logged in:
