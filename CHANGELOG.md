@@ -18,6 +18,14 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 🔒 Security
+
+- JWKS verification rejects a token `kid` that is not in the key set, including when that set has one key.
+- Secure admin cookies are named `__Host-sessionid` and `__Host-csrftoken`, the CSRF cookie is HttpOnly, and neither cookie sets Domain.
+- With `DEBUG=false`, `manage.py check` errors when `SECRET_KEY` is empty, a published placeholder, or shorter than 50 characters.
+
 ## [0.5.0] - 2026-10-07
 
 ### ✨ Feature

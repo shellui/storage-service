@@ -607,6 +607,15 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not
 SECURE_HSTS_PRELOAD = _env_bool('SECURE_HSTS_PRELOAD', False)
 SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', not DEBUG)
 CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+# __Host- names are host-only. Browsers drop them when a Domain attribute is set,
+# and they require Secure plus Path=/. Use them only on the secure cookies.
+SESSION_COOKIE_NAME = '__Host-sessionid' if SESSION_COOKIE_SECURE else 'sessionid'
+CSRF_COOKIE_NAME = '__Host-csrftoken' if CSRF_COOKIE_SECURE else 'csrftoken'
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_DOMAIN = None
+CSRF_COOKIE_DOMAIN = None
+SESSION_COOKIE_PATH = '/'
+CSRF_COOKIE_PATH = '/'
 
 # Django admin exposes cross-tenant data — disable on internet-facing API pods when
 # operators use a separate admin ingress with MFA / network restrictions.
