@@ -35,9 +35,10 @@ When `DEBUG=false`:
 
 - `SECURE_SSL_REDIRECT=true` redirects HTTP to HTTPS. Turn it off only behind a TLS terminator that already redirects
 - `SECURE_HSTS_SECONDS=31536000` (1 year), including subdomains
-- `SESSION_COOKIE_SECURE=true` and `CSRF_COOKIE_SECURE=true`
+- `SESSION_COOKIE_SECURE=true` and `CSRF_COOKIE_SECURE=true`. A secure cookie is named `__Host-sessionid` or `__Host-csrftoken`. Browsers reject a `Domain` on a `__Host-` cookie, and storage-service does not set one. `Path` is `/`.
+- `CSRF_COOKIE_HTTPONLY=true`, so script on the storage host cannot read the CSRF cookie. Django admin login still posts `csrfmiddlewaretoken` from the form.
 
-Override any of these in the environment. See [`.env.example`](../.env.example). Django admin uses these cookies. The storage API does not.
+Override the HTTPS flags in the environment when you terminate TLS yourself. See [`.env.example`](../.env.example). Turn a cookie's Secure flag off only for HTTP: that cookie keeps the name `sessionid` or `csrftoken`. `CSRF_COOKIE_HTTPONLY` stays on, and `Domain` stays unset. Django admin uses these cookies. The storage API does not.
 
 ## Postgres SSL
 

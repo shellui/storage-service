@@ -10,7 +10,7 @@ An empty boolean uses the default. `1`, `true`, `yes`, and `on` are true. Any ot
 
 ## Required to start
 
-`SECRET_KEY` is required in every mode. Django uses it to sign sessions and CSRF tokens. Generate one with:
+`SECRET_KEY` is required in every mode. Django uses it to sign sessions and CSRF tokens. Use at least 50 characters. Generate one with:
 
 ```bash
 python - <<'PY'
@@ -18,6 +18,8 @@ from django.core.management.utils import get_random_secret_key
 print(get_random_secret_key())
 PY
 ```
+
+With `DEBUG=false`, `manage.py check` reports `authapi.E005` when `SECRET_KEY` is empty, a published placeholder, or shorter than 50 characters. Placeholders include a `django-insecure-` prefix and `change-me-generate-a-strong-secret-key`. Startup also refuses an empty `SECRET_KEY`, before checks run. The image entrypoint runs `check --deploy`, which includes this error.
 
 ## Required when DEBUG is false
 
@@ -144,7 +146,7 @@ Schedules, locks, the staff API and metrics are in [Scheduled jobs](maintenance-
 | `SECURE_HSTS_SECONDS` | `31536000` when `DEBUG=false`, else `0` | HSTS max-age |
 | `SECURE_HSTS_INCLUDE_SUBDOMAINS` | on when `DEBUG=false` | Include subdomains in HSTS |
 | `SECURE_HSTS_PRELOAD` | `false` | HSTS preload flag |
-| `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` | on when `DEBUG=false` | Secure attribute on Django cookies |
+| `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` | on when `DEBUG=false` | Secure attribute on Django admin cookies. A secure cookie is named `__Host-sessionid` or `__Host-csrftoken`, with no Domain. The CSRF cookie is always HttpOnly |
 
 API auth is the Bearer JWT, not a cookie. Permissive CORS is the default for that reason. Where the browser may return after login is the identity-service redirect allowlist, not this CORS list.
 
