@@ -1,227 +1,89 @@
 # storage-service
 
-`storage-service` is a Django backend that provides **Supabase-compatible** object storage APIs for Shellui (`/storage/v1/*`).
+File storage for Shellui apps, with a Supabase-compatible API.
 
-It authenticates with JWTs issued by [identity-service](https://github.com/shellui/identity-service) (JWKS / RS256), stores blobs in **S3** (or local filesystem), enforces **per-company** and optional **per-user** quotas, exposes **WebDAV** for third-party file clients, and fires Django **signals** on upload/delete (including Markdown sidecar extraction).
+[![CI](https://github.com/shellui/storage-service/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shellui/storage-service/actions/workflows/ci.yml)
+[![Docker Hub](https://img.shields.io/docker/v/shellui/storage-service?sort=semver&label=docker)](https://hub.docker.com/r/shellui/storage-service)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-## Documentation
+storage-service stores company files under `/storage/v1/*`, in the same shape as Supabase Storage. It verifies JWTs from [identity-service](https://github.com/shellui/identity-service) and keeps blobs on S3 (AWS, MinIO, R2) or the local filesystem. Each company gets one bucket with access grants, share links, quotas and WebDAV. The [files](https://github.com/shellui/files) app is its user interface.
 
-The handbook is in [`docs/`](docs/index.md). It is published on [docs.shellui.com](https://docs.shellui.com) at `docs.shellui.com/storage`.
+## Get started
 
-Start with the [overview](docs/index.md), then [Run storage-service](docs/getting-started.md) and [Configuration](docs/configuration.md). Buckets, access grants, share links, quotas, downloads, WebDAV, JWT claim trust, Shellui Actions webhooks, email notifications, the event log, security, maintenance jobs, and the API each have a page in that sidebar.
-
-[shellui/shellui](https://github.com/shellui/shellui) builds the published site from this `docs/` folder. To preview it, clone `shellui` next to this repository, then run `pnpm install` and `DOCS_SERVICES=storage pnpm docs:start` in `../shellui`. See [Build the docs site](https://github.com/shellui/shellui/blob/main/docs/docs-site.md). The **Docs build** job runs that build on every pull request.
-
-## Features
-
-- Supabase-compatible Storage REST API under `/storage/v1/*` (one company bucket, upload, download, list with folders, move/copy, signed URLs)
-- **One bucket per company** — new folders/files are **private to the creator** by default; share with **access grants** (user / company / folder / object). Nested items inherit the parent folder's permissions.
-- **Share links** — secret capability URLs with expiry and/or max downloads (no registration; not listed publicly)
-- Reserved **connector** buckets (SharePoint / Dropbox, …) as future **read-only** mounts
-- JWT verification via identity-service JWKS (`IDENTITY_SERVICE_URL` → `/.well-known/jwks.json`, or a local document / explicit `IDENTITY_JWKS_URL`)
-- Pluggable blob backend: **S3** (AWS, MinIO, R2, …) or **filesystem**
-- Company total quota + optional per-user quota
-- MIME type detection and per-bucket allow-lists
-- Nested folder listing (prefix-based, same shape as Supabase)
-- WebDAV at `/dav/` for third-party file clients (quotas + signals apply)
-- Downloads stream through Django (`FileResponse`) so the Files UI can open files same-origin
-- OpenAPI docs (Swagger + ReDoc) and a simple home page
-- Django admin with upload statistics (documents, MIME breakdown, quotas, recent files)
-- **Email notifications** for the same `storage.*` events, forwarded to email-service when `EMAIL_SERVICE_API_KEY` is set. Webhook and email bodies omit sign-in links, tokens, signed URLs, and secret-shaped fields. See [`docs/email.md`](docs/email.md).
-- CORS for browser API calls is permissive by default (`CORS_ALLOW_ALL_ORIGINS=true`, credentials off); auth is Bearer JWT — multi-tenant preview origins work without per-slug env lists (see [docs/security.md](docs/security.md))
-
-## Project structure
-
-- `config/` — Django settings and URL routing
-- `apps/authapi/` — JWKS JWT authentication
-- `apps/storage/` — buckets, objects, quotas, downloads, signals
-- `apps/actions/` - Shellui Actions webhook outbox, email-service forwards, and admin API
-- `apps/webdav/` — WebDAV connector
-- `docs/`: handbook pages for docs.shellui.com/storage
-
-## Main endpoints
-
-| Area | Path |
-|------|------|
-| Health | `GET /storage/v1/health` |
-| Buckets | `GET/POST /storage/v1/bucket`, `GET/PUT/DELETE /storage/v1/bucket/{name}` |
-| Access grants | `GET/POST /storage/v1/access/grant`, `DELETE /storage/v1/access/grant/{id}` |
-| Share links | `POST/GET /storage/v1/share/{bucket}/{*path}`, `GET/DELETE /storage/v1/share/link/{token}` |
-| Upload | `POST/PUT /storage/v1/object/{bucket}/{*path}` |
-| Download | `GET /storage/v1/object/{bucket}/{*path}` |
-| By id (picker) | `GET /storage/v1/object/id/{uuid}` |
-| List (folders) | `POST /storage/v1/object/list/{bucket}` |
-| Folder prefix | `GET/POST/DELETE /storage/v1/object/prefix/{bucket}` (stats, rename, recursive delete) |
-| Delete many | `DELETE /storage/v1/object/{bucket}` |
-| Move / copy | `POST /storage/v1/object/move`, `POST /storage/v1/object/copy` |
-| Sign URL | `POST /storage/v1/object/sign/{bucket}/{*path}` |
-| Quota | `GET /storage/v1/quota` |
-| Stats | `GET /storage/v1/stats` |
-| Metrics | `GET /storage/v1/metrics`, `GET /storage/v1/metrics/all` |
-| Shellui Actions admin | `/api/v1/actions/*` (webhook rules and delivery log) |
-| WebDAV | `/dav/{bucket}/…` |
-| OpenAPI | `/api/docs/`, `/api/docs/redoc/` |
-
-Auth header: `Authorization: Bearer <access_token>` from identity-service. Supabase clients may also send `apikey` (ignored; JWT is authoritative).
-
-## Quick start
+You need Docker and Git, and an [identity-service](https://github.com/shellui/identity-service) running on port 8000.
 
 ```bash
-# Requires https://docs.astral.sh/uv/
-uv sync
-cp .env.example .env
-# Set SECRET_KEY; local identity JWKS URL is already in .env.example
-npm ci && npm run build:css   # first run only (or skip — runserver rebuilds when DEBUG=true)
-uv run python manage.py migrate
-uv run python manage.py runserver 8001
-```
-
-The root landing page (`templates/home.html`) uses Tailwind utilities compiled into `static/css/site.css`. With `DEBUG=true`, **`runserver` runs `npm run build:css` once at startup** (and runs `npm ci` if `node_modules` is missing). For live template/CSS edits, use a second terminal: `npm run watch:css`. Production images and CI build minified CSS before `collectstatic`; Node is not required at runtime.
-
-Open `http://localhost:8001/` for the Shellui Storage homepage, Swagger, and ReDoc. With `DEBUG=true` (local default), create the one-time admin user from the home page if you need Django admin (quotas, grants, share links). In production (`DEBUG=false`), use `uv run python manage.py createsuperuser`, or set `SETUP_TOKEN` and open `/?setup_token=<token>` once for the web form.
-
-Dependencies live in `pyproject.toml` and are locked in `uv.lock`. Add a package with `uv add <name>`; refresh the lock with `uv lock`.
-
-### Identity wiring
-
-Tokens come from identity-service. In production, **copy the public JWKS once** (do not fetch `id.shellui.com` from a sibling container):
-
-```bash
-# From your laptop
-curl -sS https://id.shellui.com/.well-known/jwks.json
-
-# Coolify / production — paste the JSON
-IDENTITY_JWKS={"keys":[...]}
-
-# Required when DEBUG=false (match identity-service 0.5.0+ JWT_ISSUER / JWT_AUDIENCE)
-IDENTITY_ISSUER=https://id.shellui.com
-IDENTITY_AUDIENCE=shellui
-
-# Or a file on the data volume
-IDENTITY_JWKS_FILE=/app/data/jwks.json
-
-# Local/dev — identity base URL; JWKS is derived automatically
-IDENTITY_SERVICE_URL=http://localhost:8000
-# Optional override if JWKS is on a different host:
-# IDENTITY_JWKS_URL=http://host.docker.internal:8000/.well-known/jwks.json
-```
-
-Copy `.env.example` → `.env` and change the value there (Compose and `runserver` both load it).
-
-For identity DEBUG/HS256 locally, also set `JWT_HS256_FALLBACK_SECRET` to the same `SECRET_KEY` as identity-service.
-
-### S3 / MinIO
-
-```bash
-STORAGE_BACKEND=s3
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_STORAGE_BUCKET_NAME=shellui
-AWS_S3_ENDPOINT_URL=http://localhost:9000   # MinIO; omit for AWS
-AWS_S3_REGION_NAME=us-east-1
-AWS_S3_ADDRESSING_STYLE=path                # path for MinIO; virtual for AWS
-```
-
-These `AWS_*` values are used by Django (django-storages) for uploads and streamed downloads. In Compose, point the endpoint at the MinIO service hostname:
-
-```bash
-AWS_S3_ENDPOINT_URL=http://minio:9000
-docker compose --profile s3 up --build
-```
-
-## Downloads
-
-Object `GET` streams through Django. Optional signed URLs: `POST /storage/v1/object/sign/{bucket}/{path}`.
-
-See [docs/downloads.md](docs/downloads.md).
-
-## Shellui frontend (future connector)
-
-Mirror Supabase Storage so one client can target either backend:
-
-```ts
-// Planned shape — not shipped in shellui yet
-storage: {
-  type: 'shellui', // or 'supabase'
-  url: 'http://localhost:8001',
-}
-// Client calls `${url}/storage/v1/...` like @supabase/storage-js
-```
-
-## Docker
-
-```bash
-cp .env.example .env
+git clone https://github.com/shellui/storage-service.git
+cd storage-service
+cp .env.example .env   # then set SECRET_KEY
 docker compose up --build
 ```
 
-Default host port: `8001`.
+The API runs on [http://localhost:8001](http://localhost:8001). `/api/docs/` is the OpenAPI reference and `/admin/` is Django admin. The full setup is in [Run storage-service](docs/getting-started.md).
 
-Runtime env vars include `SECRET_KEY`, identity JWKS settings, and **`REDIS_URL`**. Redis is required when `DEBUG=false`: the container exits 1 without it, and `manage.py check --deploy` reports `authapi.E004`. With `DEBUG=true` and no Redis, Django uses in-process LocMem and the scheduled jobs do not start. Compose starts a Redis service and defaults `REDIS_URL` to `redis://redis:6379/0`.
+Point a Shellui app at it:
 
-The image runs `retry_webhooks` every minute and `purge_expired_data` hourly (minute 17) in a Celery worker next to Gunicorn. `retry_webhooks` retries webhook deliveries and email-service posts. Set `SCHEDULER_ENABLED=false` only when a separate `worker` container or your own scheduler runs those commands. See [docs/maintenance-jobs.md](docs/maintenance-jobs.md) and [docs/email.md](docs/email.md).
+```ts
+storage: {
+  url: 'http://localhost:8001',
+}
+```
 
-Webhook signing and the n8n workflow are in [docs/actions.md](docs/actions.md) and [docs/n8n.md](docs/n8n.md). The event log is in [docs/event-log.md](docs/event-log.md).
+## Configuration
 
-## Tests
+For production, `python manage.py generate_env --host storage.example.com` prints the required settings with a fresh `SECRET_KEY`.
+
+| Variable | Purpose |
+| --- | --- |
+| `SECRET_KEY` | Django secret, 50+ characters when `DEBUG=false` |
+| `IDENTITY_SERVICE_URL` | identity-service base URL. In production, pin `IDENTITY_JWKS` instead |
+| `IDENTITY_ISSUER`, `IDENTITY_AUDIENCE` | Must match identity `JWT_ISSUER` and `JWT_AUDIENCE` |
+| `REDIS_URL` | Required when `DEBUG=false`. Cache and scheduled jobs |
+| `STORAGE_BACKEND` | `filesystem` (default) or `s3` |
+
+Every setting is in [Configuration](docs/configuration.md).
+
+## Documentation
+
+The handbook lives in [`docs/`](docs/index.md) and is published at [docs.shellui.com/storage](https://docs.shellui.com/storage).
+
+- [Buckets and objects](docs/buckets-and-objects.md), [downloads](docs/downloads.md) and [quotas](docs/quotas.md)
+- [Access grants](docs/access.md) and [share links](docs/sharing.md)
+- [Clients and WebDAV](docs/clients.md) and the [API](docs/api.md)
+- [JWT authentication](docs/authentication.md) and [security](docs/security.md)
+- [Webhooks](docs/actions.md), [email](docs/email.md), [event log](docs/event-log.md) and [maintenance jobs](docs/maintenance-jobs.md)
+
+## Development
 
 ```bash
+uv sync
+uv run python manage.py migrate
+uv run python manage.py runserver 8001
 uv run python manage.py test
 ```
 
-Pull requests and pushes to `main` / `develop` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Django tests, lockfile check, dependency audit (`pip-audit`), secret scan (gitleaks), markdown link check (lychee), a docs build against [shellui/shellui](https://github.com/shellui/shellui), and a Docker image build.
+To preview the docs site, clone [shellui/shellui](https://github.com/shellui/shellui) next to this repository and run `DOCS_SERVICES=storage pnpm docs:start` there. See [Build the docs site](https://github.com/shellui/shellui/blob/main/docs/docs-site.md).
 
-Pull requests **to `main`** also run the pre-release checklist ([`.github/workflows/pre-release.yml`](.github/workflows/pre-release.yml)) — same checks as:
+Releases go to Docker Hub as `shellui/storage-service`. The checklist is in [PUBLISH.md](PUBLISH.md) and changes are in [CHANGELOG.md](CHANGELOG.md).
 
-```bash
-./tools/pre-release-check.sh
-```
+## Contributing
 
-## Releases (Docker Hub)
+Open an issue or a pull request against `develop`. CI runs the tests, a dependency audit, a secret scan, a link check and the docs build. Coding agents start with [AGENTS.md](AGENTS.md).
 
-See [PUBLISH.md](PUBLISH.md) for the pre-release checklist (automated via `./tools/pre-release-check.sh`), tagging conventions, and steps to build, push, and deploy `shellui/storage-service` on Docker Hub.
+## Shellui projects
 
-### Post-deploy prod check
+| Project | What it does |
+| --- | --- |
+| [shellui](https://github.com/shellui/shellui) | The shell, CLI and SDK |
+| [admin](https://github.com/shellui/admin) | Administration app inside the shell |
+| [files](https://github.com/shellui/files) | File explorer for storage-service |
+| [identity-service](https://github.com/shellui/identity-service) | Sign-in, companies and tokens |
+| [storage-service](https://github.com/shellui/storage-service) | File storage |
+| [hosting-service](https://github.com/shellui/hosting-service) | Deploys and serves Shellui apps |
+| [email-service](https://github.com/shellui/email-service) | Templates and sends email |
+| [skills](https://github.com/shellui/skills) | Agent Skills for coding agents |
+| [playground](https://github.com/shellui/playground) | Live demo of the shell |
 
-After a production deploy, run [`tools/prod-config-check.sh`](tools/prod-config-check.sh) against the live **storage API** host (`https://storage.shellui.com`), not the Files SPA at `files.shellui.com` (GitHub Pages).
+## License
 
-```bash
-# From a checkout of storage-service (develop/main)
-./tools/prod-config-check.sh https://storage.shellui.com
-
-# Or one-off without a full clone:
-curl -fsSL https://raw.githubusercontent.com/shellui/storage-service/develop/tools/prod-config-check.sh -o prod-config-check.sh
-chmod +x prod-config-check.sh
-./prod-config-check.sh https://storage.shellui.com
-```
-
-The script prints `PASS:` / `FAIL:` / `WARN:` / `INFO:` lines and exits **0** when all hard checks pass, **non-zero** if any `FAIL:` occurs.
-
-**Coolify / internal Postgres:** if the container fails at boot with Postgres SSL errors against an internal Docker database, storage parses `POSTGRES_DATABASE_URL` with `ssl_require=false` by default; if your orchestration still enforces TLS, set `POSTGRES_SSL_REQUIRE=false` (same pattern as [identity-service](https://github.com/shellui/identity-service)).
-
-Full check list, optional env vars (`CORS_PROBE_ORIGIN`, `EXPECTED_IDENTITY_ISSUER`), and deploy context: [PUBLISH.md — Post-deploy production config check](PUBLISH.md#post-deploy-production-config-check).
-
-## Logs
-
-Application logs go to **stdout/stderr** (the terminal for `runserver`, container logs in Docker/Coolify). Each line looks like:
-
-```text
-2026-08-17 15:38:01 WARNING [apps.authapi.authentication] [req=a1b2c3d4e5f6] JWT JWKS verification failed (InvalidSignatureError): Signature verification failed. alg='RS256' kid='abc' jwks_source='env' jwks_kids=['xyz']
-```
-
-`req=` is a per-request id. It is also returned as the `X-Request-ID` response header, and on API errors as JSON `request_id`, so you can grep one failed call:
-
-```bash
-# Local
-uv run python manage.py runserver 8001
-
-# Docker / Coolify — follow container logs
-docker logs -f storage-service
-
-# JWT failures only
-docker logs storage-service 2>&1 | grep JWT
-```
-
-Set `LOG_LEVEL=DEBUG` (default when `DEBUG=true`) or `LOG_LEVEL=INFO` in `.env`. JWT verify failures are logged at **WARNING** with algorithm, `kid`, issuer/audience, and which JWKS keys were loaded — the raw token is never logged. When `DEBUG=true`, the 401 body also includes the underlying PyJWT exception.
-
-See [JWKS auth](docs/authentication.md) for how to interpret those fields.
+[MIT](LICENSE)
