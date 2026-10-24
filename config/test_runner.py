@@ -11,6 +11,11 @@ from django.test.runner import DiscoverRunner
 from django.test.utils import override_settings
 
 
+# Django's runner forces DEBUG false, then runs `manage.py check`. A short local
+# SECRET_KEY must not fail that call. Production checks still see the real key.
+_SUITE_CHECK_SECRET_KEY = 'test-suite-secret-key-not-for-production-0123456789abcd'
+
+
 class IsolatedMediaDiscoverRunner(DiscoverRunner):
     """
     Force a local FileSystemStorage in a temp dir for the whole suite.
@@ -49,6 +54,10 @@ class IsolatedMediaDiscoverRunner(DiscoverRunner):
                 'refusing to run against S3 or the real MEDIA_ROOT.'
             )
         super().setup_test_environment(**kwargs)
+
+    def run_checks(self, databases):
+        with override_settings(SECRET_KEY=_SUITE_CHECK_SECRET_KEY):
+            super().run_checks(databases)
 
     def teardown_test_environment(self, **kwargs):
         try:

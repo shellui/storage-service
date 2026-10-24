@@ -159,15 +159,12 @@ _secret_key = os.getenv('SECRET_KEY', '').strip()
 if not _secret_key:
     raise ImproperlyConfigured(
         '\n'
-        'SECRET_KEY is not set — storage-service cannot start.\n'
+        'SECRET_KEY is not set. storage-service cannot start.\n'
         '\n'
         'How to fix:\n'
-        '  1. Copy the example env file:\n'
-        '       cp .env.example .env\n'
-        '  2. Set SECRET_KEY in .env.\n'
-        '  3. Generate a strong key:\n'
-        '       python -c "from django.core.management.utils import '
-        'get_random_secret_key; print(get_random_secret_key())"\n'
+        '  Local: cp .env.example .env, then set SECRET_KEY in .env.\n'
+        '  Production: python manage.py generate_env --host storage.example.com\n'
+        '  prints every required setting with a fresh SECRET_KEY.\n'
     )
 SECRET_KEY = _secret_key
 
@@ -236,6 +233,11 @@ REST_FRAMEWORK = {
         'apps.authapi.permissions.IsAuthenticatedPrincipal',
     ],
     'EXCEPTION_HANDLER': 'config.exceptions.exception_handler',
+    # JSON only: browsers get the same error body as API clients, never the
+    # browsable API page. Views that need another format set renderer_classes.
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -262,6 +264,8 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    # First: /health/live answers before host checks, https redirect, sessions and DB.
+    'config.liveness.LivenessMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'config.request_context.RequestIdMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -292,6 +296,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+# Branded page for browsers, JSON under the API prefixes (config/errors.py).
+CSRF_FAILURE_VIEW = 'config.errors.csrf_failure'
 
 # Shared cache, and the broker for the scheduled jobs. Required when DEBUG=false:
 # authapi.E004 and the Docker entrypoint refuse to start without it.
@@ -367,7 +374,7 @@ MEDIA_ROOT = Path(_media_root) if _media_root else (BASE_DIR / 'data' / 'media')
 # ---------------------------------------------------------------------------
 # Object storage backend: s3 (default for production) or filesystem
 # ---------------------------------------------------------------------------
-STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'filesystem').strip().lower()
+STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', '').strip().lower() or 'filesystem'
 if STORAGE_BACKEND not in {'s3', 'filesystem'}:
     raise ImproperlyConfigured(
         f'STORAGE_BACKEND must be "s3" or "filesystem". Got: {STORAGE_BACKEND!r}'
@@ -607,6 +614,15 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not
 SECURE_HSTS_PRELOAD = _env_bool('SECURE_HSTS_PRELOAD', False)
 SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', not DEBUG)
 CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+# __Host- names are host-only. Browsers drop them when a Domain attribute is set,
+# and they require Secure plus Path=/. Use them only on the secure cookies.
+SESSION_COOKIE_NAME = '__Host-sessionid' if SESSION_COOKIE_SECURE else 'sessionid'
+CSRF_COOKIE_NAME = '__Host-csrftoken' if CSRF_COOKIE_SECURE else 'csrftoken'
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_DOMAIN = None
+CSRF_COOKIE_DOMAIN = None
+SESSION_COOKIE_PATH = '/'
+CSRF_COOKIE_PATH = '/'
 
 # Django admin exposes cross-tenant data — disable on internet-facing API pods when
 # operators use a separate admin ingress with MFA / network restrictions.
@@ -655,6 +671,16 @@ if not DEBUG:
         _production_config_errors.append(
             'IDENTITY_AUDIENCE is required when DEBUG=false. '
             'Set to identity-service JWT_AUDIENCE (identity 0.5.0+), typically shellui.'
+        )
+    # Length and variety only: the value itself is never printed.
+    if (
+        len(SECRET_KEY) < 50
+        or len(set(SECRET_KEY)) < 5
+        or SECRET_KEY.startswith('django-insecure-')
+    ):
+        _production_config_errors.append(
+            'SECRET_KEY is shorter than 50 characters or a placeholder when DEBUG=false. '
+            'Generate one with: python manage.py generate_env'
         )
     if _production_config_errors:
         raise ImproperlyConfigured('\n'.join(_production_config_errors))
