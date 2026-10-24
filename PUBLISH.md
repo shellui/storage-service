@@ -202,7 +202,7 @@ Or with Compose: copy `.env.example` → `.env`, set `SECRET_KEY` and a local JW
 
 ### Post-deploy production config check
 
-Quick copy-paste commands and exit-code notes: [README: Post-deploy prod check](README.md#post-deploy-prod-check).
+Quick copy-paste commands and exit-code notes: [Run storage-service](docs/getting-started.md).
 
 After deploying a release, run the smoke script against the live **storage API** host (`https://storage.shellui.com`), not the Files SPA at `files.shellui.com` (GitHub Pages):
 
