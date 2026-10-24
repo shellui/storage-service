@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.6.1] - 2026-10-24
+
+### 🏗 Chore
+
+- Docker publish only moves `latest` for the highest stable tag and fails early when Docker Hub secrets are missing.
+
 ## [0.6.0] - 2026-10-24
 
 ### ✨ Feature

@@ -21,6 +21,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: Check Docker Hub secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          missing=""
+          [ -n "$DOCKERHUB_USERNAME" ] || missing="$missing DOCKERHUB_USERNAME"
+          [ -n "$DOCKERHUB_TOKEN" ] || missing="$missing DOCKERHUB_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. Add them in Settings > Secrets and variables > Actions, then rerun."
+            exit 1
+          fi
+
+      - name: Decide latest tag
+        id: latest
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event_name == 'release' && github.event.release.prerelease }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+        run: |
+          latest=false
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "Pre-release: latest stays where it is."
+          elif ! printf '%s' "$TAG" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "$TAG is not a stable semver tag: latest stays where it is."
+          else
+            highest="$(timeout 60 git ls-remote --tags --refs "$REPO_URL" \
+              | sed 's#.*refs/tags/##' \
+              | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V | tail -n1)"
+            echo "Publishing $TAG, highest stable tag is ${highest:-none}."
+            if [ "${TAG#v}" = "${highest#v}" ]; then
+              latest=true
+            fi
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
@@ -41,7 +78,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},value=${{ github.event.release.tag_name || inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name || inputs.tag }}
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+            type=raw,value=latest,enable=${{ steps.latest.outputs.latest == 'true' }}
 
       - uses: docker/build-push-action@v6
         with:
