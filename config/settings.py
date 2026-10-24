@@ -233,6 +233,11 @@ REST_FRAMEWORK = {
         'apps.authapi.permissions.IsAuthenticatedPrincipal',
     ],
     'EXCEPTION_HANDLER': 'config.exceptions.exception_handler',
+    # JSON only: browsers get the same error body as API clients, never the
+    # browsable API page. Views that need another format set renderer_classes.
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -291,6 +296,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+# Branded page for browsers, JSON under the API prefixes (config/errors.py).
+CSRF_FAILURE_VIEW = 'config.errors.csrf_failure'
 
 # Shared cache, and the broker for the scheduled jobs. Required when DEBUG=false:
 # authapi.E004 and the Docker entrypoint refuse to start without it.
@@ -606,6 +614,15 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not
 SECURE_HSTS_PRELOAD = _env_bool('SECURE_HSTS_PRELOAD', False)
 SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', not DEBUG)
 CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+# __Host- names are host-only. Browsers drop them when a Domain attribute is set,
+# and they require Secure plus Path=/. Use them only on the secure cookies.
+SESSION_COOKIE_NAME = '__Host-sessionid' if SESSION_COOKIE_SECURE else 'sessionid'
+CSRF_COOKIE_NAME = '__Host-csrftoken' if CSRF_COOKIE_SECURE else 'csrftoken'
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_DOMAIN = None
+CSRF_COOKIE_DOMAIN = None
+SESSION_COOKIE_PATH = '/'
+CSRF_COOKIE_PATH = '/'
 
 # Django admin exposes cross-tenant data — disable on internet-facing API pods when
 # operators use a separate admin ingress with MFA / network restrictions.

@@ -154,7 +154,7 @@ Schedules, locks, the staff API and metrics are in [Scheduled jobs](maintenance-
 | `SECURE_HSTS_SECONDS` | `31536000` when `DEBUG=false`, else `0` | HSTS max-age |
 | `SECURE_HSTS_INCLUDE_SUBDOMAINS` | on when `DEBUG=false` | Include subdomains in HSTS |
 | `SECURE_HSTS_PRELOAD` | `false` | HSTS preload flag |
-| `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` | on when `DEBUG=false` | Secure attribute on Django cookies |
+| `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` | on when `DEBUG=false` | Secure attribute on Django admin cookies. A secure cookie is named `__Host-sessionid` or `__Host-csrftoken`, with no Domain. The CSRF cookie is always HttpOnly |
 
 API auth is the Bearer JWT, not a cookie. Permissive CORS is the default for that reason. Where the browser may return after login is the identity-service redirect allowlist, not this CORS list.
 

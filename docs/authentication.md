@@ -72,6 +72,8 @@ The API returns 401 and does not echo the token. Process logs on `apps.authapi.a
 
 `HS256` with no fallback means identity-service is in debug mode: set `JWT_HS256_FALLBACK_SECRET` to that service's `SECRET_KEY`. A `kid` missing from `jwks_kids` means the pinned document is stale. When `DEBUG=true`, the 401 detail also includes the PyJWT exception name.
 
+A `kid` that is not in the key set is rejected, including when the set has one key. If storage-service fetches the JWKS, a missing `kid` triggers one refresh, and the new `kid` still verifies. A pinned document does not refresh until you replace it and restart.
+
 On startup the process logs `Identity JWKS auth ready` with the source, key count, and key ids. A key count of 0, without the HS256 fallback, makes every authenticated call fail.
 
 ## WebDAV

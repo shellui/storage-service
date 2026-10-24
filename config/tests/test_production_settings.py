@@ -2,16 +2,41 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MANAGE_PY = PROJECT_ROOT / 'manage.py'
+LONG_SECRET_KEY = 'test-secret-key-for-settings-check-only-0123456789abcd'
+
+_COOKIE_SETTINGS_SCRIPT = """
+import os
+import django
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+django.setup()
+from django.conf import settings
+
+fields = {
+    'session_name': settings.SESSION_COOKIE_NAME,
+    'csrf_name': settings.CSRF_COOKIE_NAME,
+    'csrf_httponly': settings.CSRF_COOKIE_HTTPONLY,
+    'session_domain': settings.SESSION_COOKIE_DOMAIN,
+    'csrf_domain': settings.CSRF_COOKIE_DOMAIN,
+    'session_path': settings.SESSION_COOKIE_PATH,
+    'csrf_path': settings.CSRF_COOKIE_PATH,
+    'session_secure': settings.SESSION_COOKIE_SECURE,
+    'csrf_secure': settings.CSRF_COOKIE_SECURE,
+}
+for key, value in fields.items():
+    print(f'{key}={value!r}')
+"""
 
 _ADMIN_URL_CHECK = """
 import os
@@ -27,19 +52,45 @@ print('has_admin=' + str(has_admin))
 """
 
 
-def _settings_check(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _merged_env(env: dict[str, str]) -> dict[str, str]:
     merged = os.environ.copy()
     merged.update(env)
     # Not setdefault: the CI SECRET_KEY is shorter than the 50 characters DEBUG=false requires.
-    merged['SECRET_KEY'] = env.get('SECRET_KEY', 'test-secret-key-for-settings-check-only-0123456789abcdef')
+    merged['SECRET_KEY'] = env.get('SECRET_KEY', LONG_SECRET_KEY)
+    return merged
+
+
+def _settings_check(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(MANAGE_PY), 'check'],
+        [sys.executable, str(MANAGE_PY), *(args or ('check',))],
         cwd=PROJECT_ROOT,
-        env=merged,
+        env=_merged_env(env),
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _output(result: subprocess.CompletedProcess[str]) -> str:
+    return f'{result.stdout}\n{result.stderr}'
+
+
+def _cookie_settings(env: dict[str, str]) -> dict[str, object]:
+    result = subprocess.run(
+        [sys.executable, '-c', _COOKIE_SETTINGS_SCRIPT],
+        cwd=PROJECT_ROOT,
+        env=_merged_env(env),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
+    values: dict[str, object] = {}
+    for line in result.stdout.splitlines():
+        key, raw = line.split('=', 1)
+        values[key] = ast.literal_eval(raw)
+    return values
 
 
 class ProductionSettingsValidationTests(unittest.TestCase):
@@ -97,12 +148,157 @@ class ProductionSettingsValidationTests(unittest.TestCase):
         result = _settings_check(
             {
                 'DEBUG': 'false',
+                'SECRET_KEY': LONG_SECRET_KEY,
                 'IDENTITY_ISSUER': 'https://id.shellui.com',
                 'IDENTITY_AUDIENCE': 'shellui',
                 'IDENTITY_JWKS': '{"keys":[{"kty":"RSA","kid":"test","n":"x","e":"AQAB"}]}',
             }
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_production_rejects_short_secret_key(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'false',
+                'SECRET_KEY': 'test-secret-key-for-settings-check-only',
+                'IDENTITY_ISSUER': 'https://id.shellui.com',
+                'IDENTITY_AUDIENCE': 'shellui',
+            }
+        )
+        self.assertNotEqual(result.returncode, 0)
+        output = _output(result)
+        self.assertIn('SECRET_KEY is shorter than 50 characters or a placeholder', output)
+
+    def test_production_rejects_placeholder_secret_key(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'false',
+                'SECRET_KEY': 'django-insecure-' + ('abcdefghij' * 5),
+                'IDENTITY_ISSUER': 'https://id.shellui.com',
+                'IDENTITY_AUDIENCE': 'shellui',
+            },
+            'check',
+            '--deploy',
+        )
+        self.assertNotEqual(result.returncode, 0)
+        output = _output(result)
+        self.assertIn('SECRET_KEY is shorter than 50 characters or a placeholder', output)
+        self.assertNotIn('abcdefghij', output)
+
+    def test_production_check_deploy_rejects_published_example_key(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'false',
+                'SECRET_KEY': 'change-me-generate-a-strong-secret-key',
+                'IDENTITY_ISSUER': 'https://id.shellui.com',
+                'IDENTITY_AUDIENCE': 'shellui',
+            },
+            'check',
+            '--deploy',
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('SECRET_KEY is shorter than 50 characters or a placeholder', _output(result))
+
+    def test_empty_secret_key_refuses_to_start(self):
+        result = _settings_check({'DEBUG': 'true', 'SECRET_KEY': ''})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('SECRET_KEY is not set', result.stderr)
+
+    def test_debug_allows_short_secret_key(self):
+        result = _settings_check(
+            {
+                'DEBUG': 'true',
+                'SECRET_KEY': 'change-me-generate-a-strong-secret-key',
+            },
+            'check',
+            '--deploy',
+        )
+        self.assertEqual(result.returncode, 0, msg=_output(result))
+        self.assertNotIn('authapi.E005', _output(result))
+
+    def test_secure_cookies_use_host_prefix_without_domain(self):
+        values = _cookie_settings(
+            {
+                'DEBUG': 'false',
+                'IDENTITY_ISSUER': 'https://id.shellui.com',
+                'IDENTITY_AUDIENCE': 'shellui',
+            }
+        )
+        self.assertEqual(values['session_name'], '__Host-sessionid')
+        self.assertEqual(values['csrf_name'], '__Host-csrftoken')
+        self.assertIs(values['csrf_httponly'], True)
+        self.assertIsNone(values['session_domain'])
+        self.assertIsNone(values['csrf_domain'])
+        self.assertEqual(values['session_path'], '/')
+        self.assertEqual(values['csrf_path'], '/')
+        self.assertIs(values['session_secure'], True)
+        self.assertIs(values['csrf_secure'], True)
+
+    def test_insecure_cookies_keep_classic_names_and_httponly_csrf(self):
+        values = _cookie_settings(
+            {
+                'DEBUG': 'true',
+                'SESSION_COOKIE_SECURE': 'false',
+                'CSRF_COOKIE_SECURE': 'false',
+            }
+        )
+        self.assertEqual(values['session_name'], 'sessionid')
+        self.assertEqual(values['csrf_name'], 'csrftoken')
+        self.assertIs(values['csrf_httponly'], True)
+        self.assertIsNone(values['session_domain'])
+        self.assertIsNone(values['csrf_domain'])
+        self.assertIs(values['session_secure'], False)
+        self.assertIs(values['csrf_secure'], False)
+
+    def test_host_prefix_follows_each_secure_flag(self):
+        values = _cookie_settings(
+            {
+                'DEBUG': 'true',
+                'SESSION_COOKIE_SECURE': 'true',
+                'CSRF_COOKIE_SECURE': 'false',
+            }
+        )
+        self.assertEqual(values['session_name'], '__Host-sessionid')
+        self.assertEqual(values['csrf_name'], 'csrftoken')
+        self.assertIs(values['session_secure'], True)
+        self.assertIs(values['csrf_secure'], False)
+
+
+class SecretKeyCheckTests(SimpleTestCase):
+    def _problems(self):
+        from django.core.checks import run_checks
+
+        return [
+            item
+            for item in run_checks(include_deployment_checks=True)
+            if item.id == 'authapi.E005'
+        ]
+
+    def test_debug_skips_the_check(self):
+        with override_settings(DEBUG=True, SECRET_KEY='short'):
+            self.assertEqual(self._problems(), [])
+
+    def test_empty_and_whitespace_are_errors(self):
+        with override_settings(DEBUG=False, SECRET_KEY=''):
+            errors = self._problems()
+        self.assertEqual(len(errors), 1)
+        self.assertIn('empty', errors[0].msg)
+        with override_settings(DEBUG=False, SECRET_KEY='   '):
+            errors = self._problems()
+        self.assertIn('empty', errors[0].msg)
+
+    def test_long_non_placeholder_key_passes(self):
+        self.assertGreaterEqual(len(LONG_SECRET_KEY), 50)
+        with override_settings(DEBUG=False, SECRET_KEY=LONG_SECRET_KEY):
+            self.assertEqual(self._problems(), [])
+
+    def test_padded_published_placeholder_is_an_error(self):
+        key = 'change-me-generate-a-strong-secret-key' + ('x' * 20)
+        self.assertGreaterEqual(len(key), 50)
+        with override_settings(DEBUG=False, SECRET_KEY=key):
+            errors = self._problems()
+        self.assertEqual(len(errors), 1)
+        self.assertIn('placeholder', errors[0].msg)
 
 
 @override_settings(CORS_ALLOW_ALL_ORIGINS=True, CORS_ALLOW_CREDENTIALS=False)
