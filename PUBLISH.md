@@ -37,11 +37,11 @@ Manual equivalents (if you are not using the script):
 
 ### 1. Version alignment
 
-Ensure these match the release version (e.g. `0.5.0`):
+Ensure these match the release version (e.g. `0.5.1`):
 
 - `version` in `pyproject.toml` (OpenAPI / API metadata via `config.settings.VERSION`)
 - `CHANGELOG.md` entry with date
-- Git tag `v0.5.0` (optional but recommended; not enforced by the script)
+- Git tag `v0.5.1` (optional but recommended; not enforced by the script)
 - CI green on the release commit (`.github/workflows/ci.yml` + pre-release workflow)
 
 ### 2. No secrets in the build context
@@ -65,7 +65,7 @@ Covered by `./tools/pre-release-check.sh`. Manual form:
 export SECRET_KEY="$(uv run python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")"
 # Prefer a static JWKS document for offline smoke tests (see the script).
 
-VERSION=0.5.0
+VERSION=0.5.1
 docker build -t "shellui/storage-service:${VERSION}" .
 
 docker run --rm -d --name storage-release-smoke -p 18001:8000 \
@@ -98,11 +98,11 @@ docker login
 
 ### Tagging
 
-For semver release `0.5.0`, typical Docker Hub tags:
+For semver release `0.5.1`, typical Docker Hub tags:
 
 | Tag      | Purpose                                  |
 | -------- | ---------------------------------------- |
-| `0.5.0`  | Exact release (pin in production)        |
+| `0.5.1`  | Exact release (pin in production)        |
 | `0.5`    | Latest patch in the 0.5 line             |
 | `latest` | Newest published release (use with care) |
 
@@ -111,7 +111,7 @@ For semver release `0.5.0`, typical Docker Hub tags:
 From the repository root:
 
 ```bash
-VERSION=0.5.0
+VERSION=0.5.1
 IMAGE=shellui/storage-service
 
 docker build -t "${IMAGE}:${VERSION}" .
@@ -129,7 +129,7 @@ docker push "${IMAGE}:latest"
 If you build on Apple Silicon, a plain `docker build` may produce `linux/arm64` only. Most cloud VMs expect `linux/amd64`. Publish both with buildx:
 
 ```bash
-VERSION=0.5.0
+VERSION=0.5.1
 IMAGE=shellui/storage-service
 
 docker buildx create --use --name multi 2>/dev/null || docker buildx use multi
@@ -144,7 +144,7 @@ docker buildx build \
 ### Git tag (recommended)
 
 ```bash
-VERSION=0.5.0
+VERSION=0.5.1
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
@@ -169,7 +169,7 @@ docker run -d \
   -e CSRF_TRUSTED_ORIGINS='https://storage.example.com' \
   -e IDENTITY_JWKS='{"keys":[...]}' \
   -e REDIS_URL='redis://redis:6379/0' \
-  shellui/storage-service:0.5.0
+  shellui/storage-service:0.5.1
 ```
 
 The entrypoint runs migrations on start, then starts Gunicorn and the in-container scheduler as user `appuser`. `REDIS_URL` is required when `DEBUG` is false. Env vars `GUNICORN_WORKERS` (default `2`), `GUNICORN_THREADS` (default `2`), and `GUNICORN_TIMEOUT` (default `120`) are passed through.

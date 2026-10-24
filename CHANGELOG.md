@@ -24,7 +24,12 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 - JWKS verification rejects a token `kid` that is not in the key set, including when that set has one key.
 - Secure admin cookies are named `__Host-sessionid` and `__Host-csrftoken`, the CSRF cookie is HttpOnly, and neither cookie sets Domain.
+- Bump djangorestframework to 3.18.2 (CVE-2026-114136, CVE-2026-114137, CVE-2026-114138).
 - With `DEBUG=false`, `manage.py check` errors when `SECRET_KEY` is empty, a published placeholder, or shorter than 50 characters.
+
+### 🛠 Improvements
+
+- **Errors:** Error pages use the Shellui design, and API errors always return JSON.
 
 ## [0.5.0] - 2026-10-07
 
