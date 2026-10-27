@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.6.2] - 2026-10-27
+
+### 🐛 Bug Fixes
+
+- ReDoc at `/api/docs/redoc/` loads again, and ReDoc, Swagger UI and the Shellui SDK are served from the service's own static files instead of a CDN.
+
 ## [0.6.1] - 2026-10-24
 
 ### 🏗 Chore
