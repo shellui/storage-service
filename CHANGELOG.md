@@ -22,7 +22,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 🐛 Bug Fixes
 
-- **API docs:** ReDoc at `/api/docs/redoc/` loads again. Its script now ships with the service (drf-spectacular-sidecar) instead of the CDN's `redoc@latest`, which moved to 3.x and broke the page.
+- **API docs:** ReDoc at `/api/docs/redoc/` loads again, and Swagger UI no longer depends on a CDN. Both now ship with the service (drf-spectacular-sidecar, plus a bundled copy of `@shellui/sdk` 0.2.0) instead of the CDN's `@latest` builds and esm.sh. `redoc@latest` moved to 3.x and broke the page.
 
 ## [0.6.1] - 2026-10-24
 

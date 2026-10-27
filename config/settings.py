@@ -250,9 +250,12 @@ SPECTACULAR_SETTINGS = {
     ),
     'VERSION': VERSION,
     'SERVE_INCLUDE_SCHEMA': False,
-    # Redoc ships from the sidecar package, pinned with the app. The CDN's redoc@latest (3.x)
-    # is an ES module and no longer loads as a classic script.
+    # ReDoc and Swagger UI ship from the sidecar package, pinned with the app, and are served
+    # from our own static files. The CDN's redoc@latest moved to 3.x (an ES module) and broke
+    # the page, so nothing on the docs pages loads from an unpinned CDN anymore.
     'REDOC_DIST': 'SIDECAR',
+    'SWAGGER_UI_DIST': 'SIDECAR',
+    'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
     },
