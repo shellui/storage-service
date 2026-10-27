@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html>
   <head>
     {% block head %}
@@ -18,7 +18,7 @@
     <div id="redoc-container"></div>
     <script src="{{ redoc_standalone }}"></script>
     <script type="module">
-      import { init, shellui } from "https://esm.sh/@shellui/sdk@0.2.0?bundle";
+      import { init, shellui } from "{% static 'vendor/shellui-sdk/0.2.0/sdk.mjs' %}";
 
       const REDOC_LIGHT_THEME = {
         typography: {
