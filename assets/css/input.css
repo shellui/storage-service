@@ -2,6 +2,7 @@
 @import "./extras.css";
 
 @source "../../templates/**/*.html";
+@source not "../../static/vendor";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
