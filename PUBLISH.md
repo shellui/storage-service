@@ -37,11 +37,11 @@ Manual equivalents (if you are not using the script):
 
 ### 1. Version alignment
 
-Ensure these match the release version (e.g. `0.6.0`):
+Ensure these match the release version (e.g. `0.6.2`):
 
 - `version` in `pyproject.toml` (OpenAPI / API metadata via `config.settings.VERSION`)
 - `CHANGELOG.md` entry with date
-- Git tag `v0.6.0` (optional but recommended; not enforced by the script)
+- Git tag `v0.6.2` (optional but recommended; not enforced by the script)
 - CI green on the release commit (`.github/workflows/ci.yml` + pre-release workflow)
 
 ### 2. No secrets in the build context
@@ -65,7 +65,7 @@ Covered by `./tools/pre-release-check.sh`. Manual form:
 export SECRET_KEY="$(uv run python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")"
 # Prefer a static JWKS document for offline smoke tests (see the script).
 
-VERSION=0.6.0
+VERSION=0.6.2
 docker build -t "shellui/storage-service:${VERSION}" .
 
 docker run --rm -d --name storage-release-smoke -p 18001:8000 \
@@ -89,7 +89,7 @@ docker stop storage-release-smoke
 
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) builds and pushes the image.
 
-- **Trigger:** publishing a GitHub release. You can also rerun it from **workflow_dispatch** with a release tag (for example `v0.6.0`). A rerun of an older release does not move `latest`.
+- **Trigger:** publishing a GitHub release. You can also rerun it from **workflow_dispatch** with a release tag (for example `v0.6.2`). A rerun of an older release does not move `latest`.
 - **Build:** buildx multi-arch for `linux/amd64` and `linux/arm64`.
 - **Tags:** `X.Y.Z` and `X.Y`. `latest` is added only when the tag is the highest stable semver tag in the repo, for both triggers. Pre-releases never get `latest`.
 - **Secrets check:** the first step fails with a clear error if `DOCKERHUB_USERNAME` or `DOCKERHUB_TOKEN` is empty. Values are never printed.
@@ -123,11 +123,11 @@ docker login
 
 ### Tagging
 
-For semver release `0.6.0`, typical Docker Hub tags:
+For semver release `0.6.2`, typical Docker Hub tags:
 
 | Tag      | Purpose                                  |
 | -------- | ---------------------------------------- |
-| `0.6.0`  | Exact release (pin in production)        |
+| `0.6.2`  | Exact release (pin in production)        |
 | `0.6`    | Latest patch in the 0.6 line             |
 | `latest` | Newest published release (use with care) |
 
@@ -136,7 +136,7 @@ For semver release `0.6.0`, typical Docker Hub tags:
 From the repository root:
 
 ```bash
-VERSION=0.6.0
+VERSION=0.6.2
 IMAGE=shellui/storage-service
 
 docker build -t "${IMAGE}:${VERSION}" .
@@ -154,7 +154,7 @@ docker push "${IMAGE}:latest"
 If you build on Apple Silicon, a plain `docker build` may produce `linux/arm64` only. Most cloud VMs expect `linux/amd64`. Publish both with buildx:
 
 ```bash
-VERSION=0.6.0
+VERSION=0.6.2
 IMAGE=shellui/storage-service
 
 docker buildx create --use --name multi 2>/dev/null || docker buildx use multi
@@ -169,7 +169,7 @@ docker buildx build \
 ### Git tag (recommended)
 
 ```bash
-VERSION=0.6.0
+VERSION=0.6.2
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
 git push origin "v${VERSION}"
 ```
@@ -194,7 +194,7 @@ docker run -d \
   -e CSRF_TRUSTED_ORIGINS='https://storage.example.com' \
   -e IDENTITY_JWKS='{"keys":[...]}' \
   -e REDIS_URL='redis://redis:6379/0' \
-  shellui/storage-service:0.6.0
+  shellui/storage-service:0.6.2
 ```
 
 The entrypoint runs migrations on start, then starts Gunicorn and the in-container scheduler as user `appuser`. `REDIS_URL` is required when `DEBUG` is false. Env vars `GUNICORN_WORKERS` (default `2`), `GUNICORN_THREADS` (default `2`), and `GUNICORN_TIMEOUT` (default `120`) are passed through.

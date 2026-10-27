@@ -14,6 +14,8 @@ Each running storage-service serves its own HTTP reference. This page lists wher
 | ReDoc | `/api/docs/redoc/` |
 | OpenAPI schema | `/api/schema/` |
 
+Swagger UI, ReDoc and the Shellui SDK they use are served from the service's own static files, so the pages load without any CDN.
+
 Open Swagger inside the Shellui shell and the shell access token is applied for you. Otherwise choose **Authorize** and paste `Bearer your_access_token_here`, or the raw JWT.
 
 `GET /storage/v1/health` does not require a token. It returns `status` and `version`. A valid Bearer token also returns `storage_backend`, `identity_jwks_source`, and `identity_jwks_url`. Every other `/storage/v1/` route expects `Authorization: Bearer your_access_token_here` from identity-service, except a share-link download and the disabled public object route.
