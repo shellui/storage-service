@@ -15,11 +15,13 @@ from shellui_mcp.internal import (
     REVOCATION_CACHE_SECONDS,
     build_mcp_approval_assertion,
     build_mcp_call_log_assertion,
+    build_mcp_revocation_assertion,
 )
 
 logger = logging.getLogger(__name__)
 
 _REVOKED_CACHE_KEY = 'mcp:revoked_agent_ids'
+_REVOKED_TRUST_KEY = 'mcp:revoked_list_trusted'
 _REVOKED_LOCK = threading.Lock()
 
 
@@ -27,48 +29,69 @@ def _identity_origin() -> str:
     return (getattr(settings, 'IDENTITY_SERVICE_URL', '') or settings.IDENTITY_ISSUER or '').rstrip('/')
 
 
-def _service_assertion_headers(origin: str) -> dict[str, str]:
-    """Signed service assertion for identity internal MCP APIs (revocation list, and related reads)."""
-    try:
-        from shellui_mcp.internal import build_mcp_revocation_list_assertion
-    except ImportError:
-        assertion = build_mcp_call_log_assertion(audience_url=origin)
-    else:
-        assertion = build_mcp_revocation_list_assertion(audience_url=origin)
+def _revocation_headers(origin: str) -> dict[str, str]:
+    assertion = build_mcp_revocation_assertion(audience_url=origin)
     return {'Authorization': f'Bearer {assertion}'}
 
 
-def _refresh_revocations() -> set[str]:
+def _mark_revocation_untrusted() -> None:
+    cache.delete(_REVOKED_CACHE_KEY)
+    cache.set(_REVOKED_TRUST_KEY, False, timeout=REVOCATION_CACHE_SECONDS)
+
+
+def _refresh_revocations() -> bool:
+    """Return True when identity answered with a trusted revocation list."""
     origin = _identity_origin()
     if not origin:
-        return set()
+        _mark_revocation_untrusted()
+        return False
     url = f'{origin}/api/v1/mcp/internal/mcp-revocations'
     try:
-        response = requests.get(url, headers=_service_assertion_headers(origin), timeout=5)
-        response.raise_for_status()
+        response = requests.get(url, headers=_revocation_headers(origin), timeout=5)
+    except requests.RequestException as exc:
+        logger.warning('MCP revocation poll failed: %s', exc)
+        _mark_revocation_untrusted()
+        return False
+    if response.status_code == 404 or response.status_code >= 400:
+        logger.warning('MCP revocation poll rejected: %s', response.status_code)
+        _mark_revocation_untrusted()
+        return False
+    try:
         payload = response.json()
-    except Exception as exc:
-        logger.debug('MCP revocation poll failed: %s', exc)
-        cached = cache.get(_REVOKED_CACHE_KEY)
-        return set(cached or [])
+    except ValueError:
+        _mark_revocation_untrusted()
+        return False
     ids = {str(item) for item in (payload.get('revoked_agent_ids') or [])}
     cache.set(_REVOKED_CACHE_KEY, list(ids), timeout=REVOCATION_CACHE_SECONDS)
-    return ids
+    cache.set(_REVOKED_TRUST_KEY, True, timeout=REVOCATION_CACHE_SECONDS)
+    return True
 
 
-def blocked_agent_ids() -> set[str]:
-    cached = cache.get(_REVOKED_CACHE_KEY)
-    if cached is not None:
-        return set(cached)
-    with _REVOKED_LOCK:
-        cached = cache.get(_REVOKED_CACHE_KEY)
-        if cached is not None:
-            return set(cached)
-        return _refresh_revocations()
+def _revocation_trusted() -> bool:
+    return cache.get(_REVOKED_TRUST_KEY) is True
+
+
+def _revoked_ids() -> set[str] | None:
+    if not _revocation_trusted():
+        return None
+    raw = cache.get(_REVOKED_CACHE_KEY)
+    if raw is None:
+        return None
+    return {str(item) for item in raw}
 
 
 def agent_is_revoked(agent_id: str) -> bool:
-    return str(agent_id) in blocked_agent_ids()
+    """Fail closed: refuse agents when the revocation list cannot be loaded."""
+    ids = _revoked_ids()
+    if ids is None:
+        with _REVOKED_LOCK:
+            ids = _revoked_ids()
+            if ids is None and not _refresh_revocations():
+                return True
+            ids = _revoked_ids()
+    if ids is None:
+        return True
+    return str(agent_id) in ids
 
 
 def create_approval_request(payload: dict[str, Any]) -> dict | None:
@@ -96,23 +119,26 @@ def create_approval_request(payload: dict[str, Any]) -> dict | None:
             headers={'Authorization': f'Bearer {assertion}'},
             timeout=10,
         )
-        if response.status_code >= 400:
-            logger.warning('MCP approval request failed: %s %s', response.status_code, response.text[:200])
-            return None
-        return response.json()
     except requests.RequestException as exc:
         logger.warning('MCP approval request unreachable: %s', exc)
+        return None
+    if response.status_code == 404 or response.status_code >= 400:
+        logger.warning('MCP approval request failed: %s', response.status_code)
+        return None
+    try:
+        return response.json()
+    except ValueError:
         return None
 
 
 def approval_state(payload: dict[str, Any]) -> str | None:
-    """Resolve approval status from identity-service (approved writes run once after owner approval)."""
+    """Resolve approval status from identity-service. Fail closed on errors."""
     origin = _identity_origin()
     agent_id = payload.get('agent_id')
     company_id = payload.get('company_id')
     args_hash = str(payload.get('arguments_hash') or '')
     if not origin or not agent_id or company_id is None or not args_hash:
-        return None
+        return 'pending'
     assertion = build_mcp_approval_assertion(
         company_id=int(company_id),
         agent_id=str(agent_id),
@@ -136,18 +162,19 @@ def approval_state(payload: dict[str, Any]) -> str | None:
             timeout=10,
         )
     except requests.RequestException:
-        return None
-    if response.status_code == 404:
-        return None
-    if response.status_code >= 400:
-        return None
-    data = response.json()
+        return 'pending'
+    if response.status_code == 404 or response.status_code >= 400:
+        return 'pending'
+    try:
+        data = response.json()
+    except ValueError:
+        return 'pending'
     state = str(data.get('status') or '')
     if state == 'approved' and data.get('id'):
         payload['approval_id'] = str(data['id'])
     if state in {'pending', 'approved', 'executed'}:
         return state
-    return None
+    return 'pending'
 
 
 def consume_approval(approval_id: str) -> bool:
@@ -164,9 +191,13 @@ def consume_approval(approval_id: str) -> bool:
         )
     except requests.RequestException:
         return False
-    if response.status_code == 404:
+    if response.status_code == 404 or response.status_code >= 400:
         return False
-    return response.status_code < 300 and bool(response.json().get('consumed', True))
+    try:
+        data = response.json()
+    except ValueError:
+        return False
+    return bool(data.get('consumed', True))
 
 
 def forward_call_log(entry: dict[str, Any]) -> None:

@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from shellui_mcp.server import McpServer
 
 from apps.authapi.agent_tokens import authenticate_agent_bearer, mcp_resource_audience
+from shellui_mcp.resources import access_token_audience_matches
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
@@ -47,11 +48,13 @@ def _agent_claims(request: HttpRequest) -> dict | None:
     if not header.lower().startswith('bearer '):
         return None
     raw = header.split(' ', 1)[1].strip()
-    resource_aud = mcp_resource_audience(request)
-    result = authenticate_agent_bearer(raw, mcp_resource_audience=resource_aud)
+    expected_resource = mcp_resource_audience(request)
+    result = authenticate_agent_bearer(raw, expected_resource=expected_resource)
     if not result:
         return None
     principal, claims = result
+    if not access_token_audience_matches(claims, expected_resource):
+        return None
     request.user = principal
     drf_request = Request(request)
     drf_request.user = principal

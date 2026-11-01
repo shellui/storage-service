@@ -15,12 +15,22 @@ from shellui_mcp.openapi_tools import tools_from_schema
 from shellui_mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
 
 
+def _mcp_audience() -> str:
+    # RFC 8707 allows http only on loopback; Django's default testserver host is rejected.
+    return 'http://127.0.0.1/mcp'
+
+
+def _mcp_host_kwargs() -> dict[str, str]:
+    return {'HTTP_HOST': '127.0.0.1'}
+
+
 def _agent_token(
     *,
     agent_id: str | None = None,
     company_id: int = 10,
     mcp_access: str = 'read_only',
     scope: str = 'storage',
+    aud: str | None = None,
     secret: str = 'test-secret',
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
@@ -32,7 +42,7 @@ def _agent_token(
         'mcp_access': mcp_access,
         'mcp_read': 'safe',
         'mcp_destructive': False,
-        'aud': 'shellui-mcp',
+        'aud': aud if aud is not None else _mcp_audience(),
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
     }
@@ -65,8 +75,41 @@ class McpEndpointTests(TestCase):
             '/mcp',
             data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
             content_type='application/json',
+            **_mcp_host_kwargs(),
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_legacy_shared_audience_rejected(self):
+        token = _agent_token(aud='shellui-mcp')
+        response = self.client.post(
+            '/mcp',
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {token}',
+            **_mcp_host_kwargs(),
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_revocation_list_failure_refuses_agent(self):
+        from django.core.cache import cache
+
+        cache.delete('mcp:revoked_agent_ids')
+        cache.delete('mcp:revoked_list_trusted')
+        token = _agent_token()
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value.status_code = 404
+            mock_get.return_value.json.side_effect = ValueError('no body')
+            response = self.client.post(
+                '/mcp',
+                data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error'], 'agent_revoked')
+        auth_header = mock_get.call_args.kwargs.get('headers', {}).get('Authorization', '')
+        self.assertTrue(auth_header.startswith('Bearer '))
 
     def test_revoked_agent_refused(self):
         agent_id = str(uuid.uuid4())
@@ -77,6 +120,7 @@ class McpEndpointTests(TestCase):
                 data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
             )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['error'], 'agent_revoked')
@@ -106,6 +150,7 @@ class McpEndpointTests(TestCase):
                 data=json.dumps(body),
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
             )
         payload = response.json()
         self.assertIn('result', payload)
@@ -147,6 +192,7 @@ class McpEndpointTests(TestCase):
                     data=json.dumps(body),
                     content_type='application/json',
                     HTTP_AUTHORIZATION=f'Bearer {token}',
+                    **_mcp_host_kwargs(),
                 )
         payload = response.json()['result']
         self.assertTrue(payload.get('isError'))
@@ -160,6 +206,7 @@ class McpEndpointTests(TestCase):
             data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
             content_type='application/json',
             HTTP_AUTHORIZATION=f'Bearer {token}',
+            **_mcp_host_kwargs(),
         )
         self.assertEqual(response.status_code, 401)
 

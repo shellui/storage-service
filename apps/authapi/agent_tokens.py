@@ -7,55 +7,40 @@ from django.conf import settings
 from django.http import HttpRequest
 
 from apps.authapi.jwks_client import get_jwks_client
+from shellui_mcp.resources import access_token_audience_matches, normalize_resource_indicator
 
 from .principal import StoragePrincipal
-
-MCP_ACCESS_AUDIENCE = 'shellui-mcp'
 
 
 def mcp_resource_audience(request: HttpRequest) -> str:
     """RFC 8707 resource indicator: this service's ``/mcp`` URL."""
-    return request.build_absolute_uri('/mcp').rstrip('/')
+    return normalize_resource_indicator(request.build_absolute_uri('/mcp')) or ''
 
 
-def _audiences(*, mcp_resource_audience: str | None = None) -> list[str]:
-    values: list[str] = []
-    if mcp_resource_audience:
-        values.append(mcp_resource_audience.rstrip('/'))
-    if settings.IDENTITY_AUDIENCE:
-        values.append(settings.IDENTITY_AUDIENCE)
-    if MCP_ACCESS_AUDIENCE not in values:
-        values.append(MCP_ACCESS_AUDIENCE)
-    return values
-
-
-def _decode_agent_claims(raw_token: str, *, mcp_resource_audience: str | None = None) -> dict | None:
+def _decode_agent_claims(raw_token: str, *, expected_resource: str) -> dict | None:
+    expected = normalize_resource_indicator(expected_resource) or ''
+    if not expected:
+        return None
     algorithms = list(getattr(settings, 'JWT_ALGORITHMS', ['RS256']))
     options = {
-        'require': ['exp', 'sub', 'agent_id'],
+        'require': ['exp', 'sub', 'agent_id', 'aud'],
         'verify_aud': True,
         'verify_iss': bool(settings.IDENTITY_ISSUER),
     }
-    decode_kwargs: dict = {'algorithms': algorithms, 'options': options}
+    decode_kwargs: dict = {'algorithms': algorithms, 'options': options, 'audience': expected}
     if settings.IDENTITY_ISSUER:
         decode_kwargs['issuer'] = settings.IDENTITY_ISSUER
 
-    audiences = _audiences(mcp_resource_audience=mcp_resource_audience)
     try:
         signing_key = get_jwks_client().get_signing_key(raw_token)
         if signing_key is not None:
-            for audience in audiences:
-                try:
-                    payload = jwt.decode(
-                        raw_token,
-                        key=signing_key.key,
-                        audience=audience,
-                        **decode_kwargs,
-                    )
-                    if str(payload.get('sub', '')).startswith('agent:'):
-                        return payload
-                except jwt.InvalidTokenError:
-                    continue
+            payload = jwt.decode(raw_token, key=signing_key.key, **decode_kwargs)
+            if str(payload.get('sub', '')).startswith('agent:') and access_token_audience_matches(
+                payload, expected
+            ):
+                return payload
+    except jwt.InvalidTokenError:
+        pass
     except Exception:
         pass
 
@@ -64,20 +49,21 @@ def _decode_agent_claims(raw_token: str, *, mcp_resource_audience: str | None = 
         settings.DEBUG or getattr(settings, 'ALLOW_JWT_HS256_FALLBACK', False)
     )
     if allow_hs256:
-        for audience in audiences:
-            try:
-                payload = jwt.decode(
-                    raw_token,
-                    key=secret,
-                    algorithms=['HS256'],
-                    audience=audience,
-                    issuer=settings.IDENTITY_ISSUER or None,
-                    options=options,
-                )
-                if str(payload.get('sub', '')).startswith('agent:'):
-                    return payload
-            except jwt.InvalidTokenError:
-                continue
+        try:
+            payload = jwt.decode(
+                raw_token,
+                key=secret,
+                algorithms=['HS256'],
+                audience=expected,
+                issuer=settings.IDENTITY_ISSUER or None,
+                options=options,
+            )
+            if str(payload.get('sub', '')).startswith('agent:') and access_token_audience_matches(
+                payload, expected
+            ):
+                return payload
+        except jwt.InvalidTokenError:
+            pass
     return None
 
 
@@ -108,9 +94,9 @@ def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
 def authenticate_agent_bearer(
     raw_token: str,
     *,
-    mcp_resource_audience: str | None = None,
+    expected_resource: str,
 ) -> tuple[StoragePrincipal, dict] | None:
-    claims = _decode_agent_claims(raw_token, mcp_resource_audience=mcp_resource_audience)
+    claims = _decode_agent_claims(raw_token, expected_resource=expected_resource)
     if claims is None:
         return None
     if not agent_scope_allows_storage(claims):

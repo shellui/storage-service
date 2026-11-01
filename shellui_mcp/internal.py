@@ -14,6 +14,8 @@ APPROVAL_AUDIENCE = 'shellui-mcp-approval'
 APPROVAL_SCOPE = 'mcp.approval.create'
 CALL_LOG_AUDIENCE = 'shellui-mcp-call-log'
 CALL_LOG_SCOPE = 'mcp.call_log.create'
+REVOCATION_AUDIENCE = 'shellui-mcp-revocation'
+REVOCATION_SCOPE = 'mcp.revocation.read'
 REVOCATION_CACHE_SECONDS = 30
 
 
@@ -54,6 +56,21 @@ def build_mcp_approval_assertion(
         'service': service,
         'action': action,
         'arguments_hash': arguments_hash,
+        'target': audience_url,
+        'iat': now,
+        'exp': now + lifetime_seconds,
+        'jti': uuid.uuid4().hex,
+    }
+    return _encode_assertion(claims)
+
+
+def build_mcp_revocation_assertion(*, audience_url: str, lifetime_seconds: int = 60) -> str:
+    now = int(time.time())
+    claims = {
+        'iss': api_settings.ISSUER or '',
+        'aud': REVOCATION_AUDIENCE,
+        'sub': 'service',
+        'scope': REVOCATION_SCOPE,
         'target': audience_url,
         'iat': now,
         'exp': now + lifetime_seconds,
