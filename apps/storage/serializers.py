@@ -10,10 +10,19 @@ from .models import BucketKind, StorageAccessGrant
 
 
 class ErrorSerializer(serializers.Serializer):
-    statusCode = serializers.CharField()
-    error = serializers.CharField()
-    message = serializers.CharField()
-    request_id = serializers.CharField(required=False)
+    statusCode = serializers.CharField(
+        help_text='HTTP status as a string (mirrors the response status code).',
+    )
+    error = serializers.CharField(
+        help_text='Stable machine code (for example `not_found`, `forbidden`, `quota_exceeded`).',
+    )
+    message = serializers.CharField(
+        help_text='Human-readable detail. Prefer `error` for branching logic.',
+    )
+    request_id = serializers.CharField(
+        required=False,
+        help_text='Echo of the `X-Request-ID` header when present.',
+    )
 
 
 class HealthSerializer(serializers.Serializer):
@@ -73,11 +82,18 @@ class ObjectUploadResponseSerializer(serializers.Serializer):
 
 
 class ObjectListRequestSerializer(serializers.Serializer):
-    prefix = serializers.CharField(required=False, allow_blank=True)
-    limit = serializers.IntegerField(required=False)
-    offset = serializers.IntegerField(required=False)
-    search = serializers.CharField(required=False, allow_blank=True)
-    sortBy = serializers.DictField(required=False)
+    prefix = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Folder prefix to list (empty for bucket root).',
+    )
+    limit = serializers.IntegerField(required=False, help_text='Max rows to return (default 100).')
+    offset = serializers.IntegerField(required=False, help_text='Skip this many rows before returning results.')
+    search = serializers.CharField(required=False, allow_blank=True, help_text='Case-insensitive name filter.')
+    sortBy = serializers.DictField(
+        required=False,
+        help_text='Optional `{ "column": "name", "order": "asc" }` sort (default name ascending).',
+    )
 
 
 class ObjectByIdSerializer(serializers.Serializer):
@@ -144,9 +160,9 @@ class ObjectCopyResponseSerializer(serializers.Serializer):
 
 
 class SignRequestSerializer(serializers.Serializer):
-    path = serializers.CharField(required=False)
-    expiresIn = serializers.IntegerField(required=False)
-    expires_in = serializers.IntegerField(required=False)
+    path = serializers.CharField(required=False, help_text='Object path when not in the URL.')
+    expiresIn = serializers.IntegerField(required=False, help_text='Lifetime in seconds (Supabase-style).')
+    expires_in = serializers.IntegerField(required=False, help_text='Alias for `expiresIn`.')
 
 
 class SignedUrlSerializer(serializers.Serializer):

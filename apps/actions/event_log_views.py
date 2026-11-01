@@ -20,6 +20,9 @@ from apps.actions.registry import (
 from apps.actions.retention import retention_status
 from apps.actions.serializers import OpenAPISerializer
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
+from apps.storage.openapi_admin import ADMIN_API_ERRORS, EVENT_LOG_ID_PATH, mcp_openapi_fields
+
+_API_ERRORS = ADMIN_API_ERRORS
 
 _MAX_PAGE_SIZE = 100
 
@@ -91,11 +94,6 @@ class _EventLogBase(APIView):
 @extend_schema_view(
     get=extend_schema(
         tags=['event-log'],
-        summary='List event log (staff or company owner)',
-        description=(
-            'Every catalog event recorded for the company, newest first, whether or not a webhook rule '
-            'matched. Rows are kept for `EVENT_LOG_RETENTION_DAYS` (`GET /api/v1/actions/event-log/retention`).'
-        ),
         operation_id='api_v1_actions_event_log_list',
         parameters=[
             OpenApiParameter(
@@ -142,7 +140,8 @@ class _EventLogBase(APIView):
             OpenApiParameter(name='page', type=int, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(name='page_size', type=int, location=OpenApiParameter.QUERY, required=False),
         ],
-        responses={200: OpenApiResponse(description='Paginated event log rows')},
+        responses={200: OpenApiResponse(description='Paginated event log rows'), **_API_ERRORS},
+        **mcp_openapi_fields('api_v1_actions_event_log_list'),
     ),
 )
 class ShellUIAdminEventLogListView(_EventLogBase):
@@ -181,9 +180,9 @@ class ShellUIAdminEventLogListView(_EventLogBase):
 @extend_schema_view(
     get=extend_schema(
         tags=['event-log'],
-        summary='Retrieve event log row (staff or company owner)',
         operation_id='api_v1_actions_event_log_retrieve',
         parameters=[
+            EVENT_LOG_ID_PATH,
             OpenApiParameter(
                 name='scope',
                 type=str,
@@ -192,7 +191,8 @@ class ShellUIAdminEventLogListView(_EventLogBase):
                 enum=['company', 'platform'],
             ),
         ],
-        responses={200: OpenApiResponse(description='Event log row')},
+        responses={200: OpenApiResponse(description='Event log row'), **_API_ERRORS},
+        **mcp_openapi_fields('api_v1_actions_event_log_retrieve'),
     ),
 )
 class ShellUIAdminEventLogDetailView(_EventLogBase):
@@ -217,8 +217,9 @@ class ShellUIAdminEventLogDetailView(_EventLogBase):
 @extend_schema_view(
     get=extend_schema(
         tags=['event-log'],
-        summary='List event types recorded in the event log (staff or company owner)',
         operation_id='api_v1_actions_event_log_types_list',
+        responses={200: OpenApiResponse(description='Event types for filters'), **_API_ERRORS},
+        **mcp_openapi_fields('api_v1_actions_event_log_types_list'),
     ),
 )
 class ShellUIAdminEventLogTypesView(_EventLogBase):
@@ -240,13 +241,9 @@ class ShellUIAdminEventLogTypesView(_EventLogBase):
 @extend_schema_view(
     get=extend_schema(
         tags=['event-log'],
-        summary='Event log retention status (staff or company owner)',
-        description=(
-            '`data_retention_days` comes from the `EVENT_LOG_RETENTION_DAYS` setting. `stale_events` is true '
-            'when the oldest event is more than one day past retention, which means the '
-            '`purge_expired_data` scheduled job is not running.'
-        ),
         operation_id='api_v1_actions_event_log_retention_retrieve',
+        responses={200: OpenApiResponse(description='Retention configuration and staleness flag'), **_API_ERRORS},
+        **mcp_openapi_fields('api_v1_actions_event_log_retention_retrieve'),
     ),
 )
 class ShellUIAdminEventLogRetentionView(_EventLogBase):
