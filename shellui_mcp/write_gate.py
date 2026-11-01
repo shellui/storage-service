@@ -26,7 +26,10 @@ def decide_write(
     access_mode: str,
     destructive: bool,
     allow_destructive_without_asking: bool,
+    tool_read_only: bool = False,
 ) -> WriteGateDecision:
+    if tool_read_only:
+        return WriteGateDecision(allowed=True)
     m = (method or 'GET').upper()
     if m in SAFE_METHODS:
         return WriteGateDecision(allowed=True)

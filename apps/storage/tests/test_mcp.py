@@ -10,6 +10,7 @@ import jwt
 from django.test import Client, TestCase, override_settings
 from drf_spectacular.generators import SchemaGenerator
 
+from apps.storage.access import COMPANY_BUCKET_NAME
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
 from shellui_mcp.openapi_tools import tools_from_schema
 from shellui_mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
@@ -116,7 +117,7 @@ class McpEndpointTests(TestCase):
     def test_revocation_list_failure_refuses_agent(self):
         from django.core.cache import cache
 
-        cache.delete('mcp:revoked_agent_ids')
+        cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
         token = _agent_token()
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
@@ -163,6 +164,10 @@ class McpEndpointTests(TestCase):
                 'arguments': {
                     'path': write_tool['_meta']['path'],
                     'method': write_tool['_meta']['method'],
+                    'path_params': {
+                        'bucket_id': COMPANY_BUCKET_NAME,
+                        'object_path': 'nowhere.txt',
+                    },
                     'query': {},
                     'body': {},
                 },

@@ -10,19 +10,43 @@ from typing import Any
 import requests
 from django.conf import settings
 from django.core.cache import cache
+from rest_framework_simplejwt.settings import api_settings as simplejwt_settings
 
+from apps.authapi.jwks_client import get_jwks_client
 from shellui_mcp.internal import (
     REVOCATION_CACHE_SECONDS,
+    InternalAssertionError,
     build_mcp_approval_assertion,
     build_mcp_call_log_assertion,
     build_mcp_revocation_assertion,
+    parse_trusted_revocation_poll_response,
 )
 
 logger = logging.getLogger(__name__)
 
-_REVOKED_CACHE_KEY = 'mcp:revoked_agent_ids'
+_REVOKED_CACHE_KEY = 'mcp:revoked_trusted_payload'
 _REVOKED_TRUST_KEY = 'mcp:revoked_list_trusted'
 _REVOKED_LOCK = threading.Lock()
+_revocation_ctx = threading.local()
+
+
+def set_revocation_agent_context(*, company_id: int | None) -> None:
+    _revocation_ctx.company_id = company_id
+
+
+def clear_revocation_agent_context() -> None:
+    if hasattr(_revocation_ctx, 'company_id'):
+        delattr(_revocation_ctx, 'company_id')
+
+
+def _token_company_id() -> int | None:
+    raw = getattr(_revocation_ctx, 'company_id', None)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _identity_origin() -> str:
@@ -34,13 +58,76 @@ def _revocation_headers(origin: str) -> dict[str, str]:
     return {'Authorization': f'Bearer {assertion}'}
 
 
+def _revocation_list_signing_key(assertion_token: str) -> str | bytes | None:
+    secret = getattr(settings, 'JWT_HS256_FALLBACK_SECRET', None)
+    allow_hs256 = (bool(secret) or bool(simplejwt_settings.SIGNING_KEY)) and (
+        settings.DEBUG or getattr(settings, 'ALLOW_JWT_HS256_FALLBACK', False)
+    )
+    if allow_hs256:
+        if simplejwt_settings.ALGORITHM == 'HS256' and simplejwt_settings.SIGNING_KEY:
+            return simplejwt_settings.SIGNING_KEY
+        if secret:
+            return secret
+    try:
+        signing_key = get_jwks_client().get_signing_key(assertion_token)
+        if signing_key is not None:
+            return signing_key.key
+    except Exception as exc:
+        logger.debug('MCP revocation list JWKS key lookup failed: %s', exc)
+    return None
+
+
 def _mark_revocation_untrusted() -> None:
     cache.delete(_REVOKED_CACHE_KEY)
     cache.set(_REVOKED_TRUST_KEY, False, timeout=REVOCATION_CACHE_SECONDS)
 
 
+def _store_trusted_revocation(*, revoked_ids: frozenset[str], agents: list[dict[str, Any]], cache_seconds: int) -> None:
+    cache.set(
+        _REVOKED_CACHE_KEY,
+        {
+            'revoked_ids': sorted(revoked_ids),
+            'agents': agents,
+            'cache_seconds': cache_seconds,
+        },
+        timeout=max(cache_seconds, REVOCATION_CACHE_SECONDS),
+    )
+    cache.set(_REVOKED_TRUST_KEY, True, timeout=max(cache_seconds, REVOCATION_CACHE_SECONDS))
+
+
+def _cached_revocation() -> dict[str, Any] | None:
+    if cache.get(_REVOKED_TRUST_KEY) is not True:
+        return None
+    raw = cache.get(_REVOKED_CACHE_KEY)
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def _agent_blocked_for_tenant(agent_id: str, *, company_id: int | None, payload: dict[str, Any]) -> bool:
+    revoked_ids = {str(item) for item in (payload.get('revoked_ids') or [])}
+    if str(agent_id) not in revoked_ids:
+        return False
+    if company_id is None:
+        return True
+    agents = payload.get('agents') or []
+    if not agents:
+        return True
+    for entry in agents:
+        if str(entry.get('agent_id') or '') != str(agent_id):
+            continue
+        entry_company = entry.get('company_id')
+        if entry_company is None:
+            return True
+        try:
+            return int(entry_company) == int(company_id)
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
 def _refresh_revocations() -> bool:
-    """Return True when identity answered with a trusted revocation list."""
+    """Return True when identity answered with a trusted signed revocation list."""
     origin = _identity_origin()
     if not origin:
         _mark_revocation_untrusted()
@@ -57,67 +144,74 @@ def _refresh_revocations() -> bool:
         _mark_revocation_untrusted()
         return False
     try:
-        payload = response.json()
+        body = response.json()
     except ValueError:
         _mark_revocation_untrusted()
         return False
-    ids = {str(item) for item in (payload.get('revoked_agent_ids') or [])}
-    cache.set(_REVOKED_CACHE_KEY, list(ids), timeout=REVOCATION_CACHE_SECONDS)
-    cache.set(_REVOKED_TRUST_KEY, True, timeout=REVOCATION_CACHE_SECONDS)
+    assertion = body.get('revocation_assertion') or body.get('assertion') or ''
+    signing_key = _revocation_list_signing_key(str(assertion))
+    try:
+        revoked_ids, cache_seconds = parse_trusted_revocation_poll_response(
+            body,
+            signing_key=signing_key,
+            expected_issuer=settings.IDENTITY_ISSUER or origin,
+        )
+    except InternalAssertionError as exc:
+        logger.warning('MCP revocation list untrusted: %s', exc.message)
+        _mark_revocation_untrusted()
+        return False
+    agents = body.get('agents') if isinstance(body.get('agents'), list) else []
+    _store_trusted_revocation(revoked_ids=revoked_ids, agents=agents, cache_seconds=cache_seconds)
     return True
-
-
-def _revocation_trusted() -> bool:
-    return cache.get(_REVOKED_TRUST_KEY) is True
-
-
-def _revoked_ids() -> set[str] | None:
-    if not _revocation_trusted():
-        return None
-    raw = cache.get(_REVOKED_CACHE_KEY)
-    if raw is None:
-        return None
-    return {str(item) for item in raw}
 
 
 def identity_revocation_unavailable() -> bool:
     """True when the signed revocation list cannot be loaded (fail closed at the HTTP layer)."""
-    if _revoked_ids() is not None:
+    if _cached_revocation() is not None:
         return False
     with _REVOKED_LOCK:
-        if _revoked_ids() is not None:
+        if _cached_revocation() is not None:
             return False
         _refresh_revocations()
-    return _revoked_ids() is None
+    return _cached_revocation() is None
 
 
 def agent_is_revoked(agent_id: str) -> bool:
-    """True only when the list is trusted and the agent id is revoked."""
+    """True when the trusted list marks this agent revoked for the current token company."""
     if identity_revocation_unavailable():
         return False
-    ids = _revoked_ids()
-    if ids is None:
+    payload = _cached_revocation()
+    if payload is None:
         return False
-    return str(agent_id) in ids
+    return _agent_blocked_for_tenant(str(agent_id), company_id=_token_company_id(), payload=payload)
+
+
+def _approval_assertion_from_payload(payload: dict[str, Any]) -> str | None:
+    origin = _identity_origin()
+    agent_id = str(payload.get('agent_id') or '')
+    company_id = payload.get('company_id')
+    args_hash = str(payload.get('arguments_hash') or '')
+    if not origin or not agent_id or company_id is None or not args_hash:
+        return None
+    try:
+        company_int = int(company_id)
+    except (TypeError, ValueError):
+        return None
+    return build_mcp_approval_assertion(
+        company_id=company_int,
+        agent_id=agent_id,
+        service=str(payload.get('service') or 'storage'),
+        action=str(payload.get('action') or ''),
+        arguments_hash=args_hash,
+        audience_url=origin,
+    )
 
 
 def create_approval_request(payload: dict[str, Any]) -> dict | None:
     origin = _identity_origin()
-    if not origin:
+    assertion = _approval_assertion_from_payload(payload)
+    if not origin or not assertion:
         return None
-    agent_id = str(payload.get('agent_id') or '')
-    company_id = payload.get('company_id')
-    if not agent_id or company_id is None:
-        return None
-    arguments_hash = str(payload.get('arguments_hash') or '')
-    assertion = build_mcp_approval_assertion(
-        company_id=int(company_id),
-        agent_id=agent_id,
-        service=str(payload.get('service') or 'storage'),
-        action=str(payload.get('action') or ''),
-        arguments_hash=arguments_hash,
-        audience_url=origin,
-    )
     body = {'arguments': payload.get('arguments') or {}}
     try:
         response = requests.post(
@@ -141,36 +235,21 @@ def create_approval_request(payload: dict[str, Any]) -> dict | None:
 def approval_state(payload: dict[str, Any]) -> str | None:
     """Resolve approval status from identity-service. Fail closed on errors."""
     origin = _identity_origin()
-    agent_id = payload.get('agent_id')
-    company_id = payload.get('company_id')
-    args_hash = str(payload.get('arguments_hash') or '')
-    if not origin or not agent_id or company_id is None or not args_hash:
+    assertion = _approval_assertion_from_payload(payload)
+    if not origin or not assertion:
         return None
-    assertion = build_mcp_approval_assertion(
-        company_id=int(company_id),
-        agent_id=str(agent_id),
-        service=str(payload.get('service') or 'storage'),
-        action=str(payload.get('action') or ''),
-        arguments_hash=args_hash,
-        audience_url=origin,
-    )
-    body = {
-        'agent_id': str(agent_id),
-        'company_id': company_id,
-        'service': str(payload.get('service') or ''),
-        'action': str(payload.get('action') or ''),
-        'arguments_hash': args_hash,
-    }
     try:
         response = requests.post(
             f'{origin}/api/v1/mcp/internal/mcp-approval-state',
-            json=body,
+            json={},
             headers={'Authorization': f'Bearer {assertion}'},
             timeout=10,
         )
     except requests.RequestException:
         return None
-    if response.status_code == 404 or response.status_code >= 400:
+    if response.status_code == 404:
+        return None
+    if response.status_code >= 400:
         return None
     try:
         data = response.json()
@@ -179,20 +258,26 @@ def approval_state(payload: dict[str, Any]) -> str | None:
     state = str(data.get('status') or '')
     if state == 'approved' and data.get('id'):
         payload['approval_id'] = str(data['id'])
-    if state in {'pending', 'approved', 'executed'}:
-        return state
+        return 'approved'
+    if state == 'pending':
+        return 'pending'
+    if state == 'denied':
+        return None
+    if state == 'expired':
+        return 'expired'
     return None
 
 
-def consume_approval(approval_id: str) -> bool:
+def consume_approval(approval_id: str, payload: dict[str, Any] | None = None) -> bool:
     origin = _identity_origin()
-    if not origin or not approval_id:
+    payload = payload or {}
+    assertion = _approval_assertion_from_payload(payload)
+    if not origin or not approval_id or not assertion:
         return False
-    assertion = build_mcp_call_log_assertion(audience_url=origin)
     try:
         response = requests.post(
             f'{origin}/api/v1/mcp/internal/mcp-approval-consume',
-            json={'approval_id': approval_id},
+            json={'approval_id': str(approval_id)},
             headers={'Authorization': f'Bearer {assertion}'},
             timeout=10,
         )

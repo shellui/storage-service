@@ -12,7 +12,15 @@ class ShelluiMcpPackageTests(SimpleTestCase):
 
     def test_write_gate(self):
         self.assertTrue(decide_write(method='GET', access_mode=ACCESS_READ_ONLY, destructive=False, allow_destructive_without_asking=False).allowed)
-        self.assertFalse(decide_write(method='POST', access_mode=ACCESS_READ_ONLY, destructive=False, allow_destructive_without_asking=False).allowed)
+        self.assertFalse(
+            decide_write(
+                method='POST',
+                access_mode=ACCESS_READ_ONLY,
+                destructive=False,
+                allow_destructive_without_asking=False,
+                tool_read_only=False,
+            ).allowed
+        )
         self.assertTrue(decide_write(method='POST', access_mode=ACCESS_FULL, destructive=False, allow_destructive_without_asking=False).allowed)
         ask = decide_write(method='POST', access_mode=ACCESS_ASK, destructive=False, allow_destructive_without_asking=False)
         self.assertTrue(ask.needs_approval)

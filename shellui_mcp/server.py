@@ -8,11 +8,13 @@ import logging
 from typing import Any, Callable
 
 from django.http import HttpRequest, JsonResponse
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from shellui_mcp.masking import redact_mapping
+from shellui_mcp.openapi_mcp import marker_tree_for_operation_request, marker_tree_for_operation_response
 from shellui_mcp.openapi_tools import tools_from_schema
 from shellui_mcp.rate_limit import check_agent_rate_limit
+from shellui_mcp.routing import McpToolArgumentError, materialize_openapi_path, validate_mcp_tool_arguments
 from shellui_mcp.write_gate import decide_write, is_destructive_operation
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ class McpServer:
         on_call: Callable[[dict[str, Any]], None] | None = None,
         approval_handler: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
         approval_state: Callable[[dict[str, Any]], str | None] | None = None,
-        approval_consume: Callable[[str], bool] | None = None,
+        approval_consume: Callable[..., bool] | None = None,
     ):
         self.schema_provider = schema_provider
         self.urlconf = urlconf
@@ -87,19 +89,31 @@ class McpServer:
         if tool is None:
             return JsonResponse(self._error(req_id, -32602, 'Unknown tool'))
         meta = tool.get('_meta') or {}
-        path = str(arguments.get('path') or meta.get('path') or '')
+        path_template = str(meta.get('path') or '')
+        path = str(arguments.get('path') or path_template)
         method = str(arguments.get('method') or meta.get('method') or 'GET').upper()
-        if path != meta.get('path') or method != meta.get('method'):
+        if path != path_template or method != meta.get('method'):
             return JsonResponse(self._error(req_id, -32602, 'Tool path mismatch'))
+        try:
+            validate_mcp_tool_arguments(arguments if isinstance(arguments, dict) else {}, meta)
+            path_params = arguments.get('path_params') if isinstance(arguments.get('path_params'), dict) else {}
+            resolved_path = materialize_openapi_path(path_template, path_params)
+        except McpToolArgumentError as exc:
+            return JsonResponse(self._error(req_id, -32602, str(exc)))
 
         access = str(agent_claims.get('mcp_access') or 'read_only')
         read_level = str(agent_claims.get('mcp_read') or 'safe')
-        destructive = is_destructive_operation(self._operation(schema, path, method))
+        operation = self._operation(schema, path_template, method)
+        destructive = bool(meta.get('destructive')) or is_destructive_operation(operation)
+        tool_read_only = bool(meta.get('read_only'))
+        request_markers = marker_tree_for_operation_request(operation, schema)
+        response_markers = marker_tree_for_operation_response(operation, schema)
         decision = decide_write(
             method=method,
             access_mode=access,
             destructive=destructive,
             allow_destructive_without_asking=bool(agent_claims.get('mcp_destructive')),
+            tool_read_only=tool_read_only,
         )
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
@@ -110,7 +124,7 @@ class McpServer:
                 'action': tool_name,
                 'arguments': arguments,
                 'arguments_hash': args_hash,
-                'path': path,
+                'path': resolved_path,
                 'method': method,
             }
             granted = False
@@ -125,8 +139,10 @@ class McpServer:
                     )
                 if state == 'approved':
                     approval_id = approval_payload.get('approval_id')
-                    if approval_id and self.approval_consume and self.approval_consume(str(approval_id)):
-                        granted = True
+                    if approval_id and self.approval_consume:
+                        consumed = self.approval_consume(str(approval_id), approval_payload)
+                        if consumed:
+                            granted = True
                     else:
                         return JsonResponse(
                             self._result(
@@ -175,15 +191,15 @@ class McpServer:
 
         drf_request = self._factory.generic(
             method,
-            path,
+            resolved_path,
             data=arguments.get('body') or {},
             query_params=arguments.get('query') or {},
             HTTP_AUTHORIZATION=request.META.get('HTTP_AUTHORIZATION', ''),
         )
-        drf_request.user = getattr(request, 'user', None)
+        self._attach_request_principal(drf_request, request, agent_claims)
         from django.urls import resolve
 
-        match = resolve(path, urlconf=self.urlconf)
+        match = resolve(resolved_path, urlconf=self.urlconf)
         response = match.func(drf_request, *match.args, **match.kwargs)
         status_code = getattr(response, 'status_code', 500)
         try:
@@ -191,7 +207,11 @@ class McpServer:
         except AttributeError:
             data = {'detail': 'ok'}
         read_sensitive = read_level == 'sensitive'
-        redacted = redact_mapping(data if isinstance(data, dict) else {'result': data}, read_sensitive=read_sensitive)
+        redacted = redact_mapping(
+            data if isinstance(data, dict) else {'result': data},
+            read_sensitive=read_sensitive,
+            markers=response_markers,
+        )
         if self.on_call:
             self.on_call(
                 {
@@ -200,9 +220,9 @@ class McpServer:
                     'service': self.service_name,
                     'tool': tool_name,
                     'method': method,
-                    'path': path,
+                    'path': resolved_path,
                     'status': status_code,
-                    'arguments': redact_mapping(arguments, read_sensitive=False),
+                    'arguments': redact_mapping(arguments, read_sensitive=False, markers=request_markers),
                 }
             )
         return JsonResponse(
@@ -214,6 +234,21 @@ class McpServer:
                 },
             )
         )
+
+    @staticmethod
+    def _attach_request_principal(
+        target_request,
+        source_request: HttpRequest,
+        agent_claims: dict[str, Any],
+    ) -> None:
+        user = getattr(source_request, 'user', None)
+        auth = getattr(source_request, 'auth', None)
+        if auth is None and agent_claims:
+            auth = agent_claims
+        if user is not None or auth is not None:
+            force_authenticate(target_request, user=user, token=auth)
+        if auth is not None:
+            target_request.auth = auth
 
     @staticmethod
     def _service_allowed(agent_claims: dict[str, Any], service_name: str) -> bool:

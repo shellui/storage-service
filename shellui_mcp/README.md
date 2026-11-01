@@ -7,7 +7,7 @@ Copy this directory into storage-service, hosting-service, email-service, and sa
 1. Mount `POST /mcp` with `shellui_mcp.server.McpServer`.
 2. Tag OpenAPI operations with `mcp-tools` using `@mcp_expose_tool` (never tag staff-only routes).
 3. Publish `/.well-known/oauth-protected-resource` pointing at Identity.
-4. Poll Identity `GET /api/v1/mcp/internal/mcp-revocations` every 30 seconds with a signed service assertion.
+4. Poll Identity `GET /api/v1/mcp/internal/mcp-revocations` every 30 seconds with a signed service assertion. Identity signs the JSON response (`revocation_assertion`, scope `mcp.revocation.list`). Use `parse_trusted_revocation_poll_response` and fail closed when the assertion is missing or invalid.
 5. Forward call logs with `POST /api/v1/mcp/internal/mcp-call-logs` and signed assertions (`shellui_mcp.internal`).
 6. Create approval requests with `POST /api/v1/mcp/internal/mcp-approval-requests` when writes need confirmation.
 
@@ -60,13 +60,17 @@ All use Identity as issuer, short TTL (~60s), and `target` set to the Identity o
 
 | Purpose | HTTP | Assertion audience (`aud`) | Scope |
 | --- | --- | --- | --- |
-| Revocation poll | `GET /api/v1/mcp/internal/mcp-revocations` | `shellui-mcp-revocation` | `mcp.revocation.read` |
+| Revocation poll (request) | `GET /api/v1/mcp/internal/mcp-revocations` | `shellui-mcp-revocation` | `mcp.revocation.read` |
+| Revocation poll (response) | same response body | `shellui-mcp-revocation` | `mcp.revocation.list` |
 | Call log ingest | `POST /api/v1/mcp/internal/mcp-call-logs` | `shellui-mcp-call-log` | `mcp.call_log.create` |
 | Approval create | `POST /api/v1/mcp/internal/mcp-approval-requests` | `shellui-mcp-approval` | `mcp.approval.create` |
+| Approval state | `POST` or `GET /api/v1/mcp/internal/mcp-approval-state` | `shellui-mcp-approval` | `mcp.approval.create` |
+| Approval consume | `POST /api/v1/mcp/internal/mcp-approval-consume` | `shellui-mcp-approval` | `mcp.approval.create` |
 
 Builders in `shellui_mcp.internal`:
 
 - `build_mcp_revocation_assertion(audience_url=identity_origin)`
+- `parse_trusted_revocation_poll_response(payload, expected_issuer=identity_origin)` (pass Identity JWKS key when using RS256)
 - `build_mcp_call_log_assertion(audience_url=identity_origin)`
 - `build_mcp_approval_assertion(..., audience_url=identity_origin)`
 

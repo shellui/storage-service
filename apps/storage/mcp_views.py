@@ -14,10 +14,12 @@ from shellui_mcp.resources import access_token_audience_matches
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
+    clear_revocation_agent_context,
     consume_approval,
     create_approval_request,
     forward_call_log,
     identity_revocation_unavailable,
+    set_revocation_agent_context,
 )
 
 _server: McpServer | None = None
@@ -26,6 +28,14 @@ _server: McpServer | None = None
 def _schema() -> dict:
     generator = SchemaGenerator()
     return generator.get_schema(request=None, public=True)
+
+
+def _approval_state_for_mcp(payload: dict) -> str | None:
+    """Map identity ``expired`` (consumed approval) to ``executed`` for shared ``McpServer``."""
+    state = approval_state(payload)
+    if state == 'expired':
+        return 'executed'
+    return state
 
 
 def _get_server() -> McpServer:
@@ -38,7 +48,7 @@ def _get_server() -> McpServer:
             identity_revocation_check=agent_is_revoked,
             on_call=forward_call_log,
             approval_handler=create_approval_request,
-            approval_state=approval_state,
+            approval_state=_approval_state_for_mcp,
             approval_consume=consume_approval,
         )
     return _server
@@ -66,9 +76,19 @@ def _agent_claims(request: HttpRequest) -> dict | None:
 def mcp_endpoint(request: HttpRequest):
     claims = _agent_claims(request)
     if claims is not None:
-        if identity_revocation_unavailable():
-            return JsonResponse({'error': 'identity_unavailable'}, status=503)
-        agent_id = str(claims.get('agent_id') or '')
-        if agent_id and agent_is_revoked(agent_id):
-            return JsonResponse({'error': 'agent_revoked'}, status=403)
+        company_id = claims.get('company_id')
+        try:
+            token_company = int(company_id) if company_id is not None else None
+        except (TypeError, ValueError):
+            token_company = None
+        set_revocation_agent_context(company_id=token_company)
+        try:
+            if identity_revocation_unavailable():
+                return JsonResponse({'error': 'identity_unavailable'}, status=503)
+            agent_id = str(claims.get('agent_id') or '')
+            if agent_id and agent_is_revoked(agent_id):
+                return JsonResponse({'error': 'agent_revoked'}, status=403)
+            return _get_server().handle(request, agent_claims=claims)
+        finally:
+            clear_revocation_agent_context()
     return _get_server().handle(request, agent_claims=claims)
