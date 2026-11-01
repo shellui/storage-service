@@ -109,6 +109,7 @@ gunicorn_cmd() {
     --max-requests-jitter "${GUNICORN_MAX_REQUESTS_JITTER:-200}"
     --worker-tmp-dir /dev/shm
     --access-logfile -
+    --logger-class config.safe_access_log.SafeAccessLogger
     --error-logfile -
     --access-logformat '%(h)s %(l)s %(u)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "-" "%(a)s" %(M)sms req=%({x-request-id}o)s'
     config.wsgi:application
