@@ -7,7 +7,7 @@ Copy this directory into storage-service, hosting-service, email-service, and sa
 1. Mount `POST /mcp` with `shellui_mcp.server.McpServer`.
 2. Tag OpenAPI operations with `mcp-tools` using `@mcp_expose_tool` (never tag staff-only routes).
 3. Publish `/.well-known/oauth-protected-resource` pointing at Identity.
-4. Poll Identity `GET /api/v1/mcp/internal/mcp-revocations` every 30 seconds with a signed service assertion. Identity signs the JSON response (`revocation_assertion`, scope `mcp.revocation.list`). Use `parse_trusted_revocation_poll_response` and fail closed when the assertion is missing or invalid.
+4. Poll Identity `GET /api/v1/mcp/internal/mcp-revocations` every 30 seconds with a signed service assertion. Identity signs the JSON response (`revocation_assertion`, scope `mcp.revocation.list`, RS256). Use `parse_trusted_revocation_poll_response(payload, expected_issuer=identity_origin)` to verify against `{issuer}/.well-known/jwks.json` with PyJWT (no SimpleJWT settings). Fail closed when the assertion is missing or invalid. Wire `McpServer(..., identity_revocation_check=lambda agent_id, company_id: ...)` so both tenant fields are available.
 5. Forward call logs with `POST /api/v1/mcp/internal/mcp-call-logs` and signed assertions (`shellui_mcp.internal`).
 6. Create approval requests with `POST /api/v1/mcp/internal/mcp-approval-requests` when writes need confirmation.
 
@@ -70,7 +70,7 @@ All use Identity as issuer, short TTL (~60s), and `target` set to the Identity o
 Builders in `shellui_mcp.internal`:
 
 - `build_mcp_revocation_assertion(audience_url=identity_origin)`
-- `parse_trusted_revocation_poll_response(payload, expected_issuer=identity_origin)` (pass Identity JWKS key when using RS256)
+- `parse_trusted_revocation_poll_response(payload, expected_issuer=identity_origin)` (optional `identity_jwks_url` or test-only inline `jwks`)
 - `build_mcp_call_log_assertion(audience_url=identity_origin)`
 - `build_mcp_approval_assertion(..., audience_url=identity_origin)`
 

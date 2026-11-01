@@ -27,7 +27,7 @@ class McpServer:
         schema_provider: Callable[[], dict[str, Any]],
         urlconf: str,
         service_name: str,
-        identity_revocation_check: Callable[[str], bool] | None = None,
+        identity_revocation_check: Callable[[str, int | None], bool] | None = None,
         on_call: Callable[[dict[str, Any]], None] | None = None,
         approval_handler: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
         approval_state: Callable[[dict[str, Any]], str | None] | None = None,
@@ -53,7 +53,12 @@ class McpServer:
             return JsonResponse({'error': 'unauthorized'}, status=401)
         if check_agent_rate_limit(agent_id):
             return JsonResponse({'error': 'rate_limited'}, status=429)
-        if self.identity_revocation_check and self.identity_revocation_check(agent_id):
+        company_id = agent_claims.get('company_id')
+        try:
+            company_id_int = int(company_id) if company_id is not None else None
+        except (TypeError, ValueError):
+            company_id_int = None
+        if self.identity_revocation_check and self.identity_revocation_check(agent_id, company_id_int):
             return JsonResponse({'error': 'agent_revoked'}, status=403)
         if not self._service_allowed(agent_claims, self.service_name):
             return JsonResponse({'error': 'forbidden'}, status=403)

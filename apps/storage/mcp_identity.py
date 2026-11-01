@@ -10,9 +10,7 @@ from typing import Any
 import requests
 from django.conf import settings
 from django.core.cache import cache
-from rest_framework_simplejwt.settings import api_settings as simplejwt_settings
 
-from apps.authapi.jwks_client import get_jwks_client
 from shellui_mcp.internal import (
     REVOCATION_CACHE_SECONDS,
     InternalAssertionError,
@@ -27,26 +25,6 @@ logger = logging.getLogger(__name__)
 _REVOKED_CACHE_KEY = 'mcp:revoked_trusted_payload'
 _REVOKED_TRUST_KEY = 'mcp:revoked_list_trusted'
 _REVOKED_LOCK = threading.Lock()
-_revocation_ctx = threading.local()
-
-
-def set_revocation_agent_context(*, company_id: int | None) -> None:
-    _revocation_ctx.company_id = company_id
-
-
-def clear_revocation_agent_context() -> None:
-    if hasattr(_revocation_ctx, 'company_id'):
-        delattr(_revocation_ctx, 'company_id')
-
-
-def _token_company_id() -> int | None:
-    raw = getattr(_revocation_ctx, 'company_id', None)
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
 
 
 def _identity_origin() -> str:
@@ -58,23 +36,16 @@ def _revocation_headers(origin: str) -> dict[str, str]:
     return {'Authorization': f'Bearer {assertion}'}
 
 
-def _revocation_list_signing_key(assertion_token: str) -> str | bytes | None:
-    secret = getattr(settings, 'JWT_HS256_FALLBACK_SECRET', None)
-    allow_hs256 = (bool(secret) or bool(simplejwt_settings.SIGNING_KEY)) and (
-        settings.DEBUG or getattr(settings, 'ALLOW_JWT_HS256_FALLBACK', False)
-    )
-    if allow_hs256:
-        if simplejwt_settings.ALGORITHM == 'HS256' and simplejwt_settings.SIGNING_KEY:
-            return simplejwt_settings.SIGNING_KEY
-        if secret:
-            return secret
-    try:
-        signing_key = get_jwks_client().get_signing_key(assertion_token)
-        if signing_key is not None:
-            return signing_key.key
-    except Exception as exc:
-        logger.debug('MCP revocation list JWKS key lookup failed: %s', exc)
-    return None
+def _revocation_verify_kwargs(origin: str) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {'expected_issuer': settings.IDENTITY_ISSUER or origin}
+    document = getattr(settings, 'IDENTITY_JWKS_DOCUMENT', None)
+    if document is not None:
+        kwargs['jwks'] = document
+    else:
+        jwks_url = getattr(settings, 'IDENTITY_JWKS_URL', None)
+        if jwks_url:
+            kwargs['identity_jwks_url'] = jwks_url
+    return kwargs
 
 
 def _mark_revocation_untrusted() -> None:
@@ -148,19 +119,15 @@ def _refresh_revocations() -> bool:
     except ValueError:
         _mark_revocation_untrusted()
         return False
-    assertion = body.get('revocation_assertion') or body.get('assertion') or ''
-    signing_key = _revocation_list_signing_key(str(assertion))
     try:
-        revoked_ids, cache_seconds = parse_trusted_revocation_poll_response(
+        revoked_ids, cache_seconds, agents = parse_trusted_revocation_poll_response(
             body,
-            signing_key=signing_key,
-            expected_issuer=settings.IDENTITY_ISSUER or origin,
+            **_revocation_verify_kwargs(origin),
         )
     except InternalAssertionError as exc:
         logger.warning('MCP revocation list untrusted: %s', exc.message)
         _mark_revocation_untrusted()
         return False
-    agents = body.get('agents') if isinstance(body.get('agents'), list) else []
     _store_trusted_revocation(revoked_ids=revoked_ids, agents=agents, cache_seconds=cache_seconds)
     return True
 
@@ -176,14 +143,14 @@ def identity_revocation_unavailable() -> bool:
     return _cached_revocation() is None
 
 
-def agent_is_revoked(agent_id: str) -> bool:
-    """True when the trusted list marks this agent revoked for the current token company."""
+def agent_is_revoked(agent_id: str, company_id: int | None = None) -> bool:
+    """True when the trusted list marks this agent revoked for the given company."""
     if identity_revocation_unavailable():
         return False
     payload = _cached_revocation()
     if payload is None:
         return False
-    return _agent_blocked_for_tenant(str(agent_id), company_id=_token_company_id(), payload=payload)
+    return _agent_blocked_for_tenant(str(agent_id), company_id=company_id, payload=payload)
 
 
 def _approval_assertion_from_payload(payload: dict[str, Any]) -> str | None:

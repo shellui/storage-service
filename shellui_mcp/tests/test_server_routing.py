@@ -1,11 +1,9 @@
 import json
+import unittest
 
-from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from shellui_mcp.server import McpServer
-
-User = get_user_model()
 
 SCHEMA = {
     'paths': {
@@ -26,25 +24,36 @@ SCHEMA = {
 }
 
 
-@override_settings(JWT_ISSUER='https://saas.test')
-class McpServerRoutingTests(TestCase):
+class _AuthUser:
+    is_authenticated = True
+
+
+@override_settings(ROOT_URLCONF='shellui_mcp.tests.mcp_routing_urlconf')
+class McpServerRoutingTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
-        self.user = User.objects.create_user(username='owner', password='unused')
+        self.seen_revocation: list[tuple[str, int | None]] = []
+
+        def _revocation_check(agent_id: str, company_id: int | None) -> bool:
+            self.seen_revocation.append((agent_id, company_id))
+            return False
+
         self.server = McpServer(
             schema_provider=lambda: SCHEMA,
             urlconf='shellui_mcp.tests.mcp_routing_urlconf',
             service_name='saas',
+            identity_revocation_check=_revocation_check,
         )
         self.claims = {
             'agent_id': '00000000-0000-0000-0000-000000000099',
-            'company_id': 1,
+            'company_id': 42,
             'scope': 'saas',
             'mcp_access': 'full',
             'mcp_read': 'safe',
         }
 
-    def _call_tool(self, arguments):
+    def _call_tool(self, arguments, *, claims=None):
+        claims = claims or self.claims
         request = self.factory.post(
             '/mcp',
             data=json.dumps(
@@ -58,9 +67,19 @@ class McpServerRoutingTests(TestCase):
             content_type='application/json',
             HTTP_AUTHORIZATION='Bearer test-token',
         )
-        request.user = self.user
-        request.auth = self.claims
-        return self.server.handle(request, agent_claims=self.claims)
+        request.user = _AuthUser()
+        request.auth = claims
+        return self.server.handle(request, agent_claims=claims)
+
+    def test_passes_agent_and_company_to_revocation_check(self):
+        self._call_tool(
+            {
+                'path': '/api/v1/companies/{company_id}/items/',
+                'method': 'GET',
+                'path_params': {'company_id': '7'},
+            }
+        )
+        self.assertEqual(self.seen_revocation, [(self.claims['agent_id'], 42)])
 
     def test_resolves_path_template_and_propagates_principal(self):
         response = self._call_tool(
@@ -102,7 +121,7 @@ class McpServerRoutingTests(TestCase):
             content_type='application/json',
             HTTP_AUTHORIZATION='Bearer test-token',
         )
-        request.user = self.user
+        request.user = _AuthUser()
         request.auth = claims
         response = self.server.handle(request, agent_claims=claims)
         self.assertEqual(response.status_code, 200)
@@ -119,3 +138,7 @@ class McpServerRoutingTests(TestCase):
         )
         payload = json.loads(response.content)
         self.assertIn('error', payload)
+
+
+if __name__ == '__main__':
+    unittest.main()
