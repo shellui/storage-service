@@ -8,21 +8,26 @@ import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from shellui_mcp.internal import build_mcp_revocation_list_response_assertion
+from shellui_mcp.tests.rs256_helpers import generate_test_rsa_jwks, sign_test_revocation_list_assertion
 
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
     consume_approval,
     identity_revocation_unavailable,
-    set_revocation_agent_context,
 )
+
+_TEST_ISSUER = 'https://identity.test'
+_JWKS, _PRIVATE_PEM, _KID = generate_test_rsa_jwks()
 
 
 def _signed_revocation_body(*, revoked_ids=None, agents=None):
     revoked_ids = revoked_ids or []
     agents = agents or []
-    assertion = build_mcp_revocation_list_response_assertion(
+    assertion = sign_test_revocation_list_assertion(
+        private_pem=_PRIVATE_PEM,
+        kid=_KID,
+        issuer=_TEST_ISSUER,
         revoked_agent_ids=revoked_ids,
         agents=agents,
         cache_seconds=30,
@@ -38,26 +43,18 @@ def _signed_revocation_body(*, revoked_ids=None, agents=None):
 @override_settings(
     IDENTITY_SERVICE_URL='https://identity.test',
     IDENTITY_ISSUER='https://identity.test',
-    JWT_ISSUER='https://identity.test',
-    JWT_HS256_FALLBACK_SECRET='test-secret',
-    ALLOW_JWT_HS256_FALLBACK=True,
-    SIMPLE_JWT={
-        'SIGNING_KEY': 'test-secret',
-        'ALGORITHM': 'HS256',
-        'ISSUER': 'https://identity.test',
-    },
+    IDENTITY_JWKS_DOCUMENT=_JWKS,
 )
 class McpIdentityFailClosedTests(SimpleTestCase):
     def setUp(self):
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
-        set_revocation_agent_context(company_id=10)
 
     def test_identity_unavailable_when_revocation_returns_404(self):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=404)
             self.assertTrue(identity_revocation_unavailable())
-            self.assertFalse(agent_is_revoked('agent-1'))
+            self.assertFalse(agent_is_revoked('agent-1', 10))
 
     def test_identity_unavailable_when_revocation_unreachable(self):
         with patch(
@@ -65,7 +62,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             side_effect=requests.RequestException('network'),
         ):
             self.assertTrue(identity_revocation_unavailable())
-            self.assertFalse(agent_is_revoked('agent-1'))
+            self.assertFalse(agent_is_revoked('agent-1', 10))
 
     def test_revocation_poll_sends_signed_assertion(self):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
@@ -73,7 +70,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                 status_code=200,
                 json=lambda: _signed_revocation_body(),
             )
-            self.assertFalse(agent_is_revoked('agent-1'))
+            self.assertFalse(agent_is_revoked('agent-1', 10))
         auth = mock_get.call_args.kwargs['headers']['Authorization']
         self.assertRegex(auth, r'^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$')
 
@@ -84,7 +81,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         )
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertFalse(agent_is_revoked('agent-x'))
+            self.assertFalse(agent_is_revoked('agent-x', 10))
 
     def test_revoked_agent_when_company_matches(self):
         body = _signed_revocation_body(
@@ -93,7 +90,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         )
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('agent-x'))
+            self.assertTrue(agent_is_revoked('agent-x', 10))
 
     def test_approval_state_none_on_404(self):
         payload = {

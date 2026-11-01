@@ -70,13 +70,17 @@ def build_mcp_approval_assertion(
     return _encode_assertion(claims)
 
 
-def _verification_key(signing_key: str | bytes | None) -> str | bytes:
-    if signing_key is not None:
-        return signing_key
-    verifying = getattr(api_settings, 'VERIFYING_KEY', None)
-    if verifying:
-        return verifying
-    return api_settings.SIGNING_KEY
+def _encode_identity_issued_rs256(claims: dict[str, Any]) -> str | None:
+    signing = getattr(settings, 'JWT_SIGNING_KEY', None)
+    if signing is None:
+        return None
+    private_pem = getattr(signing, 'private_pem', None)
+    if not private_pem:
+        return None
+    kid = getattr(signing, 'kid', None) or getattr(settings, 'JWT_ACTIVE_KEY_ID', '') or ''
+    headers = {'kid': kid} if kid else None
+    token = jwt.encode(claims, private_pem, algorithm='RS256', headers=headers)
+    return token.decode('utf-8') if isinstance(token, bytes) else token
 
 
 def build_mcp_revocation_list_response_assertion(
@@ -101,7 +105,13 @@ def build_mcp_revocation_list_response_assertion(
         'exp': now + lifetime_seconds,
         'jti': uuid.uuid4().hex,
     }
-    return _encode_assertion(claims)
+    rs256 = _encode_identity_issued_rs256(claims)
+    if not rs256:
+        raise InternalAssertionError(
+            'Revocation list signing is not configured.',
+            status=503,
+        )
+    return rs256
 
 
 def build_mcp_revocation_assertion(*, audience_url: str, lifetime_seconds: int = 60) -> str:
@@ -179,23 +189,34 @@ def _revocation_list_assertion_token(payload: dict[str, Any]) -> str:
 def verify_mcp_revocation_list_response(
     payload: dict[str, Any],
     *,
-    signing_key: str | bytes | None = None,
-    expected_issuer: str | None = None,
+    expected_issuer: str,
+    identity_jwks_url: str | None = None,
+    jwks: dict[str, Any] | None = None,
+    jwks_timeout: float = 10.0,
 ) -> dict[str, Any]:
-    """Verify Identity's signed revocation poll response; raises when untrusted."""
+    """Verify Identity's signed revocation poll response via RS256 JWKS; raises when untrusted."""
+    from shellui_mcp.identity_jwks import (
+        IdentityJwksError,
+        decode_identity_rs256_jwt,
+        identity_jwks_url_for_issuer,
+    )
+
     token = _revocation_list_assertion_token(payload)
-    issuer = expected_issuer if expected_issuer is not None else (_identity_issuer() or None)
+    issuer = (expected_issuer or '').strip().rstrip('/')
+    if not issuer:
+        raise InternalAssertionError('expected_issuer is required.')
+    jwks_url = identity_jwks_url or identity_jwks_url_for_issuer(issuer)
     try:
-        claims = jwt.decode(
+        claims = decode_identity_rs256_jwt(
             token,
-            _verification_key(signing_key),
-            algorithms=[api_settings.ALGORITHM],
             audience=REVOCATION_AUDIENCE,
             issuer=issuer,
-            options={'require': ['exp', 'iat', 'sub', 'scope']},
+            jwks_url=jwks_url,
+            jwks=jwks,
+            timeout=jwks_timeout,
         )
-    except jwt.PyJWTError as exc:
-        raise InternalAssertionError('Invalid revocation list assertion.') from exc
+    except IdentityJwksError as exc:
+        raise InternalAssertionError(str(exc)) from exc
     if str(claims.get('scope') or '') != REVOCATION_LIST_SCOPE:
         raise InternalAssertionError('Revocation list scope mismatch.')
     if str(claims.get('sub') or '') != 'identity':
@@ -224,15 +245,20 @@ def verify_mcp_revocation_list_response(
 def parse_trusted_revocation_poll_response(
     payload: dict[str, Any],
     *,
-    signing_key: str | bytes | None = None,
-    expected_issuer: str | None = None,
-) -> tuple[frozenset[str], int]:
-    """Return trusted revoked agent ids and cache TTL; fail closed on any problem."""
+    expected_issuer: str,
+    identity_jwks_url: str | None = None,
+    jwks: dict[str, Any] | None = None,
+    jwks_timeout: float = 10.0,
+) -> tuple[frozenset[str], int, list[dict[str, Any]]]:
+    """Return trusted revoked ids, cache TTL, and agent rows; fail closed on any problem."""
     trusted = verify_mcp_revocation_list_response(
         payload,
-        signing_key=signing_key,
         expected_issuer=expected_issuer,
+        identity_jwks_url=identity_jwks_url,
+        jwks=jwks,
+        jwks_timeout=jwks_timeout,
     )
     ids = frozenset(trusted['revoked_agent_ids'])
     cache_seconds = int(trusted['cache_seconds'] or REVOCATION_CACHE_SECONDS)
-    return ids, cache_seconds
+    agents = list(trusted.get('agents') or [])
+    return ids, cache_seconds, agents
