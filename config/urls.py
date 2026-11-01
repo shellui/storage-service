@@ -9,6 +9,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from apps.actions.company_deletion_views import CompanyDeletionView
 from apps.actions.scheduled_job_views import (
     ScheduledJobRunDetailView,
     ScheduledJobRunsView,
@@ -32,6 +33,7 @@ urlpatterns = [
         name='storage-scheduled-job-runs',
     ),
     path('api/v1/actions/', include('apps.actions.urls')),
+    path('api/v1/internal/company-deletions', CompanyDeletionView.as_view(), name='internal-company-deletions'),
     path('storage/v1/', include('apps.storage.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path(

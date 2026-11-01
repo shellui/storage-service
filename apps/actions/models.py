@@ -286,3 +286,14 @@ class ScheduledJobCounter(models.Model):
 
     def __str__(self) -> str:
         return f'{self.job}:{self.name}={self.value}'
+
+
+class CompanyDeletion(models.Model):
+    """A company identity-service deleted. Purged by ``actions.purge_deleted_companies``."""
+
+    company_id = models.PositiveIntegerField(unique=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self) -> str:
+        return f'CompanyDeletion(company={self.company_id})'
