@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.7.0] - 2026-11-01
+
+### ✨ Feature
+
+- Company deletion: identity-service flags a deleted company and a Celery job purges its files (S3 or disk) and rows every 60 seconds.
+
 ## [0.6.2] - 2026-10-27
 
 ### 🐛 Bug Fixes

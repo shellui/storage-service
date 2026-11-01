@@ -75,3 +75,19 @@ def purge_expired_data() -> str:
         ttl=PURGE_EXPIRED_DATA_LOCK_TTL,
         max_seconds=PURGE_EXPIRED_DATA_MAX_SECONDS,
     )
+
+
+@shared_task(name='actions.purge_deleted_companies', ignore_result=True)
+def purge_deleted_companies() -> str:
+    """Purge companies identity-service deleted (every 60 seconds)."""
+    import logging
+
+    from apps.actions.company_deletion import purge_deleted_companies as run
+    from config.task_lock import task_lock
+
+    with task_lock('purge_deleted_companies', ttl=120) as acquired:
+        if not acquired:
+            return 'skipped'
+        summary = 'purge_deleted_companies: ' + ' '.join(f'{k}={v}' for k, v in run().items())
+        logging.getLogger(__name__).info(summary)
+        return summary

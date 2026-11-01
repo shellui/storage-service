@@ -162,7 +162,7 @@ class ScheduledTaskTests(TestCase):
 class BeatScheduleTests(SimpleTestCase):
     def test_schedule_contents(self):
         schedule = settings.CELERY_BEAT_SCHEDULE
-        self.assertEqual(set(schedule), {'retry-webhooks', 'purge-expired-data'})
+        self.assertEqual(set(schedule), {'retry-webhooks', 'purge-expired-data', 'purge-deleted-companies'})
 
         retry = schedule['retry-webhooks']
         self.assertEqual(retry['task'], 'actions.retry_webhooks')
