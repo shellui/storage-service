@@ -276,10 +276,11 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    # Outermost: every response, including /health/live and redirects, carries X-Request-ID.
+    'config.request_context.RequestIdMiddleware',
     # First: /health/live answers before host checks, https redirect, sessions and DB.
     'config.liveness.LivenessMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'config.request_context.RequestIdMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -826,3 +827,6 @@ if SENTRY_DSN:
 
 # Company deletion (apps/actions/company_deletion.py): removes a deleted company's files first.
 COMPANY_DELETION_BLOB_HOOK = 'apps.storage.company_deletion.delete_company_files'
+
+# A failing log call must never print its arguments (headers, tokens) to stderr.
+logging.raiseExceptions = False
