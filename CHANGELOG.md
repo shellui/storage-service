@@ -6,6 +6,7 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 ## [Unreleased] - yyyy-mm-dd
 
 ### ✨ Feature - for new features
+- Shellui MCP: `POST /mcp`, OpenAPI `x-mcp` markers for company-owner storage and Shellui Actions routes, OAuth protected-resource metadata, and handbook docs.
 ### 🛠 Improvements - for general improvements
 ### 🚨 Changed - for changes in existing functionality
 ### ⚠️ Deprecated - for soon-to-be removed features
