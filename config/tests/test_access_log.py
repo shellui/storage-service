@@ -30,3 +30,16 @@ class AccessLogRedactionTests(SimpleTestCase):
         self.assertNotIn('sekret-token', rendered)
         self.assertEqual(record.args['q'], '')
         self.assertEqual(record.args['f'], '-')
+
+    def test_filter_keeps_missing_atoms_safe(self):
+        record = logging.LogRecord(
+            name='gunicorn.access',
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg='%(m)s req=%({x-request-id}o)s',
+            args=({'m': 'GET'},),
+            exc_info=None,
+        )
+        self.assertTrue(RedactAccessLogFilter().filter(record))
+        self.assertEqual(record.getMessage(), 'GET req=-')

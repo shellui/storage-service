@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Access log: a response without `X-Request-ID` (health check, redirect) no longer makes logging fail and print request headers, including the identity bearer token, to stderr.
+
 ## [0.7.0] - 2026-11-01
 
 ### ✨ Feature

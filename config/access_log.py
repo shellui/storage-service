@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import re
 
+from config.safe_access_log import SafeAtoms
+
 _SHARE_LINK = re.compile(r'(/share/link/)[^/\s"?#]+', re.IGNORECASE)
 _PATH_KEYS = frozenset({'U', 'r'})
 
@@ -24,7 +26,8 @@ class RedactAccessLogFilter(logging.Filter):
             record.msg = redact_access_text(record.msg)
         args = record.args
         if isinstance(args, dict):
-            cleaned = {}
+            # Keep missing atoms safe: a plain dict raises KeyError on {x-request-id}o.
+            cleaned = SafeAtoms()
             for key, item in args.items():
                 if key == 'q':
                     cleaned[key] = ''
