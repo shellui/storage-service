@@ -38,7 +38,7 @@ class AccessLogRedactionTests(SimpleTestCase):
             pathname=__file__,
             lineno=1,
             msg='%(m)s req=%({x-request-id}o)s',
-            args={'m': 'GET'},
+            args=({'m': 'GET'},),
             exc_info=None,
         )
         self.assertTrue(RedactAccessLogFilter().filter(record))
