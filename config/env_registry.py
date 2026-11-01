@@ -99,6 +99,7 @@ OPTIONAL = (
     Var('EMAIL_SERVICE_API_KEY', '', 'Email notifications: nothing is forwarded while EMAIL_SERVICE_API_KEY is empty'),
     Var('EMAIL_SERVICE_URL', 'https://email.shellui.com'),
     Var('EMAIL_SERVICE_ALLOW_PRIVATE', 'false'),
+    Var('MCP_RATE_LIMIT_AGENT', '120', 'Shellui MCP per-agent rate limit (requests per minute).'),
     Var('SENTRY_DSN', '', 'Sentry'),
     Var('SENTRY_ENVIRONMENT', 'production'),
     Var('SENTRY_RELEASE', ''),

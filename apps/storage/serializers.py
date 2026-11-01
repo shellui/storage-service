@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from apps.authapi.mcp_fields import McpSecretCharField
+
 from .models import BucketKind, StorageAccessGrant
 
 
@@ -240,7 +242,7 @@ class ShareLinkSerializer(serializers.Serializer):
     notes = serializers.CharField()
     active = serializers.BooleanField()
     path_url = serializers.CharField()
-    token = serializers.CharField(required=False)
+    token = McpSecretCharField(required=False)
 
 
 class ShareLinkCreateSerializer(serializers.Serializer):

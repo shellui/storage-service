@@ -172,6 +172,14 @@ The image entrypoint runs migrations, `check --deploy`, then Gunicorn. In `web` 
 | `GUNICORN_MAX_REQUESTS` | `1000` | Requests before a worker restarts |
 | `GUNICORN_MAX_REQUESTS_JITTER` | `200` | Random spread added to `GUNICORN_MAX_REQUESTS` |
 
+## Shellui MCP
+
+Shellui MCP exposes tagged OpenAPI operations to agents over `POST /mcp`. See [Shellui MCP](mcp.md). No extra variables are required for a default install.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MCP_RATE_LIMIT_AGENT` | `120` | Per-agent request limit per minute on `POST /mcp` |
+
 ## Shellui Actions
 
 Webhooks do not need Redis. These variables tune delivery. The catalog and the admin API are in [Webhooks](actions.md).

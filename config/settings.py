@@ -231,7 +231,7 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_SCHEMA_CLASS': 'apps.authapi.mcp_schema.McpAutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'apps.authapi.authentication.IdentityJWKSAuthentication',
     ],
@@ -272,7 +272,22 @@ SPECTACULAR_SETTINGS = {
         {'name': 'quotas', 'description': 'Company and per-user storage quotas.'},
         {'name': 'platform-metrics', 'description': 'Prometheus metrics endpoints.'},
         {'name': 'health', 'description': 'Service health checks.'},
+        {'name': 'mcp-tools', 'description': 'Operations exposed to Shellui MCP agents.'},
     ],
+    'PREPROCESSING_HOOKS': ['apps.authapi.spectacular_hooks.preprocessing_exclude_internal_endpoints'],
+    'POSTPROCESSING_HOOKS': ['apps.authapi.spectacular_hooks.postprocess_mcp_tool_tags'],
+}
+
+# Outbound signed assertions to identity-service MCP internal APIs (approvals, call logs).
+SIMPLE_JWT = {
+    'SIGNING_KEY': _secret_key,
+    'ALGORITHM': 'HS256',
+    'ISSUER': os.getenv('IDENTITY_ISSUER', '').strip() or None,
+}
+
+MCP_RATE_LIMITS = {
+    'default': {'limit': 120, 'window': 60},
+    'mcp_agent': {'limit': _env_int('MCP_RATE_LIMIT_AGENT', 120), 'window': 60},
 }
 
 MIDDLEWARE = [

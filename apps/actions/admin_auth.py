@@ -6,16 +6,53 @@ from rest_framework import status
 from rest_framework.response import Response
 
 
-def _company_id_from_request(request) -> int | None:
+class AgentCompanyIdMismatchError(Exception):
+    """Agent token company_id does not match a query or body company_id."""
+
+
+def _is_mcp_agent_principal(user) -> bool:
+    if not user:
+        return False
+    claims = getattr(user, 'claims', None) or {}
+    if claims.get('agent_id'):
+        return True
+    sub = str(claims.get('sub') or '')
+    if sub.startswith('agent:'):
+        return True
+    username = str(getattr(user, 'username', '') or '')
+    return username.startswith('agent:')
+
+
+def _requested_company_id_from_request(request) -> int | None:
     raw = request.GET.get('company_id')
     if raw is None and hasattr(request, 'data'):
         raw = request.data.get('company_id')
-    if raw not in (None, ''):
+    if raw in (None, ''):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _company_id_from_request(request) -> int | None:
+    user = getattr(request, 'user', None)
+    if user and _is_mcp_agent_principal(user):
+        token_company = getattr(user, 'company_id', None)
+        if token_company is None:
+            return None
         try:
-            return int(raw)
+            token_cid = int(token_company)
         except (TypeError, ValueError):
             return None
-    user = getattr(request, 'user', None)
+        requested = _requested_company_id_from_request(request)
+        if requested is not None and requested != token_cid:
+            raise AgentCompanyIdMismatchError()
+        return token_cid
+
+    requested = _requested_company_id_from_request(request)
+    if requested is not None:
+        return requested
     if user and getattr(user, 'company_id', None) is not None:
         try:
             return int(user.company_id)
@@ -34,7 +71,13 @@ def require_staff_or_company_owner(request):
     if not user or not getattr(user, 'is_authenticated', False):
         return None, None, Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    company_id = _company_id_from_request(request)
+    try:
+        company_id = _company_id_from_request(request)
+    except AgentCompanyIdMismatchError:
+        return None, None, Response(
+            {'error': 'Requested company_id does not match token company_id.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     if company_id is None:
         return None, None, Response({'error': 'Missing company_id parameter.'}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -168,6 +168,10 @@ class HealthView(APIView):
     get=extend_schema(
         tags=['buckets'],
         summary='List buckets',
+        description=(
+            'Return buckets the caller may access. Company members see the system `company` bucket; '
+            'connector mounts appear when configured. Agents use the same JWT company scope.'
+        ),
         operation_id='storage_v1_bucket_list',
         responses={200: BucketSerializer(many=True), **_SCHEMA_ERRORS},
     ),

@@ -39,6 +39,7 @@ const sidebars = {
     category('Authentication', [
       doc('authentication', 'JWT and claim trust'),
     ]),
+    category('MCP', [doc('mcp', 'Shellui MCP')]),
     category('Webhooks', [
       doc('actions', 'Webhooks'),
       doc('n8n', 'n8n'),

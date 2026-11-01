@@ -6,6 +6,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 ## [Unreleased] - yyyy-mm-dd
 
 ### ✨ Feature - for new features
+- Shellui MCP: `POST /mcp`, OpenAPI `x-mcp` markers for company-owner storage and Shellui Actions routes, OAuth protected-resource metadata, and handbook docs.
+
+### 🔒 Security
+
+- MCP: return `503 identity_unavailable` when the signed revocation list cannot be loaded; treat agents as revoked only on a trusted list.
+- MCP: refuse agent tokens that carry staff operator claims; approval consume requires an explicit `consumed: true` from identity.
 ### 🛠 Improvements - for general improvements
 ### 🚨 Changed - for changes in existing functionality
 ### ⚠️ Deprecated - for soon-to-be removed features

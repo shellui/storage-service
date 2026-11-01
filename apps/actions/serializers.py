@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.authapi.mcp_fields import McpSecretCharField
 from apps.actions.registry import is_webhook_event
 
 
@@ -14,7 +15,7 @@ class ActionRuleWriteSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(required=False)
 
     url = serializers.URLField(required=False, allow_blank=True)
-    secret = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    secret = McpSecretCharField(required=False, allow_blank=True, trim_whitespace=False)
     authorization_header = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
     allow_private_urls = serializers.BooleanField(required=False)
 
@@ -27,7 +28,7 @@ class ActionRuleWriteSerializer(serializers.Serializer):
 class ActionRuleCreateSerializer(ActionRuleWriteSerializer):
     name = serializers.CharField(max_length=200)
     event_type = serializers.CharField(max_length=128)
-    secret = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    secret = McpSecretCharField(required=False, allow_blank=True, trim_whitespace=False)
 
     def validate_event_type(self, value):
         if not is_webhook_event(value):
