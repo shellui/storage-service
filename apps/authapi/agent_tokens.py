@@ -91,6 +91,17 @@ def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
     )
 
 
+def _agent_staff_refused(claims: dict) -> bool:
+    if claims.get('is_staff') or claims.get('is_superuser') or claims.get('is_global_staff'):
+        return True
+    user_meta = claims.get('user_metadata')
+    if isinstance(user_meta, dict) and (
+        user_meta.get('is_staff') or user_meta.get('is_superuser') or user_meta.get('is_global_staff')
+    ):
+        return True
+    return False
+
+
 def authenticate_agent_bearer(
     raw_token: str,
     *,
@@ -98,6 +109,8 @@ def authenticate_agent_bearer(
 ) -> tuple[StoragePrincipal, dict] | None:
     claims = _decode_agent_claims(raw_token, expected_resource=expected_resource)
     if claims is None:
+        return None
+    if _agent_staff_refused(claims):
         return None
     if not agent_scope_allows_storage(claims):
         return None

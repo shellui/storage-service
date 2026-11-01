@@ -8,7 +8,12 @@ import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from apps.storage.mcp_identity import agent_is_revoked, approval_state, consume_approval
+from apps.storage.mcp_identity import (
+    agent_is_revoked,
+    approval_state,
+    consume_approval,
+    identity_revocation_unavailable,
+)
 
 
 @override_settings(
@@ -20,17 +25,19 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         cache.delete('mcp:revoked_agent_ids')
         cache.delete('mcp:revoked_list_trusted')
 
-    def test_agent_revoked_when_identity_returns_404(self):
+    def test_identity_unavailable_when_revocation_returns_404(self):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=404)
-            self.assertTrue(agent_is_revoked('agent-1'))
+            self.assertTrue(identity_revocation_unavailable())
+            self.assertFalse(agent_is_revoked('agent-1'))
 
-    def test_agent_revoked_when_identity_unreachable(self):
+    def test_identity_unavailable_when_revocation_unreachable(self):
         with patch(
             'apps.storage.mcp_identity.requests.get',
             side_effect=requests.RequestException('network'),
         ):
-            self.assertTrue(agent_is_revoked('agent-1'))
+            self.assertTrue(identity_revocation_unavailable())
+            self.assertFalse(agent_is_revoked('agent-1'))
 
     def test_revocation_poll_sends_signed_assertion(self):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
@@ -42,7 +49,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         auth = mock_get.call_args.kwargs['headers']['Authorization']
         self.assertRegex(auth, r'^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$')
 
-    def test_approval_state_pending_on_404(self):
+    def test_approval_state_none_on_404(self):
         payload = {
             'agent_id': 'a1',
             'company_id': 1,
@@ -52,7 +59,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         }
         with patch('apps.storage.mcp_identity.requests.post') as mock_post:
             mock_post.return_value = MagicMock(status_code=404)
-            self.assertEqual(approval_state(payload), 'pending')
+            self.assertIsNone(approval_state(payload))
 
     def test_consume_approval_false_on_error(self):
         with patch(
@@ -60,3 +67,13 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             side_effect=requests.RequestException('down'),
         ):
             self.assertFalse(consume_approval('approval-1'))
+
+    def test_consume_approval_false_when_consumed_missing(self):
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: {})
+            self.assertFalse(consume_approval('approval-1'))
+
+    def test_consume_approval_true_only_when_consumed_true(self):
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'consumed': True})
+            self.assertTrue(consume_approval('approval-1'))

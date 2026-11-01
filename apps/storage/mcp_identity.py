@@ -80,17 +80,24 @@ def _revoked_ids() -> set[str] | None:
     return {str(item) for item in raw}
 
 
+def identity_revocation_unavailable() -> bool:
+    """True when the signed revocation list cannot be loaded (fail closed at the HTTP layer)."""
+    if _revoked_ids() is not None:
+        return False
+    with _REVOKED_LOCK:
+        if _revoked_ids() is not None:
+            return False
+        _refresh_revocations()
+    return _revoked_ids() is None
+
+
 def agent_is_revoked(agent_id: str) -> bool:
-    """Fail closed: refuse agents when the revocation list cannot be loaded."""
+    """True only when the list is trusted and the agent id is revoked."""
+    if identity_revocation_unavailable():
+        return False
     ids = _revoked_ids()
     if ids is None:
-        with _REVOKED_LOCK:
-            ids = _revoked_ids()
-            if ids is None and not _refresh_revocations():
-                return True
-            ids = _revoked_ids()
-    if ids is None:
-        return True
+        return False
     return str(agent_id) in ids
 
 
@@ -138,7 +145,7 @@ def approval_state(payload: dict[str, Any]) -> str | None:
     company_id = payload.get('company_id')
     args_hash = str(payload.get('arguments_hash') or '')
     if not origin or not agent_id or company_id is None or not args_hash:
-        return 'pending'
+        return None
     assertion = build_mcp_approval_assertion(
         company_id=int(company_id),
         agent_id=str(agent_id),
@@ -162,19 +169,19 @@ def approval_state(payload: dict[str, Any]) -> str | None:
             timeout=10,
         )
     except requests.RequestException:
-        return 'pending'
+        return None
     if response.status_code == 404 or response.status_code >= 400:
-        return 'pending'
+        return None
     try:
         data = response.json()
     except ValueError:
-        return 'pending'
+        return None
     state = str(data.get('status') or '')
     if state == 'approved' and data.get('id'):
         payload['approval_id'] = str(data['id'])
     if state in {'pending', 'approved', 'executed'}:
         return state
-    return 'pending'
+    return None
 
 
 def consume_approval(approval_id: str) -> bool:
@@ -197,7 +204,7 @@ def consume_approval(approval_id: str) -> bool:
         data = response.json()
     except ValueError:
         return False
-    return bool(data.get('consumed', True))
+    return data.get('consumed') is True
 
 
 def forward_call_log(entry: dict[str, Any]) -> None:

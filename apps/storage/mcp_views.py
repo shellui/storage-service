@@ -17,6 +17,7 @@ from apps.storage.mcp_identity import (
     consume_approval,
     create_approval_request,
     forward_call_log,
+    identity_revocation_unavailable,
 )
 
 _server: McpServer | None = None
@@ -64,4 +65,10 @@ def _agent_claims(request: HttpRequest) -> dict | None:
 @csrf_exempt
 def mcp_endpoint(request: HttpRequest):
     claims = _agent_claims(request)
+    if claims is not None:
+        if identity_revocation_unavailable():
+            return JsonResponse({'error': 'identity_unavailable'}, status=503)
+        agent_id = str(claims.get('agent_id') or '')
+        if agent_id and agent_is_revoked(agent_id):
+            return JsonResponse({'error': 'agent_revoked'}, status=403)
     return _get_server().handle(request, agent_claims=claims)

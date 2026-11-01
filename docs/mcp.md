@@ -8,7 +8,7 @@ description: Company-owner storage APIs that Shellui MCP agents may call, and ho
 
 Shellui MCP connects AI agents to company-scoped storage APIs. storage-service runs `POST /mcp` (Streamable HTTP JSON-RPC). Identity remains the OAuth authorization server; this service publishes OpenAPI with `x-mcp` extensions and exposes OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`.
 
-Agents authenticate with a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707), or the legacy `shellui-mcp` audience during rollout. The token `scope` claim must include `storage`. Agents act as the company owner for the JWT `company_id`. Agent tokens cannot approve their own pending requests; only a company owner user JWT can approve in Identity. Staff-only routes, anonymous share redeem URLs, and internal service callbacks are never MCP tools.
+Agents authenticate with a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707) only. The token `scope` claim must include `storage`. Agents act as the company owner for the JWT `company_id`. Agent tokens cannot approve their own pending requests; only a company owner user JWT can approve in Identity. Staff-only routes, anonymous share redeem URLs, and internal service callbacks are never MCP tools.
 
 An HTTP operation becomes an MCP tool only when it is registered with `mcp_tool(operation_id=..., read_only=..., ...)` in code. There is no automatic opt-in from tags or paths.
 
