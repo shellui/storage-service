@@ -33,12 +33,12 @@ urlpatterns = [
     path('object/sign/<slug:bucket_id>', views.ObjectSignBodyView.as_view(), name='object-sign-body'),
     re_path(
         r'^object/info/authenticated/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
-        views.ObjectInfoView.as_view(),
+        views.ObjectAuthenticatedInfoView.as_view(),
         name='object-info-auth',
     ),
     re_path(
         r'^object/info/public/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
-        views.ObjectInfoView.as_view(),
+        views.ObjectPublicInfoView.as_view(),
         name='object-info-public',
     ),
     re_path(

@@ -270,6 +270,8 @@ SPECTACULAR_SETTINGS = {
         {'name': 'access', 'description': 'Path-level access grants (invite / restrict / block).'},
         {'name': 'share', 'description': 'Capability share links for anonymous downloads.'},
         {'name': 'quotas', 'description': 'Company and per-user storage quotas.'},
+        {'name': 'actions', 'description': 'Shellui Actions webhook rules and deliveries.'},
+        {'name': 'event-log', 'description': 'Company domain event log for auditing.'},
         {'name': 'platform-metrics', 'description': 'Prometheus metrics endpoints.'},
         {'name': 'health', 'description': 'Service health checks.'},
         {'name': 'mcp-tools', 'description': 'Operations exposed to Shellui MCP agents.'},
