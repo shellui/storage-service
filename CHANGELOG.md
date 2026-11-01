@@ -24,6 +24,13 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.8.0] - 2026-11-01
+
+### ✨ Feature
+
+- Shellui MCP endpoint for agents (`POST /mcp`).
+- OpenAPI descriptions tuned for MCP agents.
+
 ## [0.7.1] - 2026-11-01
 
 ### 🐛 Bug Fixes
