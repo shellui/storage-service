@@ -103,6 +103,11 @@ def scheduled_jobs_beat_schedule() -> dict:
     from celery.schedules import crontab
 
     return {
+        'purge-deleted-companies': {
+            'task': 'actions.purge_deleted_companies',
+            'schedule': timedelta(seconds=60),
+            'options': {'expires': 55},
+        },
         'retry-webhooks': {
             'task': 'actions.retry_webhooks',
             'schedule': timedelta(seconds=60),
@@ -818,3 +823,6 @@ if SENTRY_DSN:
         before_send=scrub_sentry_event,
         attach_stacktrace=True,
     )
+
+# Company deletion (apps/actions/company_deletion.py): removes a deleted company's files first.
+COMPANY_DELETION_BLOB_HOOK = 'apps.storage.company_deletion.delete_company_files'
