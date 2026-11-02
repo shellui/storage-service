@@ -4,5 +4,8 @@
 useDefault = true
 
 [allowlist]
-description = "Docs placeholder (not secrets)"
+description = "Docs placeholder and historical MCP sync-test SHA map (not secrets)"
 regexes = ['''your_access_token_here''']
+paths = [
+  '''apps/storage/tests/test_shellui_mcp_sync\.py''',
+]
