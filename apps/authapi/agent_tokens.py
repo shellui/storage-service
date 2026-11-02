@@ -7,7 +7,7 @@ from django.conf import settings
 from django.http import HttpRequest
 
 from apps.authapi.jwks_client import get_jwks_client
-from shellui_mcp.resources import access_token_audience_matches, normalize_resource_indicator
+from shellui_django.mcp.resources import access_token_audience_matches, normalize_resource_indicator
 
 from .principal import StoragePrincipal
 

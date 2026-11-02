@@ -11,7 +11,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 
-from shellui_mcp.internal import (
+from shellui_django.mcp.internal import (
     REVOCATION_CACHE_SECONDS,
     InternalAssertionError,
     build_mcp_approval_assertion,

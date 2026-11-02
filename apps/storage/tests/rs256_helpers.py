@@ -1,4 +1,4 @@
-"""RS256 JWKS fixtures for portable shellui_mcp tests (no Identity settings)."""
+"""RS256 JWKS fixtures for MCP identity tests (mirrors shellui-django mcp/tests/rs256_helpers)."""
 
 from __future__ import annotations
 

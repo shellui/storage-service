@@ -13,7 +13,7 @@ from apps.actions.models import ActionRule, EventLog
 from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.models import ObjectShareLink, StorageAccessGrant, StorageObject
 from apps.storage.tests.test_mcp import _agent_token, _mcp_host_kwargs
-from shellui_mcp.openapi_tools import tools_from_schema
+from shellui_django.mcp.openapi_tools import tools_from_schema
 
 COMPANY_A = 10
 COMPANY_B = 20

@@ -8,7 +8,7 @@ import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from shellui_mcp.tests.rs256_helpers import generate_test_rsa_jwks, sign_test_revocation_list_assertion
+from apps.storage.tests.rs256_helpers import generate_test_rsa_jwks, sign_test_revocation_list_assertion
 
 from apps.storage.mcp_identity import (
     agent_is_revoked,

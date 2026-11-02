@@ -7,10 +7,10 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework.request import Request
-from shellui_mcp.server import McpServer
+from shellui_django.mcp.server import McpServer
 
 from apps.authapi.agent_tokens import authenticate_agent_bearer, mcp_resource_audience
-from shellui_mcp.resources import access_token_audience_matches
+from shellui_django.mcp.resources import access_token_audience_matches
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
