@@ -12,8 +12,8 @@ from drf_spectacular.generators import SchemaGenerator
 
 from apps.storage.access import COMPANY_BUCKET_NAME
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
-from shellui_mcp.openapi_tools import tools_from_schema
-from shellui_mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
+from shellui_django.mcp.openapi_tools import tools_from_schema
+from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
 
 
 def _mcp_audience() -> str:
@@ -242,7 +242,7 @@ class McpEndpointTests(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_share_token_never_returned_from_tool_redaction(self):
-        from shellui_mcp.masking import redact_mapping
+        from shellui_django.mcp.masking import redact_mapping
 
         redacted = redact_mapping({'token': 'secret-link-token', 'path': 'a/b'}, read_sensitive=False)
         self.assertEqual(redacted['token'], '[redacted]')

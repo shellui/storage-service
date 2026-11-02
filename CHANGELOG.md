@@ -26,6 +26,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [0.8.0] - 2026-11-01
 
+### 🏗 Chore
+
+- Use the shared shellui-django package for MCP instead of a vendored copy.
+
 ### ✨ Feature
 
 - Shellui MCP endpoint for agents (`POST /mcp`).
