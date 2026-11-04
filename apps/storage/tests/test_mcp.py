@@ -105,6 +105,25 @@ class McpEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
+    def _initialize(self, token: str):
+        return self.client.post(
+            '/mcp',
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {token}',
+            **_mcp_host_kwargs(),
+        )
+
+    @override_settings(STORAGE_PUBLIC_URL='http://localhost:8002')
+    def test_public_url_sets_the_resource_on_an_internal_host(self):
+        # The ai gateway calls an internal host; the token targets the public resource, so it
+        # authenticates (any later 503 is the unmocked revocation poll, not the audience).
+        self.assertNotEqual(self._initialize(_agent_token(aud='http://localhost:8002/mcp')).status_code, 401)
+
+    @override_settings(STORAGE_PUBLIC_URL='http://localhost:8002')
+    def test_public_url_refuses_a_token_for_the_request_host(self):
+        self.assertEqual(self._initialize(_agent_token()).status_code, 401)
+
     def test_legacy_shared_audience_rejected(self):
         token = _agent_token(aud='shellui-mcp')
         response = self.client.post(

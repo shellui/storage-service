@@ -860,3 +860,7 @@ MCP_SIGNING_KEY_PEM = read_signing_pem(
     base_dir=BASE_DIR,
 )
 MCP_SIGNING_ISSUER = os.getenv('STORAGE_SERVICE_ISSUER', '').strip().rstrip('/')
+
+# Public origin of this service. Agent tokens must target {STORAGE_PUBLIC_URL}/mcp (RFC 8707), even when
+# the ai gateway reaches /mcp on an internal host. Empty falls back to the request host (ALLOWED_HOSTS).
+STORAGE_PUBLIC_URL = os.getenv('STORAGE_PUBLIC_URL', '').strip().rstrip('/')
