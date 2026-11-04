@@ -53,6 +53,17 @@ The handbook lives in [`docs/`](docs/index.md) and is published at [docs.shellui
 - [JWT authentication](docs/authentication.md) and [security](docs/security.md)
 - [Webhooks](docs/actions.md), [email](docs/email.md), [event log](docs/event-log.md) and [maintenance jobs](docs/maintenance-jobs.md)
 
+## Run locally
+
+The recommended way is the Shellui dev stack. It runs this service with every other Shellui service and front-end in Docker, with your checkout mounted for hot reload. Clone the Shellui repos side by side, then:
+
+```bash
+cd shellui/dev
+./start.sh
+```
+
+storage is on [http://localhost:8002](http://localhost:8002). See the [Shellui dev stack guide](https://github.com/shellui/shellui/blob/develop/docs/dev-stack.md) and [docs/devstack.md](docs/devstack.md) for notes specific to this service.
+
 ## Development
 
 ```bash
