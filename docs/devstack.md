@@ -4,12 +4,14 @@ description: Run storage-service in the Shellui sibling-repo dev stack (shellui/
 
 # Local dev stack
 
-The Shellui monorepo layout runs every service from one Compose file in `shellui/shellui` at `dev/docker-compose.yml`. Copy `dev/.env.local.example` to `dev/.env.local`, then:
+The Shellui monorepo layout runs every service from one Compose file in `shellui/shellui` at `dev/docker-compose.yml`. Then:
 
 ```bash
-cd shellui/shellui/dev
-docker compose --env-file .env.local up
+cd shellui/dev
+./start.sh
 ```
+
+Clone layout, URLs, common commands and troubleshooting are in the [Shellui dev stack guide](https://github.com/shellui/shellui/blob/develop/docs/dev-stack.md). This page only covers what is specific to this service.
 
 This repository's Dockerfile exposes a **`dev`** build target for that stack. Compose builds `../../storage-service` with `target: dev`, bind-mounts this checkout at `/app`, and publishes the API on host port **8002** (`http://localhost:8002`).
 
@@ -19,7 +21,7 @@ Production images are unchanged: the default (final) Dockerfile stage is still t
 
 1. Clone `storage-service` next to `shellui/shellui` (see the shared contract in the Shellui handbook).
 2. Ensure `dev/.env.local` defines the storage variables below (Compose maps prefixed names like `STORAGE_SECRET_KEY` to `SECRET_KEY` inside the container).
-3. From `shellui/shellui/dev`, run `docker compose --env-file .env.local up`.
+3. From `shellui/dev`, run `./start.sh`.
 
 Health check: [http://localhost:8002/storage/v1/health](http://localhost:8002/storage/v1/health).
 
@@ -37,7 +39,7 @@ Set these in `dev/.env.local` (prefixed names avoid clashes across services). Co
 | `CSRF_TRUSTED_ORIGINS` | `http://localhost:8002,http://127.0.0.1:8002` | Django admin form posts from the browser |
 | `POSTGRES_DATABASE_URL` | `postgres://shellui:shellui@postgres:5432/storage` | Shared Postgres, database name `storage` (Compose supplies the exact DSN) |
 | `POSTGRES_SSL_REQUIRE` | `false` | TLS off inside the dev network |
-| `REDIS_URL` | `redis://redis:6379/2` | Shared Redis; Compose picks the DB index for storage-service |
+| `REDIS_URL` | `redis://redis:6379/1` | Shared Redis; DB index `1` for storage-service |
 | `IDENTITY_ISSUER` | `http://localhost:8001` | Public JWT `iss` (browser-facing identity port) |
 | `IDENTITY_AUDIENCE` | `shellui` | JWT `aud`; must match identity-service `JWT_AUDIENCE` |
 | `IDENTITY_JWKS_URL` | `http://identity:8000/.well-known/jwks.json` | Server-side JWKS fetch (Docker DNS, port 8000 inside the network) |
