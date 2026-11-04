@@ -69,7 +69,7 @@ The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7).
 
 ## Configure and run
 
-Copy [`.env.example`](../.env.example) to `.env`, set `SECRET_KEY`, point `IDENTITY_SERVICE_URL` at identity-service, and run migrations. Docker Compose is the local path in [Run storage-service](getting-started.md).
+Copy [`.env.example`](../.env.example) to `.env`, set `SECRET_KEY`, point `IDENTITY_SERVICE_URL` at identity-service, and run migrations. Docker Compose is the local path in [Run storage-service](getting-started.md). For the full Shellui sibling-repo stack, use the `dev` Docker target and [Local dev stack](devstack.md).
 
 The container runs database migrations, then Gunicorn and a Celery worker with beat. That worker runs `retry_webhooks` every minute and `purge_expired_data` every hour. `REDIS_URL` is required when `DEBUG=false`. With `DEBUG=true` and no Redis, the web app still starts and the jobs do not run.
 
