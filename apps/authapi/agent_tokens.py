@@ -13,7 +13,10 @@ from .principal import StoragePrincipal
 
 
 def mcp_resource_audience(request: HttpRequest) -> str:
-    """RFC 8707 resource indicator: this service's ``/mcp`` URL."""
+    """RFC 8707 resource indicator: this service's public ``/mcp`` URL."""
+    public = (getattr(settings, 'STORAGE_PUBLIC_URL', '') or '').strip().rstrip('/')
+    if public:
+        return normalize_resource_indicator(f'{public}/mcp') or ''
     return normalize_resource_indicator(request.build_absolute_uri('/mcp')) or ''
 
 

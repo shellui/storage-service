@@ -68,6 +68,7 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 | `JWKS_CACHE_TTL` | `900` | Seconds to cache a fetched JWKS document. Unused for a pinned document |
 | `JWKS_TIMEOUT` | `15` | Seconds for one JWKS HTTP call |
 | `JWKS_RETRIES` | `2` | Extra attempts after a timeout or HTTP 5xx. HTTP 4xx is not retried |
+| `STORAGE_PUBLIC_URL` | empty | Public origin of this service. Agent tokens must target `{url}/mcp`, also when the ai gateway calls an internal host. Empty uses the request host |
 | `STORAGE_SERVICE_ISSUER` | empty | Public origin of this service, the `iss` of its internal MCP assertions to Identity. Set the same `STORAGE_SERVICE_ISSUER` on Identity. Unset: MCP calls to Identity fail closed |
 | `STORAGE_SERVICE_SIGNING_KEY` | empty | RSA private key (PEM, 2048 bits or more) that signs internal MCP assertions (RS256). Public key served at `/.well-known/jwks.json`. Never log or commit it |
 | `STORAGE_SERVICE_SIGNING_KEY_FILE` | empty | Path to that PEM instead of the variable. Relative paths are from the repository root. Wins over `STORAGE_SERVICE_SIGNING_KEY` |

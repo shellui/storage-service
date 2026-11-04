@@ -55,6 +55,7 @@ OPTIONAL = (
     Var('IDENTITY_JWKS', ''),
     Var('IDENTITY_JWKS_URL', ''),
     Var('STORAGE_SERVICE_ISSUER', '', ''),
+    Var('STORAGE_PUBLIC_URL', '', 'Public origin; agent tokens must target {url}/mcp. Empty uses the request host'),
     Var('STORAGE_SERVICE_SIGNING_KEY', ''),
     Var('STORAGE_SERVICE_SIGNING_KEY_FILE', ''),
     Var('JWKS_CACHE_TTL', '900'),

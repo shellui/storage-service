@@ -37,6 +37,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - Shellui MCP endpoint for agents (`POST /mcp`).
 - OpenAPI descriptions tuned for MCP agents.
 
+### 🐛 Bug Fixes
+
+- MCP agent tokens are checked against `{STORAGE_PUBLIC_URL}/mcp` when set, so the ai gateway can reach `/mcp` on an internal host.
+
 ## [0.7.1] - 2026-11-01
 
 ### 🐛 Bug Fixes

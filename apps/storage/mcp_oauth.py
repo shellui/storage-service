@@ -20,7 +20,7 @@ class OAuthProtectedResourceMetadataView(APIView):
         exclude=True,
     )
     def get(self, request):
-        resource_base = request.build_absolute_uri('/').rstrip('/')
+        resource_base = (getattr(settings, 'STORAGE_PUBLIC_URL', '') or '').rstrip('/') or request.build_absolute_uri('/').rstrip('/')
         auth_server = (getattr(settings, 'IDENTITY_ISSUER', '') or getattr(settings, 'IDENTITY_SERVICE_URL', '') or '').rstrip('/')
         if not auth_server:
             auth_server = resource_base
