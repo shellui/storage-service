@@ -6,6 +6,8 @@ description: Environment variables for storage-service, grouped by topic, with t
 
 storage-service reads configuration from environment variables. Copy [`.env.example`](../.env.example) to `.env` for local runs. Pass the same keys to Docker, Coolify, or your orchestrator in production.
 
+For the shared Shellui sibling-repo stack (`shellui/shellui/dev/docker-compose.yml`), see [Local dev stack](devstack.md) for host ports, internal URLs, and the `dev` Docker target.
+
 An empty boolean uses the default. `1`, `true`, `yes`, and `on` are true. Any other value, including `false`, is false. Byte sizes accept a bare integer or a `K`, `M`, `G`, or `T` suffix. Each suffix is a multiple of 1024, so `10G` is 10737418240 bytes.
 
 `.env.example` is generated from `config/env_registry.py`, the single list of settings. It keeps only the settings you need active. Optional ones are commented out with the default the code uses. After changing a setting, run `python manage.py generate_env --example > .env.example`. A test fails when the code, the registry, `.env.example` and this page drift apart.
@@ -57,8 +59,8 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `IDENTITY_SERVICE_URL` | empty | identity-service base URL. JWKS is `{url}/.well-known/jwks.json` when no document is pinned |
-| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | Fetch URL when no document is pinned. Ignored for verification when a document is set |
+| `IDENTITY_SERVICE_URL` | empty | identity-service origin for server-side HTTP (MCP internal APIs). JWKS defaults to `{url}/.well-known/jwks.json` when no document is pinned |
+| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. In Docker Compose, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
 | `IDENTITY_JWKS_FILE` | empty | Path to a JWKS file. Relative paths are from the repository root. Wins over `IDENTITY_JWKS` |
 | `IDENTITY_JWKS` | empty | JWKS JSON in the environment, used when no file is set |
 | `IDENTITY_ISSUER` | empty | Expected `iss`. Required when `DEBUG=false` |

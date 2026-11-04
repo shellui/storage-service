@@ -28,6 +28,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 🏗 Chore
 
+- Dockerfile `dev` target and handbook page for the Shellui local dev stack (env-driven JWKS and identity URLs).
 - Use the shared shellui-django package for MCP instead of a vendored copy.
 
 ### ✨ Feature

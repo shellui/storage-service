@@ -33,7 +33,10 @@ REQUIRED = (
     Required('DEBUG', 'Production mode.'),
     Required('ALLOWED_HOSTS', 'Public host names, comma-separated, no scheme.'),
     Required('CSRF_TRUSTED_ORIGINS', 'Full HTTPS origin, for Django admin form posts.'),
-    Required('IDENTITY_SERVICE_URL', 'identity-service origin. JWKS is read from {url}/.well-known/jwks.json.'),
+    Required(
+        'IDENTITY_SERVICE_URL',
+        'identity-service origin for server-side calls. JWKS defaults to {url}/.well-known/jwks.json unless IDENTITY_JWKS_URL is set.',
+    ),
     Required('IDENTITY_ISSUER', 'Must match identity-service JWT_ISSUER.'),
     Required('IDENTITY_AUDIENCE', 'Must match identity-service JWT_AUDIENCE.'),
     Required('REDIS_URL', 'Shared cache and job broker.'),
@@ -146,7 +149,8 @@ SECRET_KEY=
 DEBUG=true
 # Public host names, comma-separated, no scheme.
 ALLOWED_HOSTS=localhost,127.0.0.1
-# Local identity-service. JWKS is read from {url}/.well-known/jwks.json.
+# Local identity-service (standalone). In the Shellui dev stack use http://identity:8000
+# and set IDENTITY_JWKS_URL to the internal JWKS URL; see docs/devstack.md.
 IDENTITY_SERVICE_URL=http://localhost:8000
 
 # Required when DEBUG=false (production)
