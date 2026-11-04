@@ -750,15 +750,15 @@ wheels = [
 
 [[package]]
 name = "shellui-django"
-version = "0.1.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/ee/ac8340b9e5a63ec882649a1df6d5e729ed4c66fd2dfd0730bc40456cca81/shellui_django-0.1.0.tar.gz", hash = "sha256:a1a92e0c0fc1bd89f162802b1ea9bd8d25cf2d2479d543dfc5f1b7822d6ab230", size = 19882, upload-time = "2026-11-02T09:20:54.589Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/39/9cc049321047410ffbf2a508c213b6c91b3c1115baed476f620b216583ce/shellui_django-0.4.0.tar.gz", hash = "sha256:cd1f3f980bd2b1a3ee05b8f6b267fabcc2d1c13a406579c227c8706140ec7d36", size = 29926, upload-time = "2026-11-04T14:57:35.297Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/07/5b12886d583d3b3d8db2f439e7fa6d70b5dda679d5516ef06f4a0bfc1628/shellui_django-0.1.0-py3-none-any.whl", hash = "sha256:85c21ea96d2ea36f3924da53fc70704df0242756e1acaadf44c62f13b2185dbe", size = 19376, upload-time = "2026-11-02T09:20:53.288Z" },
+    { url = "https://files.pythonhosted.org/packages/81/99/ed8b9eba377e80b6eacc56746799eeb3b3b511b56d40ddb09b74f4c8a6b1/shellui_django-0.4.0-py3-none-any.whl", hash = "sha256:3560632c1ce84989812d7d95c45681e466b0da097ec1c656f994ab34e3c20e45", size = 26277, upload-time = "2026-11-04T14:57:34.024Z" },
 ]
 
 [package.optional-dependencies]
@@ -766,6 +766,7 @@ mcp = [
     { name = "cryptography" },
     { name = "djangorestframework-simplejwt" },
     { name = "pyjwt" },
+    { name = "requests" },
 ]
 
 [[package]]
@@ -836,7 +837,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "sentry-sdk", specifier = "==2.63.0" },
-    { name = "shellui-django", extras = ["mcp"], specifier = "==0.1.0" },
+    { name = "shellui-django", extras = ["mcp"], specifier = "==0.4.0" },
     { name = "sqlparse", specifier = "==0.6.0" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]

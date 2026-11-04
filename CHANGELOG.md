@@ -28,6 +28,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 🏗 Chore
 
+- Bump `shellui-django[mcp]` to 0.4.0 and sign internal MCP assertions to Identity with this service's own RS256 key (`STORAGE_SERVICE_SIGNING_KEY`, `STORAGE_SERVICE_ISSUER`), public key at `/.well-known/jwks.json`.
 - Dockerfile `dev` target and handbook page for the Shellui local dev stack (env-driven JWKS and identity URLs).
 - Use the shared shellui-django package for MCP instead of a vendored copy.
 

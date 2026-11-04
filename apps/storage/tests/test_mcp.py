@@ -11,6 +11,7 @@ from django.test import Client, TestCase, override_settings
 from drf_spectacular.generators import SchemaGenerator
 
 from apps.storage.access import COMPANY_BUCKET_NAME
+from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
@@ -51,6 +52,7 @@ def _agent_token(
 
 
 @override_settings(
+    **MCP_SIGNING_TEST_SETTINGS,
     JWT_HS256_FALLBACK_SECRET='test-secret',
     ALLOW_JWT_HS256_FALLBACK=True,
     IDENTITY_ISSUER='https://identity.test',

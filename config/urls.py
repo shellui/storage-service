@@ -20,9 +20,11 @@ from apps.actions.scheduled_job_views import (
 from apps.storage.admin import storage_admin_site
 
 from . import views
+from .service_signing import jwks_view
 
 urlpatterns = [
     path('', views.root, name='root'),
+    path('.well-known/jwks.json', jwks_view, name='jwks'),
     path(
         '.well-known/oauth-protected-resource',
         OAuthProtectedResourceMetadataView.as_view(),

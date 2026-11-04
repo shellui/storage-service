@@ -58,3 +58,9 @@ Webhook rules, deliveries, event types, and the company event log carry `x-mcp` 
 3. Use JSON-RPC methods `initialize`, `tools/list`, and `tools/call`.
 
 No new required environment variables: use existing `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and identity internal APIs (revocation, approvals, call logs).
+
+## Internal assertions to Identity
+
+Revocation polling, approvals and call logs send Identity a short-lived RS256 assertion signed with this service's own key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`, `shellui-django` 0.4.0+). The public key is served at `GET /.well-known/jwks.json`. Identity trusts it only when its own `STORAGE_SERVICE_ISSUER` matches, and reads the key from `STORAGE_SERVICE_JWKS_URL` or a pinned `STORAGE_SERVICE_JWKS`. Without a key, MCP fails closed: agents are refused and call logs are skipped.
+
+Generate a key with `openssl genrsa 3072` and keep it in a secret store or a mounted file (`STORAGE_SERVICE_SIGNING_KEY_FILE`).
