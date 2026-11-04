@@ -8,7 +8,11 @@ import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from apps.storage.tests.rs256_helpers import generate_test_rsa_jwks, sign_test_revocation_list_assertion
+from apps.storage.tests.rs256_helpers import (
+    MCP_SIGNING_TEST_SETTINGS,
+    generate_test_rsa_jwks,
+    sign_test_revocation_list_assertion,
+)
 
 from apps.storage.mcp_identity import (
     agent_is_revoked,
@@ -41,6 +45,7 @@ def _signed_revocation_body(*, revoked_ids=None, agents=None):
 
 
 @override_settings(
+    **MCP_SIGNING_TEST_SETTINGS,
     IDENTITY_SERVICE_URL='https://identity.test',
     IDENTITY_ISSUER='https://identity.test',
     IDENTITY_JWKS_DOCUMENT=_JWKS,

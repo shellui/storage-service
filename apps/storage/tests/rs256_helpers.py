@@ -72,3 +72,8 @@ def sign_test_revocation_list_assertion(
     }
     token = jwt.encode(claims, private_pem, algorithm='RS256', headers={'kid': kid})
     return token.decode('utf-8') if isinstance(token, bytes) else token
+
+
+# This service's own signing key for internal MCP assertions (config/service_signing.py).
+_SIGNING_JWKS, _SIGNING_PEM, _SIGNING_KID = generate_test_rsa_jwks()
+MCP_SIGNING_TEST_SETTINGS = {'MCP_SIGNING_KEY_PEM': _SIGNING_PEM, 'MCP_SIGNING_ISSUER': 'https://storage.test'}

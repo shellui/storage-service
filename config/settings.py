@@ -849,3 +849,14 @@ COMPANY_DELETION_BLOB_HOOK = 'apps.storage.company_deletion.delete_company_files
 
 # A failing log call must never print its arguments (headers, tokens) to stderr.
 logging.raiseExceptions = False
+
+# RS256 key this service signs internal MCP assertions to Identity with (config/service_signing.py).
+# Identity trusts it from STORAGE_SERVICE_ISSUER and reads the public key at /.well-known/jwks.json.
+from config.service_signing import read_signing_pem  # noqa: E402
+
+MCP_SIGNING_KEY_PEM = read_signing_pem(
+    value=os.getenv('STORAGE_SERVICE_SIGNING_KEY', ''),
+    file_path=os.getenv('STORAGE_SERVICE_SIGNING_KEY_FILE', '').strip(),
+    base_dir=BASE_DIR,
+)
+MCP_SIGNING_ISSUER = os.getenv('STORAGE_SERVICE_ISSUER', '').strip().rstrip('/')

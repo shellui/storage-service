@@ -20,6 +20,8 @@ from shellui_django.mcp.internal import (
     parse_trusted_revocation_poll_response,
 )
 
+from config.service_signing import signing_kwargs
+
 logger = logging.getLogger(__name__)
 
 _REVOKED_CACHE_KEY = 'mcp:revoked_trusted_payload'
@@ -31,8 +33,13 @@ def _identity_origin() -> str:
     return (getattr(settings, 'IDENTITY_SERVICE_URL', '') or settings.IDENTITY_ISSUER or '').rstrip('/')
 
 
+def _identity_audience(origin: str) -> str:
+    """Identity checks internal assertions against its public issuer, not the internal URL we call."""
+    return (settings.IDENTITY_ISSUER or origin).rstrip('/')
+
+
 def _revocation_headers(origin: str) -> dict[str, str]:
-    assertion = build_mcp_revocation_assertion(audience_url=origin)
+    assertion = build_mcp_revocation_assertion(audience_url=_identity_audience(origin), **signing_kwargs())
     return {'Authorization': f'Bearer {assertion}'}
 
 
@@ -105,7 +112,13 @@ def _refresh_revocations() -> bool:
         return False
     url = f'{origin}/api/v1/mcp/internal/mcp-revocations'
     try:
-        response = requests.get(url, headers=_revocation_headers(origin), timeout=5)
+        headers = _revocation_headers(origin)
+    except InternalAssertionError as exc:
+        logger.warning('MCP revocation poll skipped: %s', exc.message)
+        _mark_revocation_untrusted()
+        return False
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
     except requests.RequestException as exc:
         logger.warning('MCP revocation poll failed: %s', exc)
         _mark_revocation_untrusted()
@@ -164,14 +177,19 @@ def _approval_assertion_from_payload(payload: dict[str, Any]) -> str | None:
         company_int = int(company_id)
     except (TypeError, ValueError):
         return None
-    return build_mcp_approval_assertion(
-        company_id=company_int,
-        agent_id=agent_id,
-        service=str(payload.get('service') or 'storage'),
-        action=str(payload.get('action') or ''),
-        arguments_hash=args_hash,
-        audience_url=origin,
-    )
+    try:
+        return build_mcp_approval_assertion(
+            company_id=company_int,
+            agent_id=agent_id,
+            service=str(payload.get('service') or 'storage'),
+            action=str(payload.get('action') or ''),
+            arguments_hash=args_hash,
+            audience_url=_identity_audience(origin),
+            **signing_kwargs(),
+        )
+    except InternalAssertionError as exc:
+        logger.warning('MCP approval assertion unavailable: %s', exc.message)
+        return None
 
 
 def create_approval_request(payload: dict[str, Any]) -> dict | None:
@@ -263,7 +281,11 @@ def forward_call_log(entry: dict[str, Any]) -> None:
     origin = _identity_origin()
     if not origin:
         return
-    assertion = build_mcp_call_log_assertion(audience_url=origin)
+    try:
+        assertion = build_mcp_call_log_assertion(audience_url=_identity_audience(origin), **signing_kwargs())
+    except InternalAssertionError as exc:
+        logger.warning('MCP call log skipped: %s', exc.message)
+        return
     try:
         requests.post(
             f'{origin}/api/v1/mcp/internal/mcp-call-logs',
