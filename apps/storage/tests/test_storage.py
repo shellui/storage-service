@@ -1574,6 +1574,32 @@ class StorageAPITests(TestCase):
         deleted = self.client.delete('/storage/v1/connector/sp-bad', **owner_auth)
         self.assertEqual(deleted.status_code, 204)
 
+    def test_connector_legacy_refresh_paths_return_404(self):
+        """Removed refresh/test/retry URLs must not map to handlers (no accidental legacy behavior)."""
+        owner_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(is_company_owner=True)}'}
+        created = self.client.post(
+            '/storage/v1/connector',
+            {
+                'name': 'sp-legacy',
+                'connector_provider': 'sharepoint',
+                'connector_settings': {'_dev_simulation': {'mode': 'ok'}},
+                'credential': 'legacy-path-token',
+            },
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(created.status_code, 201)
+        detail = created.json()
+        self.assertNotIn('connector_last_error', detail)
+        self.assertNotIn('connector_credential_encrypted', detail)
+        for suffix in ('refresh', 'test', 'retry'):
+            gone = self.client.post(f'/storage/v1/connector/sp-legacy/{suffix}', **owner_auth)
+            self.assertEqual(
+                gone.status_code,
+                404,
+                msg=f'legacy path /connector/sp-legacy/{suffix} should be removed',
+            )
+
     def test_share_link_expiry_and_max_downloads(self):
         self.client.post(
             f'/storage/v1/object/{COMPANY_BUCKET_NAME}/deck.pdf',
