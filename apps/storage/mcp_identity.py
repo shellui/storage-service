@@ -9,7 +9,6 @@ import time
 import uuid
 from typing import Any
 
-import jwt
 import requests
 from django.conf import settings
 from django.core.cache import cache
@@ -17,13 +16,13 @@ from django.core.cache import cache
 from shellui_django.mcp.internal import (
     REVOCATION_CACHE_SECONDS,
     InternalAssertionError,
+    build_mcp_approval_assertion,
     build_mcp_call_log_assertion,
     build_mcp_revocation_assertion,
-    parse_trusted_revocation_poll_response,
+    verify_mcp_revocation_list_response,
 )
 
 from apps.storage.mcp_assertions import (
-    build_mcp_approval_assertion_identity_bound,
     parse_company_binding_version,
     parse_global_company_id,
     parse_grant_version,
@@ -160,14 +159,6 @@ def _agent_blocked_for_tenant(agent_id: str, *, company_id: int | None, payload:
     return False
 
 
-def _parse_verified_revocation_jwt(token: str) -> dict[str, Any] | None:
-    try:
-        unverified = jwt.decode(token, options={'verify_signature': False})
-    except Exception:
-        return None
-    return unverified if isinstance(unverified, dict) else None
-
-
 def _refresh_revocations() -> bool:
     """Return True when identity answered with a trusted signed revocation list."""
     origin = _identity_origin()
@@ -197,7 +188,7 @@ def _refresh_revocations() -> bool:
         _mark_revocation_untrusted()
         return False
     try:
-        revoked_ids, cache_seconds, agents = parse_trusted_revocation_poll_response(
+        trusted = verify_mcp_revocation_list_response(
             body,
             **_revocation_verify_kwargs(origin),
         )
@@ -205,22 +196,17 @@ def _refresh_revocations() -> bool:
         logger.warning('MCP revocation list untrusted: %s', exc.message)
         _mark_revocation_untrusted()
         return False
-    token = body.get('revocation_assertion') or body.get('assertion')
-    if not isinstance(token, str) or not token.strip():
+    revoked_ids = frozenset(trusted['revoked_agent_ids'])
+    cache_seconds = int(trusted['cache_seconds'] or REVOCATION_CACHE_SECONDS)
+    agents = list(trusted.get('agents') or [])
+    rp = trusted.get('revocation_policy_version')
+    mv = trusted.get('max_active_grant_version')
+    if rp is None or parse_grant_version(rp) is None:
+        logger.warning('MCP revocation list missing revocation_policy_version')
         _mark_revocation_untrusted()
         return False
-    verified = _parse_verified_revocation_jwt(token.strip())
-    if not verified:
-        _mark_revocation_untrusted()
-        return False
-    rp = parse_grant_version(verified.get('revocation_policy_version'))
-    if rp is None:
-        logger.warning('MCP revocation JWT missing revocation_policy_version')
-        _mark_revocation_untrusted()
-        return False
-    mv = parse_grant_version(verified.get('max_active_grant_version'))
-    if mv is None:
-        logger.warning('MCP revocation JWT missing max_active_grant_version')
+    if mv is None or parse_grant_version(mv) is None:
+        logger.warning('MCP revocation list missing max_active_grant_version')
         _mark_revocation_untrusted()
         return False
     _store_trusted_revocation(
@@ -228,8 +214,8 @@ def _refresh_revocations() -> bool:
         agents=agents,
         cache_seconds=cache_seconds,
         verified_signed_claims={
-            'revocation_policy_version': rp,
-            'max_active_grant_version': mv,
+            'revocation_policy_version': parse_grant_version(rp),
+            'max_active_grant_version': parse_grant_version(mv),
         },
     )
     return True
@@ -265,7 +251,7 @@ def _grant_row_snapshot_fields(row: dict[str, Any]) -> tuple[int | None, str | N
     gg = parse_global_company_id(row.get('global_company_id'))
     if row.get('global_company_id') is not None and gg is None:
         gg = None
-    gv = parse_grant_version(row.get('grant_version'))
+    gv = parse_grant_version(row.get('grant_version')) if 'grant_version' in row else None
     return rc, gg, gv
 
 
@@ -308,12 +294,22 @@ def _grant_row_matches_agent(agent_claims: dict[str, Any], row: dict[str, Any]) 
     rc_row, gg_row, gv_row = _grant_row_snapshot_fields(row)
     rc_tok = _regional_company_id(agent_claims)
     gg_tok = parse_global_company_id(agent_claims.get('global_company_id'))
-    gv_tok = parse_grant_version(agent_claims.get('grant_version'))
+    gv_tok = (
+        parse_grant_version(agent_claims.get('grant_version'))
+        if 'grant_version' in agent_claims
+        else None
+    )
 
     if rc_tok is not None and rc_row is not None and rc_tok != rc_row:
         return False
     if gg_tok is not None and gg_row is not None and gg_tok != gg_row:
         return False
+    if gg_tok is not None or gg_row is not None:
+        if gv_tok is None or gv_row is None:
+            return False
+        return gv_tok == gv_row
+    if gv_tok is None and gv_row is None:
+        return True
     if gv_tok is None or gv_row is None:
         return False
     return gv_tok == gv_row
@@ -354,9 +350,10 @@ def grant_versions_compatible(agent_claims: dict[str, Any]) -> bool | None:
     mv = max_active_grant_version()
     if mv is None:
         return None
-    gv = parse_grant_version(agent_claims.get('grant_version'))
+    gv = parse_grant_version(agent_claims.get('grant_version')) if 'grant_version' in agent_claims else None
     if gv is None:
-        return False
+        gcid = parse_global_company_id(agent_claims.get('global_company_id'))
+        return gcid is None
     return gv >= mv
 
 
@@ -381,15 +378,16 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
     ok_claims, _reason, _norm = parse_trusted_agent_claims(agent_claims)
     if not ok_claims:
         return None
-    gv = parse_grant_version(agent_claims.get('grant_version'))
-    if gv is None:
-        return None
+    gv = parse_grant_version(agent_claims.get('grant_version')) if 'grant_version' in agent_claims else None
     gcid = parse_global_company_id(agent_claims.get('global_company_id'))
     cbv_raw = agent_claims.get('company_binding_version')
     cbv = parse_company_binding_version(cbv_raw) if cbv_raw is not None else None
+    if gcid is not None:
+        if gv is None or cbv is None:
+            return None
 
     try:
-        return build_mcp_approval_assertion_identity_bound(
+        return build_mcp_approval_assertion(
             company_id=company_int,
             agent_id=agent_id,
             service=str(payload.get('service') or 'storage'),
@@ -399,6 +397,7 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
             grant_version=gv,
             global_company_id=gcid,
             company_binding_version=cbv,
+            **signing_kwargs(),
         )
     except InternalAssertionError as exc:
         logger.warning('MCP approval assertion unavailable: %s', exc.message)

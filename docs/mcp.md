@@ -16,11 +16,11 @@ Claims must use the types below. There are no aliases (for example no `permissio
 
 - **`company_id`** (integer, regional tenant id)
 
-- **`grant_version`** (integer, 0 or higher)
+- **`grant_version`** (integer, 0 or higher): optional for personal regional tokens (no `global_company_id`). Required when `global_company_id` is present (delegated global authority); do not omit it and rely on a default.
 
 - **`global_company_id`** (optional): when present, a lowercase UUID string for the global org. Omit for personal regional tokens.
 
-- **`company_binding_version`** (integer, 0 or higher): required when `global_company_id` is present; must be omitted when `global_company_id` is absent.
+- **`company_binding_version`** (integer, 0 or higher): required when `global_company_id` is present (explicit `0` is valid); must be absent when `global_company_id` is absent.
 
 If any rule fails, `POST /mcp` returns `401` with `identity_invalid`.
 
@@ -30,7 +30,7 @@ Identity returns a signed `revocation_assertion` with `revocation_policy_version
 
 When the list is unavailable, `POST /mcp` returns `503` with `identity_unavailable`.
 
-When `grant_version` on the token is below `max_active_grant_version`, storage returns `409` with `out_of_sync`.
+When the token carries `grant_version` and it is below `max_active_grant_version`, storage returns `409` with `out_of_sync`. Personal tokens without `grant_version` skip this check.
 
 Revocation rows use the same typing rules: regional `company_id` is an integer; `global_company_id` in a row is a UUID string. storage does not compare regional ids to global UUIDs.
 
@@ -93,9 +93,9 @@ Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity
 
 Revocation polling, approvals, and call logs send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json`. Identity trusts it only when `STORAGE_SERVICE_ISSUER` matches its registration.
 
-Approval assertions add `grant_version`, `global_company_id`, and `company_binding_version` to the standard claim set. They are encoded with the same private `_encode_rs256_assertion` path as `shellui-django` until the published `build_mcp_approval_assertion` API includes these fields.
+Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same optional delegated fields as the agent token (default assertion lifetime is the ordinary internal limit, 60 seconds).
 
-Pin `shellui-django[mcp]` to `0.4.1` or newer once PyPI lists that release with the shared approval helper; until then storage stays on `0.4.0` and keeps this thin wrapper.
+This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`5f0fdf44bb140848fb1440cf04da6ada7996711d`) until a matching release is published to PyPI. Local development needs Git available to install that source dependency; workflows use `uv lock` / `uv sync` accordingly.
 
 Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STORAGE_SERVICE_SIGNING_KEY_FILE`).
 

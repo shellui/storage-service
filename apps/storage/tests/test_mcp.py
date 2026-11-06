@@ -14,7 +14,7 @@ from apps.storage.access import COMPANY_BUCKET_NAME
 from apps.storage.tests.rs256_helpers import (
     MCP_SIGNING_TEST_SETTINGS,
     generate_test_rsa_jwks,
-    sign_test_revocation_list_assertion,
+    signed_revocation_poll_response_body,
 )
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
 from shellui_django.mcp.openapi_tools import tools_from_schema
@@ -68,7 +68,7 @@ _TEST_JWKS, _TEST_ID_PEM, _TEST_ID_KID = generate_test_rsa_jwks()
 
 
 def _signed_revocation_for_tests(*, agents=None, revoked=None, max_gv=0):
-    assertion = sign_test_revocation_list_assertion(
+    return signed_revocation_poll_response_body(
         private_pem=_TEST_ID_PEM,
         kid=_TEST_ID_KID,
         issuer=_TEST_ISSUER,
@@ -77,12 +77,6 @@ def _signed_revocation_for_tests(*, agents=None, revoked=None, max_gv=0):
         cache_seconds=30,
         max_active_grant_version=max_gv,
     )
-    return {
-        'revoked_agent_ids': revoked or [],
-        'agents': agents or [],
-        'cache_seconds': 30,
-        'revocation_assertion': assertion,
-    }
 
 
 @override_settings(
@@ -164,7 +158,7 @@ class McpEndpointTests(TestCase):
     def test_public_url_refuses_a_token_for_the_request_host(self):
         self.assertEqual(self._initialize(_agent_token()).status_code, 401)
 
-    def test_missing_grant_version_returns_401(self):
+    def test_personal_token_may_omit_grant_version(self):
         agent_id = str(uuid.uuid4())
         payload = {
             'sub': f'agent:{agent_id}',
@@ -172,6 +166,32 @@ class McpEndpointTests(TestCase):
             'company_id': 10,
             'scope': 'storage',
             'mcp_access': 'read_only',
+            'aud': _mcp_audience(),
+            'iss': 'https://identity.test',
+            'exp': 2**31 - 1,
+        }
+        token = jwt.encode(payload, 'test-secret', algorithm='HS256')
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: _signed_revocation_for_tests())
+            response = self.client.post(
+                '/mcp',
+                data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+        self.assertNotEqual(response.status_code, 401)
+
+    def test_delegated_token_requires_grant_version(self):
+        agent_id = str(uuid.uuid4())
+        payload = {
+            'sub': f'agent:{agent_id}',
+            'agent_id': agent_id,
+            'company_id': 10,
+            'scope': 'storage',
+            'mcp_access': 'read_only',
+            'global_company_id': '18e20f88-286e-46ea-858e-1d75bca615ff',
+            'company_binding_version': 0,
             'aud': _mcp_audience(),
             'iss': 'https://identity.test',
             'exp': 2**31 - 1,

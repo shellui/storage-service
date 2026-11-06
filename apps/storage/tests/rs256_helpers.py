@@ -60,6 +60,8 @@ def sign_test_revocation_list_assertion(
     revocation_policy_version: int = 1,
 ) -> str:
     now = int(time.time())
+    # Lifetime must stay within REVOCATION_LIST_MAX_ASSERTION_LIFETIME_SECONDS (commons).
+    lifetime = min(cache_seconds, 600)
     claims = {
         'iss': issuer,
         'aud': 'shellui-mcp-revocation',
@@ -71,11 +73,44 @@ def sign_test_revocation_list_assertion(
         'max_active_grant_version': max_active_grant_version,
         'revocation_policy_version': revocation_policy_version,
         'iat': now,
-        'exp': now + cache_seconds,
+        'exp': now + lifetime,
         'jti': uuid.uuid4().hex,
     }
     token = jwt.encode(claims, private_pem, algorithm='RS256', headers={'kid': kid})
     return token.decode('utf-8') if isinstance(token, bytes) else token
+
+
+def signed_revocation_poll_response_body(
+    *,
+    private_pem: str,
+    kid: str,
+    issuer: str,
+    revoked_agent_ids: list[str],
+    agents: list[dict] | None = None,
+    cache_seconds: int = 30,
+    max_active_grant_version: int = 0,
+    revocation_policy_version: int = 1,
+) -> dict:
+    """HTTP body that matches the signed JWT (``verify_mcp_revocation_list_response``)."""
+    agents_list = list(agents or [])
+    assertion = sign_test_revocation_list_assertion(
+        private_pem=private_pem,
+        kid=kid,
+        issuer=issuer,
+        revoked_agent_ids=revoked_agent_ids,
+        agents=agents_list,
+        cache_seconds=cache_seconds,
+        max_active_grant_version=max_active_grant_version,
+        revocation_policy_version=revocation_policy_version,
+    )
+    return {
+        'revoked_agent_ids': revoked_agent_ids,
+        'agents': agents_list,
+        'cache_seconds': cache_seconds,
+        'max_active_grant_version': max_active_grant_version,
+        'revocation_policy_version': revocation_policy_version,
+        'revocation_assertion': assertion,
+    }
 
 
 # This service's own signing key for internal MCP assertions (config/service_signing.py).

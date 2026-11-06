@@ -13,7 +13,7 @@ from django.test import SimpleTestCase, override_settings
 from apps.storage.tests.rs256_helpers import (
     MCP_SIGNING_TEST_SETTINGS,
     generate_test_rsa_jwks,
-    sign_test_revocation_list_assertion,
+    signed_revocation_poll_response_body,
 )
 
 from apps.storage.mcp_identity import (
@@ -47,7 +47,7 @@ def _claims_write(
 def _signed_revocation_body(*, revoked_ids=None, agents=None, max_gv=0):
     revoked_ids = revoked_ids or []
     agents = agents or []
-    assertion = sign_test_revocation_list_assertion(
+    return signed_revocation_poll_response_body(
         private_pem=_PRIVATE_PEM,
         kid=_KID,
         issuer=_TEST_ISSUER,
@@ -56,12 +56,6 @@ def _signed_revocation_body(*, revoked_ids=None, agents=None, max_gv=0):
         cache_seconds=30,
         max_active_grant_version=max_gv,
     )
-    return {
-        'revoked_agent_ids': revoked_ids,
-        'agents': agents,
-        'cache_seconds': 30,
-        'revocation_assertion': assertion,
-    }
 
 
 @override_settings(
@@ -147,6 +141,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                 {
                     'agent_id': 'a1',
                     'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 0,
                     'grant_version': 0,
                 }
             ],
