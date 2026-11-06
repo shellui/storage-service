@@ -17,7 +17,11 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 
-from apps.storage.mcp_assertions import parse_global_company_id, parse_trusted_agent_claims
+from apps.storage.mcp_assertions import (
+    parse_global_agent_id,
+    parse_global_company_id,
+    parse_trusted_agent_claims,
+)
 from config.service_signing import signing_kwargs
 
 _REVOKED_CACHE_KEY = 'mcp:revoked_trusted_payload'
@@ -28,8 +32,8 @@ logger = logging.getLogger(__name__)
 _AUTH_LOCK = threading.Lock()
 _AUTH_CACHE: dict[tuple[Any, ...], tuple[float, bool]] = {}
 
-_AGENT_AUTH_AUDIENCE = 'shellui-mcp-agent-authority'
-_AGENT_AUTH_SCOPE = 'mcp.agent.authority.verify'
+_AGENT_AUTH_AUDIENCE = 'shellui-mcp-agent-delegated-authority'
+_AGENT_AUTH_SCOPE = 'mcp.agent.delegated.authority.read'
 
 
 class DelegatedAuthorityUnavailable(Exception):
@@ -69,7 +73,7 @@ def _authority_url() -> str:
     origin = _identity_origin()
     if not origin:
         return ''
-    path = explicit or '/api/v1/mcp/internal/mcp-delegated-agent-authority'
+    path = explicit or '/api/v1/mcp/internal/mcp-agent-delegated-authority'
     if not path.startswith('/'):
         path = '/' + path
     return f'{origin}{path}'
@@ -141,42 +145,6 @@ def _request_body_from_claims(claims: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _row_strict_int(row: dict[str, Any], key: str) -> int | None:
-    if key not in row:
-        return None
-    v = row[key]
-    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
-        return None
-    return v
-
-
-def _response_authorizes(body: dict[str, Any], data: dict[str, Any]) -> bool:
-    if data.get('authorized') is not True:
-        return False
-    if data.get('revoked') is not False:
-        return False
-    if data.get('paused') is not False:
-        return False
-    row = data.get('row')
-    if not isinstance(row, dict):
-        return False
-    if str(row.get('agent_id') or '') != body['agent_id']:
-        return False
-    rc = row.get('company_id')
-    if not isinstance(rc, int) or isinstance(rc, bool) or rc != body['company_id']:
-        return False
-    rg = parse_global_company_id(row.get('global_company_id'))
-    if rg != body['global_company_id']:
-        return False
-    rgv = _row_strict_int(row, 'grant_version')
-    rcb = _row_strict_int(row, 'company_binding_version')
-    if rgv is None or rcb is None:
-        return False
-    if rgv != body['grant_version'] or rcb != body['company_binding_version']:
-        return False
-    return True
-
-
 def clear_delegated_authority_cache() -> None:
     with _AUTH_LOCK:
         _AUTH_CACHE.clear()
@@ -196,9 +164,10 @@ def _cache_get(key: tuple[Any, ...]) -> bool | None:
         return ok
 
 
-def _cache_set(key: tuple[Any, ...], ok: bool) -> None:
+def _cache_set_positive(key: tuple[Any, ...]) -> None:
+    """Cache only strict positive outcomes (short TTL); negatives are never cached."""
     with _AUTH_LOCK:
-        _AUTH_CACHE[key] = (time.monotonic(), ok)
+        _AUTH_CACHE[key] = (time.monotonic(), True)
 
 
 def delegated_regional_authority_live_ok(
@@ -228,6 +197,8 @@ def delegated_regional_authority_live_ok(
         body = _request_body_from_claims(claims)
     except ValueError:
         return False
+
+    token_global_agent_id = parse_global_agent_id(claims.get('global_agent_id'))
 
     url = _authority_url()
     if not url:
@@ -271,21 +242,83 @@ def delegated_regional_authority_live_ok(
         logger.warning('Delegated authority rejected: %s', response.status_code)
         raise DelegatedAuthorityUnavailable('upstream')
 
+    if response.status_code == 403:
+        return False
+
     if response.status_code != 200:
-        _cache_set(cache_key, False)
         return False
 
     try:
         data = response.json()
     except ValueError:
-        _cache_set(cache_key, False)
         return False
     if not isinstance(data, dict):
-        _cache_set(cache_key, False)
         return False
 
-    ok = _response_authorizes(body, data)
-    _cache_set(cache_key, ok)
+    ok = _delegated_identity_authority_strict_ok(data, body, token_global_agent_id=token_global_agent_id)
+    if ok:
+        _cache_set_positive(cache_key)
     return ok
 
 
+def _strict_bool(data: dict[str, Any], key: str) -> bool | None:
+    if key not in data:
+        return None
+    v = data.get(key)
+    if isinstance(v, bool):
+        return v
+    return None
+
+
+def _delegated_identity_authority_strict_ok(
+    data: dict[str, Any],
+    body: dict[str, Any],
+    *,
+    token_global_agent_id: str | None,
+) -> bool:
+    """
+    Fail closed on Identity ``mcp-agent-delegated-authority`` JSON (200 only).
+
+    Required booleans (actual JSON bool, not strings): ``authorized``, ``revoked``, ``paused``.
+    Accept only ``authorized`` true, ``revoked`` false, ``paused`` false.
+    When ``active`` is present it must be true; omitted ``active`` is allowed.
+    Top-level identity fields must match the POST body; ``global_agent_id`` is taken from the
+    response (Identity is authoritative). Extra keys (for example capability lists) are ignored.
+    """
+    for k in ('authorized', 'revoked', 'paused'):
+        b = _strict_bool(data, k)
+        if b is None:
+            return False
+    if data['authorized'] is not True or data['revoked'] is not False or data['paused'] is not False:
+        return False
+
+    act = _strict_bool(data, 'active')
+    if act is not None and act is not True:
+        return False
+
+    aid = str(data.get('agent_id') or '').strip()
+    if not aid or aid != str(body['agent_id']):
+        return False
+
+    cid = data.get('company_id')
+    if isinstance(cid, bool) or not isinstance(cid, int) or cid < 0 or cid != body['company_id']:
+        return False
+
+    gg = parse_global_company_id(data.get('global_company_id'))
+    if gg is None or gg != body['global_company_id']:
+        return False
+
+    gv = data.get('grant_version')
+    if isinstance(gv, bool) or not isinstance(gv, int) or gv < 0 or gv != body['grant_version']:
+        return False
+
+    cbv = data.get('company_binding_version')
+    if isinstance(cbv, bool) or not isinstance(cbv, int) or cbv < 0 or cbv != body['company_binding_version']:
+        return False
+
+    gai = parse_global_agent_id(data.get('global_agent_id'))
+    if gai is None:
+        return False
+    if token_global_agent_id is not None and gai != token_global_agent_id:
+        return False
+    return True

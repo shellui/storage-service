@@ -47,11 +47,11 @@ _CALL_LOG_APPROVED_KEYS = frozenset(
         'agent_id',
         'company_id',
         'global_company_id',
+        'global_agent_id',
         'grant_version',
         'company_binding_version',
         'service',
         'tool',
-        'operation_title',
         'http_method',
         'resource_path',
         'access_kind',
@@ -746,12 +746,11 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         'tool': tool.strip()[:500],
-        'operation_title': operation_title,
         'resource_path': path_template,
         'http_method': method_u,
     }
     for key in _CALL_LOG_APPROVED_KEYS:
-        if key in ('tool', 'operation_title', 'resource_path', 'http_method'):
+        if key in ('tool', 'resource_path', 'http_method'):
             continue
         if key not in entry:
             continue
@@ -765,6 +764,8 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
             out[key] = val
         elif key == 'global_company_id' and isinstance(val, str) and parse_global_company_id(val):
             out[key] = parse_global_company_id(val)
+        elif key == 'global_agent_id' and isinstance(val, str) and parse_global_agent_id(val):
+            out[key] = parse_global_agent_id(val)
         elif key == 'outcome' and isinstance(val, str) and val in _CALL_LOG_OUTCOMES:
             out[key] = val
         elif key == 'access_kind' and isinstance(val, str) and val in _CALL_LOG_ACCESS_KINDS:

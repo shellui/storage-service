@@ -76,18 +76,23 @@ def _agent_token(
     return jwt.encode(payload, secret, algorithm='HS256')
 
 
-def _delegated_identity_row_json(agent_id: str, company_id: int, global_company_id: str, grant_version: int, company_binding_version: int):
+_DELEGATED_OK_GAI = '28e20f88-286e-46ea-858e-1d75bca615ff'
+
+
+def _delegated_identity_authority_ok(body: dict) -> dict:
+    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (see identity-service head)."""
     return {
         'authorized': True,
         'revoked': False,
         'paused': False,
-        'row': {
-            'agent_id': agent_id,
-            'company_id': company_id,
-            'global_company_id': global_company_id,
-            'grant_version': grant_version,
-            'company_binding_version': company_binding_version,
-        },
+        'agent_id': str(body.get('agent_id') or ''),
+        'company_id': int(body['company_id']),
+        'global_company_id': str(body.get('global_company_id') or ''),
+        'global_agent_id': _DELEGATED_OK_GAI,
+        'grant_version': int(body['grant_version']),
+        'company_binding_version': int(body['company_binding_version']),
+        'mcp_capabilities': [],
+        'delegation_capabilities': [],
     }
 
 
@@ -134,18 +139,12 @@ class McpEndpointTests(TestCase):
         self.addCleanup(self._p_auth_post.stop)
         def _post_side_effect(*args, **kwargs):
             url = str(args[0]) if args else ''
-            if 'mcp-delegated-agent-authority' in url:
+            if 'mcp-agent-delegated-authority' in url:
                 body = kwargs.get('json')
                 if isinstance(body, dict):
                     return MagicMock(
                         status_code=200,
-                        json=lambda b=body: _delegated_identity_row_json(
-                            str(b.get('agent_id') or ''),
-                            int(b['company_id']),
-                            str(b.get('global_company_id') or ''),
-                            int(b['grant_version']),
-                            int(b['company_binding_version']),
-                        ),
+                        json=lambda b=body: _delegated_identity_authority_ok(b),
                     )
             return MagicMock(status_code=200, json=lambda: {'authorized': True})
 

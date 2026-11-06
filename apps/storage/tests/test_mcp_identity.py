@@ -39,13 +39,14 @@ def _identity_authority_response(*, agent_id: str, company_id: int, global_compa
         'authorized': True,
         'revoked': False,
         'paused': False,
-        'row': {
-            'agent_id': agent_id,
-            'company_id': company_id,
-            'global_company_id': global_company_id,
-            'grant_version': grant_version,
-            'company_binding_version': company_binding_version,
-        },
+        'agent_id': agent_id,
+        'company_id': company_id,
+        'global_company_id': global_company_id,
+        'global_agent_id': '28e20f88-286e-46ea-858e-1d75bca615ff',
+        'grant_version': grant_version,
+        'company_binding_version': company_binding_version,
+        'mcp_capabilities': [],
+        'delegation_capabilities': [],
     }
 
 
@@ -67,7 +68,7 @@ def _post_mcp_shared_side_effect(*responses):
 
     def _fn(*args, **kwargs):
         url = str(args[0]) if args else ''
-        if 'mcp-delegated-agent-authority' in url:
+        if 'mcp-agent-delegated-authority' in url:
             body = kwargs.get('json') if isinstance(kwargs.get('json'), dict) else {}
             data = _delegated_authority_ok_from_json(body)
             return MagicMock(status_code=200, json=lambda d=data: d)
@@ -501,9 +502,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         body = mock_post.call_args.kwargs['json']
         self.assertNotIn('evil', body)
         self.assertNotIn('arguments', body)
+        self.assertNotIn('operation_title', body)
         self.assertEqual(body.get('error_code'), 'upstream_error')
         self.assertEqual(body.get('resource_path'), '/api/v1/actions/deliveries')
-        self.assertNotEqual(body.get('operation_title'), 'Evil title must be ignored')
 
     def test_forward_call_log_drops_invalid_outcome(self):
         from apps.storage.mcp_identity import forward_call_log

@@ -13,6 +13,42 @@ from apps.authapi.mcp_authority import (
 from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
 
 _GCC = '18e20f88-286e-46ea-858e-1d75bca615ff'
+_GAI = '28e20f88-286e-46ea-858e-1d75bca615ff'
+
+
+def _identity_ok(
+    *,
+    agent_id: str = 'a1',
+    company_id: int = 10,
+    global_company_id: str = _GCC,
+    global_agent_id: str = _GAI,
+    grant_version: int = 0,
+    company_binding_version: int = 0,
+    authorized: bool = True,
+    revoked: bool = False,
+    paused: bool = False,
+    active: bool | None = True,
+    extra_caps: bool = True,
+) -> dict:
+    """Identity `mcp-agent-delegated-authority` 200 shape (excerpt)."""
+    out: dict = {
+        'authorized': authorized,
+        'revoked': revoked,
+        'paused': paused,
+        'agent_id': agent_id,
+        'company_id': company_id,
+        'global_company_id': global_company_id,
+        'global_agent_id': global_agent_id,
+        'grant_version': grant_version,
+        'company_binding_version': company_binding_version,
+    }
+    if active is not None:
+        out['active'] = active
+    if extra_caps:
+        out['mcp_capabilities'] = ['storage.tools.call']
+        out['delegation_capabilities'] = []
+    return out
+
 
 _CLAIMS_DELEGATED = {
     'sub': 'agent:a1',
@@ -30,21 +66,6 @@ _CLAIMS_DELEGATED = {
 _RES = 'http://127.0.0.1/mcp'
 
 
-def _ok_body():
-    return {
-        'authorized': True,
-        'revoked': False,
-        'paused': False,
-        'row': {
-            'agent_id': 'a1',
-            'company_id': 10,
-            'global_company_id': _GCC,
-            'grant_version': 0,
-            'company_binding_version': 0,
-        },
-    }
-
-
 @override_settings(
     **MCP_SIGNING_TEST_SETTINGS,
     IDENTITY_ISSUER='https://identity.test',
@@ -59,6 +80,7 @@ class DelegatedAuthorityTests(SimpleTestCase):
         del claims['global_company_id']
         del claims['company_binding_version']
         del claims['grant_version']
+        del claims['mcp_authority']
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
             self.assertTrue(delegated_regional_authority_live_ok(claims, expected_resource=_RES))
         mock_post.assert_not_called()
@@ -69,9 +91,9 @@ class DelegatedAuthorityTests(SimpleTestCase):
             self.assertFalse(delegated_regional_authority_live_ok(claims, expected_resource=_RES))
         mock_post.assert_not_called()
 
-    def test_posts_exact_json_body_on_allow(self):
+    def test_posts_body_without_global_agent_id(self):
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=_ok_body)
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: _identity_ok())
             self.assertTrue(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
         kwargs = mock_post.call_args.kwargs
         self.assertEqual(
@@ -84,19 +106,89 @@ class DelegatedAuthorityTests(SimpleTestCase):
                 'company_binding_version': 0,
             },
         )
+        self.assertNotIn('global_agent_id', kwargs['json'])
         self.assertTrue(kwargs['headers']['Authorization'].startswith('Bearer '))
 
-    def test_denies_when_identity_says_no(self):
+    def test_global_agent_id_from_identity_not_from_jwt_required_in_response(self):
+        claims = {**_CLAIMS_DELEGATED, 'global_agent_id': _GAI}
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: _identity_ok())
+            self.assertTrue(delegated_regional_authority_live_ok(claims, expected_resource=_RES))
+        self.assertNotIn('global_agent_id', mock_post.call_args.kwargs['json'])
+
+    def test_token_global_agent_must_match_identity_when_both_present(self):
+        other_gai = '38e20f88-286e-46ea-858e-1d75bca615ff'
+        claims = {**_CLAIMS_DELEGATED, 'global_agent_id': _GAI}
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: _identity_ok(global_agent_id=other_gai))
+            self.assertFalse(delegated_regional_authority_live_ok(claims, expected_resource=_RES))
+
+    def test_http_403_denies_without_unavailable(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=403, json=dict)
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_denies_when_identity_unauthorized(self):
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
             mock_post.return_value = MagicMock(
                 status_code=200,
-                json=lambda: {**_ok_body(), 'authorized': False, 'row': _ok_body()['row']},
+                json=lambda: _identity_ok(authorized=False, active=False),
             )
             self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
 
-    def test_row_triplet_mismatch_overrides_ok(self):
+    def test_active_false_when_present_denies(self):
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
-            body = _ok_body()
-            body['row']['grant_version'] = 1
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _identity_ok(active=False),
+            )
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_active_omitted_allowed(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _identity_ok(active=None),
+            )
+            self.assertTrue(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_string_booleans_fail_closed(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            bad = _identity_ok()
+            bad['authorized'] = 'true'
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: bad)
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_soft_ok_flag_insufficient(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'ok': True, 'authorized': True})
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_grant_version_mismatch_denies(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: _identity_ok(grant_version=1))
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_missing_global_agent_id_in_response_denies(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            body = _identity_ok()
+            del body['global_agent_id']
             mock_post.return_value = MagicMock(status_code=200, json=lambda b=body: b)
             self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+
+    def test_strict_ok_cached_within_ttl(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: _identity_ok())
+            self.assertTrue(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+            self.assertTrue(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+            self.assertEqual(mock_post.call_count, 1)
+
+    def test_negative_not_cached(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _identity_ok(authorized=False),
+            )
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+            self.assertFalse(delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES))
+            self.assertEqual(mock_post.call_count, 2)

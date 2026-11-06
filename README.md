@@ -51,6 +51,7 @@ The handbook lives in [`docs/`](docs/index.md) and is published at [docs.shellui
 - [Access grants](docs/access.md) and [share links](docs/sharing.md)
 - [Clients and WebDAV](docs/clients.md) and the [API](docs/api.md)
 - [JWT authentication](docs/authentication.md) and [security](docs/security.md)
+- [Shellui MCP](docs/mcp.md) (`POST /mcp`, tools, Identity internal calls)
 - [Webhooks](docs/actions.md), [email](docs/email.md), [event log](docs/event-log.md) and [maintenance jobs](docs/maintenance-jobs.md)
 
 ## Run locally

@@ -64,7 +64,7 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 | `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. In Docker Compose, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
 | `IDENTITY_JWKS_FILE` | empty | Path to a JWKS file. Relative paths are from the repository root. Wins over `IDENTITY_JWKS` |
 | `IDENTITY_JWKS` | empty | JWKS JSON in the environment, used when no file is set |
-| `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` | empty | Optional path or absolute URL for Identity live delegated-agent checks. Empty uses `/api/v1/mcp/internal/mcp-delegated-agent-authority` under `IDENTITY_SERVICE_URL` |
+| `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` | empty | Optional path or absolute URL for Identity live delegated-agent checks. Empty uses `/api/v1/mcp/internal/mcp-agent-delegated-authority` under `IDENTITY_SERVICE_URL` |
 | `IDENTITY_ISSUER` | empty | Expected `iss`. Required when `DEBUG=false` |
 | `IDENTITY_AUDIENCE` | empty | Expected `aud`. Required when `DEBUG=false` |
 | `JWKS_CACHE_TTL` | `900` | Seconds to cache a fetched JWKS document. Unused for a pinned document |

@@ -10,37 +10,52 @@ Shellui MCP exposes company-scoped storage HTTP APIs as tools. storage-service i
 
 Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions.
 
-Do not point a global Shellui access JWT from the SaaS product directly at storage-service. Personal MCP uses a regional resource audience from Identity. Global agents reach storage through the AI gateway, which mints a regional MCP credential with the correct `aud` (see Shellui SaaS documentation on `develop` once the handbook merges).
+**Personal vs delegated:** A **personal** regional agent token has no `global_company_id` (and no `global_agent_id`). It is intended for direct use against this service with the storage MCP resource as `aud`. A **delegated** regional token includes `global_company_id` (and usually `global_agent_id` from the SaaS subject); it is the shape you get after the AI gateway or another regional exchange turns a global credential into a storage-scoped regional JWT. Do not point a global Shellui access JWT from the SaaS product directly at storage-service (`aud` will not match). This handbook covers only what storage-service enforces; it does not document separate storage integration or secrets MCP servers.
 
 Exchange for regional tokens uses the Identity OAuth token endpoint for that region (for example `POST /oauth/token`). There is no storage-specific exchange URL. Pass the storage MCP resource as `aud` or `resource` per Identity docs.
 
 ## Live delegated authority (regional tokens)
 
-If `global_company_id` is present and `mcp_authority` is `delegated` (regional exchange token), storage-service calls Identity before **every** delegated-sensitive path: approval create, approval state, approval consume, and each `tools/call` that reaches a direct storage operation.
+Contract names and path match **identity-service** at git ref `17f09487115e45` (storage does not accept legacy alias routes).
 
-**HTTP contract (canonical unless Identity publishes a different path; override with `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH`):**
+If `global_company_id` is present and `mcp_authority` is `delegated` (regional exchange token), storage-service calls Identity on the delegated-sensitive path after JWT verification (for example authentication on `POST /mcp`, plus approval flows that rely on the same live row).
 
-- `POST {IDENTITY_SERVICE_URL}/api/v1/mcp/internal/mcp-delegated-agent-authority`
+**HTTP contract (default path; override with `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH`):**
+
+- `POST {IDENTITY_SERVICE_URL}/api/v1/mcp/internal/mcp-agent-delegated-authority`
 - `Authorization: Bearer <service RS256 assertion>`
-- Service assertion `aud`: `shellui-mcp-agent-authority`, `scope`: `mcp.agent.authority.verify`, `target`: Identity issuer URL (see `apps.authapi.mcp_authority.build_mcp_agent_authority_assertion`).
+- Service assertion `aud`: `shellui-mcp-agent-delegated-authority`, `scope`: `mcp.agent.delegated.authority.read`, `target`: Identity issuer URL (see `apps.authapi.mcp_authority.build_mcp_agent_authority_assertion`)
 
-**JSON body (only these keys, strict JSON integers for versions):**
+### Request body (strict)
 
-- `agent_id` (UUID string)
-- `company_id` (int, regional)
+These keys only, same types as verified JWT claims (no string digit coercion into ints in this client):
+
+- `agent_id` (string)
+- `company_id` (int, `>= 0`)
 - `global_company_id` (canonical lowercase UUID string)
-- `grant_version` (int, `0` is valid)
-- `company_binding_version` (int, `0` is valid)
+- `grant_version` (int, `>= 0`)
+- `company_binding_version` (int, `>= 0`)
 
-No string digit coercion: claim parsing rejects non-integers before the request is built.
+### Response (strict)
 
-**Identity must answer with a single authoritative row.** The response is rejected unless `authorized` is `true`, `revoked` is `false`, `paused` is `false`, and `row` is an object whose `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` match the request exactly (same int and UUID rules). Any mismatch, ambiguous semantics, `404`, `5xx`, or transport error is failure. A signed revocation list alone cannot prove “not revoked” or “active”; it only enumerates revocations. Positive authorization comes from this live check (and from the signed snapshot inside the revocation JWT where applicable).
+On **200**, storage accepts the body only when all of the following hold:
 
-Results for `tools/call`: if Identity is required but unavailable, the HTTP response is `503`. If Identity denies or the row does not match, the HTTP response is `401`. Wrong `iss` or `aud` on the agent token skips the network call and fails closed for delegated exchange tokens. Personal tokens (no `global_company_id`) skip this step.
+- `authorized`, `revoked`, and `paused` are JSON booleans (not strings) with values `true`, `false`, `false`.
+- When `active` is present it must be boolean `true`; omitted `active` is allowed.
+- Top-level `agent_id`, `company_id`, `global_company_id`, `global_agent_id`, `grant_version`, and `company_binding_version` are present with native types. The five identity fields other than `global_agent_id` must match the POST body. `global_agent_id` is taken only from the response (Identity is authoritative for the global subject UUID). Capability arrays or other extra keys are ignored.
 
-A short in-process cache (at most a few seconds) is keyed with the revocation cache epoch and bounded by the signed list `cache_seconds`, so a success does not outlive the revocation validation window.
+Extra keys such as `status` or `ok` are ignored and never turn a failed check into an allow.
 
-Configure `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` when Identity mounts the check elsewhere (see `docs/configuration.md`). Identity and email-service should implement the **same** URL and payload; do not keep parallel GET query routes for live checks.
+### Errors and caching
+
+- Transport failure or Identity **5xx**: MCP answers `503` with `identity_unavailable` (fail closed).
+- Identity **404** on this route: same `503` (missing endpoint or wrong path).
+- Identity **403** with an authenticated error body: deny (`401` on MCP paths that require live delegated authority, or approval failure where applicable), not `503`.
+- **200** with any failed check above: token rejected (`401`) where the call path maps to unauthorized.
+
+A short in-process TTL caches **positive** outcomes only. The cache key includes the revocation cache epoch plus the delegated identity tuple; TTL is `min(5 seconds, signed revocation list cache_seconds)`. Negative outcomes are not cached, so a small lag after revocation is possible but an infinite allow from a stale deny is not.
+
+Personal regional tokens (no `global_company_id`) skip this live step. Configure `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` when Identity mounts the check elsewhere (see `docs/configuration.md`).
 
 ## Direct `POST /mcp` versus gateway
 
@@ -221,6 +236,6 @@ Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STO
 
 ### Call log payload to Identity
 
-Each tool attempt forwards a small JSON object. Allowed keys are fixed; values are type-checked and trimmed. `tool`, `resource_path`, and `http_method` are matched against the published OpenAPI registry (`operationId` plus path template and method). `operation_title` is taken from that operation's `summary` when present; arbitrary titles from the caller are not forwarded. Paths are OpenAPI templates only (no resolved ids, no query strings). There is no raw MCP `arguments` map and no response body in the log payload.
+Each tool attempt forwards a small JSON object. Allowed keys are fixed; values are type-checked and trimmed. `tool`, `resource_path`, and `http_method` are matched against the published OpenAPI registry (`operationId` plus path template and method). **Identity re-derives** display metadata (for example operation title) from the registry; storage does **not** forward `operation_title`, `resource_label`, or raw MCP arguments so caller-controlled strings cannot satisfy Identity allowlists. Paths are OpenAPI templates only (no resolved ids, no query strings). There is no raw MCP `arguments` map and no response body in the log payload.
 
-Fields include `tool`, `operation_title`, `resource_path`, `http_method`, `access_kind` (`read` or `write`), `outcome`, `status`, `duration_ms`, optional `error_code`, `grant_version`, optional `global_company_id` and `company_binding_version`, and UUID `approval_request_id` / `approval_id` when applicable. Allowed `outcome` values are `pending_approval`, `allowed`, `denied`, `failed`, and `session_used`. Error taxonomy for failures uses `error_code`, not nested objects.
+Fields include `tool`, `resource_path`, `http_method`, `access_kind` (`read` or `write`), `outcome`, `status` (HTTP status bucket as a non-negative int), `duration_ms`, optional `error_code`, `grant_version`, optional `global_company_id`, optional `global_agent_id`, optional `company_binding_version`, and UUID `approval_request_id` / `approval_id` when applicable. Allowed `outcome` values are `pending_approval`, `allowed`, `denied`, `failed`, and `session_used`. Error taxonomy for failures uses `error_code`, not nested objects.
