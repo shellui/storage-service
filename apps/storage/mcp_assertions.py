@@ -77,9 +77,9 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     """
     Validate verified agent access token claims for MCP. No legacy aliases.
 
-    Personal regional tokens omit the global org triple and may omit ``grant_version`` (regional
-    staleness uses other signals). When ``global_company_id`` is set, Identity issues the full
-    delegated triple including explicit ``0`` for ``company_binding_version`` and ``grant_version``.
+    Personal regional tokens omit the global org triple. Every token must carry a strict JSON
+    ``grant_version`` integer (0 or higher). When ``global_company_id`` is set, Identity issues the
+    full delegated triple including explicit ``0`` for ``company_binding_version`` and ``grant_version``.
 
     If ``global_agent_id`` is present (SaaS-exchanged subject), the token is not personal: the
     same triple is required. A partial triple with ``global_agent_id`` must not fall back to
@@ -116,7 +116,9 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
         return False, 'invalid_company_binding_version', None
 
     gv = parse_grant_version(claims.get('grant_version')) if 'grant_version' in claims else None
-    if 'grant_version' in claims and gv is None:
+    if 'grant_version' not in claims:
+        return False, 'missing_grant_version', None
+    if gv is None:
         return False, 'invalid_grant_version', None
 
     raw_ma = claims.get('mcp_authority')

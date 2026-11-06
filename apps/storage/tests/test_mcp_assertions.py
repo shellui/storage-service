@@ -15,17 +15,24 @@ def _base(**kwargs) -> dict:
         'company_id': 10,
         'mcp_access': 'read_only',
         'scope': 'storage',
+        'grant_version': 0,
     }
     claims.update(kwargs)
     return claims
 
 
 class ParseTrustedAgentClaimsTests(SimpleTestCase):
-    def test_personal_allows_omitted_grant_version(self):
-        ok, reason, norm = parse_trusted_agent_claims(_base())
+    def test_personal_requires_grant_version_int(self):
+        claims = {k: v for k, v in _base().items() if k != 'grant_version'}
+        ok, reason, _ = parse_trusted_agent_claims(claims)
+        self.assertFalse(ok)
+        self.assertEqual(reason, 'missing_grant_version')
+
+    def test_personal_ok_with_zero_grant_version(self):
+        ok, reason, norm = parse_trusted_agent_claims(_base(grant_version=0))
         self.assertTrue(ok, reason)
         assert norm is not None
-        self.assertIsNone(norm['grant_version'])
+        self.assertEqual(norm['grant_version'], 0)
         self.assertIsNone(norm['global_company_id'])
 
     def test_delegated_requires_full_triplet_including_zero(self):
@@ -53,7 +60,7 @@ class ParseTrustedAgentClaimsTests(SimpleTestCase):
             _base(global_agent_id=_GAGENT, global_company_id=_GLOBAL, company_binding_version=0)
         )
         self.assertFalse(ok)
-        self.assertEqual(reason, 'missing_grant_version')
+        self.assertEqual(reason, 'missing_mcp_authority')
 
     def test_malformed_global_company_id_not_personal(self):
         ok, reason, _ = parse_trusted_agent_claims(_base(global_company_id='not-a-uuid'))

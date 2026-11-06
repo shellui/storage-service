@@ -8,7 +8,6 @@ import logging
 import time
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit
 from django.http import HttpRequest, JsonResponse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -35,21 +34,6 @@ from apps.storage.mcp_identity import (
 logger = logging.getLogger(__name__)
 
 _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
-
-
-def _audit_mcp_wire_path() -> str:
-    """Identity ``McpInternalCallLogView`` expects JSON-RPC at ``POST /mcp`` on the public MCP route."""
-    from django.conf import settings
-
-    raw = (getattr(settings, 'STORAGE_PUBLIC_URL', '') or '').strip()
-    if not raw:
-        return '/mcp'
-    try:
-        parts = urlsplit(raw)
-        prefix = (parts.path or '').rstrip('/')
-    except ValueError:
-        return '/mcp'
-    return f'{prefix}/mcp' if prefix else '/mcp'
 
 # AI gateway and Shellui Identity error taxonomy (audit ``error.code`` and MCP JSON-RPC layer).
 AUDIT_ERROR_CODES = frozenset(
@@ -283,7 +267,6 @@ class StrictMcpServer:
         )
         operation_title = _tool_operation_summary(tool, schema)
         audit_inner_path = path_template
-        audit_wire_path = _audit_mcp_wire_path()
         if destructive:
             access_kind = 'destructive'
         elif tool_read_only:
@@ -318,7 +301,7 @@ class StrictMcpServer:
                         agent_claims=agent_claims,
                         tool_name=tool_name,
                         method='POST',
-                        audit_path=audit_wire_path,
+                        audit_path=audit_inner_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -342,7 +325,7 @@ class StrictMcpServer:
                         agent_claims=agent_claims,
                         tool_name=tool_name,
                         method='POST',
-                        audit_path=audit_wire_path,
+                        audit_path=audit_inner_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -366,7 +349,7 @@ class StrictMcpServer:
                         agent_claims=agent_claims,
                         tool_name=tool_name,
                         method='POST',
-                        audit_path=audit_wire_path,
+                        audit_path=audit_inner_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -398,7 +381,7 @@ class StrictMcpServer:
                                 agent_claims=agent_claims,
                                 tool_name=tool_name,
                                 method='POST',
-                                audit_path=audit_wire_path,
+                                audit_path=audit_inner_path,
                                 operation_title=operation_title,
                                 access_kind=access_kind,
                                 destructive=destructive,
@@ -422,7 +405,7 @@ class StrictMcpServer:
                             agent_claims=agent_claims,
                             tool_name=tool_name,
                             method='POST',
-                            audit_path=audit_wire_path,
+                            audit_path=audit_inner_path,
                             operation_title=operation_title,
                             access_kind=access_kind,
                             destructive=destructive,
@@ -446,7 +429,7 @@ class StrictMcpServer:
                         agent_claims=agent_claims,
                         tool_name=tool_name,
                         method='POST',
-                        audit_path=audit_wire_path,
+                        audit_path=audit_inner_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -479,7 +462,7 @@ class StrictMcpServer:
                         agent_claims=agent_claims,
                         tool_name=tool_name,
                         method='POST',
-                        audit_path=audit_wire_path,
+                        audit_path=audit_inner_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -505,7 +488,7 @@ class StrictMcpServer:
                         agent_claims=agent_claims,
                         tool_name=tool_name,
                         method='POST',
-                        audit_path=audit_wire_path,
+                        audit_path=audit_inner_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -534,7 +517,7 @@ class StrictMcpServer:
                     agent_claims=agent_claims,
                     tool_name=tool_name,
                     method='POST',
-                    audit_path=audit_wire_path,
+                    audit_path=audit_inner_path,
                     operation_title=operation_title,
                     access_kind=access_kind,
                     destructive=destructive,
@@ -559,7 +542,7 @@ class StrictMcpServer:
                 agent_claims=agent_claims,
                 tool_name=tool_name,
                 method='POST',
-                audit_path=audit_wire_path,
+                audit_path=audit_inner_path,
                 operation_title=operation_title,
                 access_kind=access_kind,
                 destructive=destructive,
@@ -613,7 +596,7 @@ class StrictMcpServer:
             agent_claims=agent_claims,
             tool_name=tool_name,
             method='POST',
-            audit_path=audit_wire_path,
+            audit_path=audit_inner_path,
             operation_title=operation_title,
             access_kind=access_kind,
             destructive=destructive,
@@ -660,13 +643,9 @@ class StrictMcpServer:
             return
         duration_ms = int(round((time.perf_counter() - started) * 1000))
         gcid = parse_global_company_id(agent_claims.get('global_company_id'))
-        gv = (
-            parse_grant_version(agent_claims.get('grant_version'))
-            if 'grant_version' in agent_claims
-            else None
-        )
-        if gv is None and gcid is None:
-            gv = 0
+        gv = parse_grant_version(agent_claims.get('grant_version'))
+        if gv is None:
+            return
         cb_raw = agent_claims.get('company_binding_version')
         cbv = parse_company_binding_version(cb_raw) if cb_raw is not None else None
         gai = parse_global_agent_id(agent_claims.get('global_agent_id'))

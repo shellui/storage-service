@@ -321,13 +321,14 @@ _DELEGATED_AUTHORITY_RESPONSE_KEYS = frozenset(
 
 
 def _delegated_services_allowed_ok(claims: dict[str, Any], services_allowed: Any) -> bool:
+    """Live row ``services_allowed`` must match the token ``scope`` claim exactly (set equality, sorted list)."""
     if not isinstance(services_allowed, list):
         return False
-    parts = [p for p in str(claims.get('scope') or '').split() if p]
-    if not parts:
+    token_parts = sorted({p for p in str(claims.get('scope') or '').split() if p})
+    if not token_parts:
         return False
-    allowed = {str(s).strip() for s in services_allowed if str(s).strip()}
-    return 'storage' in allowed and all(p in allowed for p in parts)
+    allowed_parts = sorted({str(s).strip() for s in services_allowed if str(s).strip()})
+    return token_parts == allowed_parts
 
 
 def _delegated_live_caps_match_claims(

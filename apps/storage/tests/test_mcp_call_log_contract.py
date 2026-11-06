@@ -205,3 +205,62 @@ class McpCallLogContractTests(SimpleTestCase):
             'global_agent_id': _GLOBAL_AGENT,
         }
         self.assertFalse(_sanitize_call_log_entry(raw))
+
+    def test_sanitize_destructive_waiting_maps_to_write(self):
+        raw = {
+            'agent_id': _AGENT,
+            'company_id': 1,
+            'service': 'storage',
+            'tool': 'api_v1_actions_deliveries_list',
+            'http_method': 'GET',
+            'resource_path': '/api/v1/actions/deliveries',
+            'access_kind': 'destructive',
+            'outcome': 'waiting_approval',
+            'status': 202,
+            'duration_ms': 5,
+            'grant_version': 0,
+            'company_binding_version': 0,
+            'global_company_id': _GLOBAL,
+            'global_agent_id': _GLOBAL_AGENT,
+            'approval_id': _APPROVAL,
+        }
+        safe = _sanitize_call_log_entry(raw)
+        self.assertTrue(safe)
+        self.assertEqual(safe.get('access_kind'), 'write')
+
+    def test_sanitize_allowed_success_omits_error_code(self):
+        raw = {
+            'agent_id': _AGENT,
+            'company_id': 1,
+            'service': 'storage',
+            'tool': 'api_v1_actions_deliveries_list',
+            'http_method': 'GET',
+            'resource_path': '/api/v1/actions/deliveries',
+            'access_kind': 'read',
+            'outcome': 'allowed',
+            'status': 200,
+            'duration_ms': 5,
+            'grant_version': 0,
+            'error_code': 'upstream_error',
+        }
+        safe = _sanitize_call_log_entry(raw)
+        self.assertTrue(safe)
+        self.assertNotIn('error_code', safe)
+
+    def test_sanitize_unknown_error_code_maps(self):
+        raw = {
+            'agent_id': _AGENT,
+            'company_id': 1,
+            'service': 'storage',
+            'tool': 'api_v1_actions_deliveries_list',
+            'http_method': 'GET',
+            'resource_path': '/api/v1/actions/deliveries',
+            'access_kind': 'read',
+            'outcome': 'failed',
+            'status': 500,
+            'duration_ms': 5,
+            'grant_version': 0,
+            'error_code': 'not_in_identity_allowlist',
+        }
+        safe = _sanitize_call_log_entry(raw)
+        self.assertEqual(safe.get('error_code'), 'unknown')

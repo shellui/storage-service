@@ -230,3 +230,21 @@ class DelegatedAuthorityTests(SimpleTestCase):
             )
             with self.assertRaises(DelegatedAuthorityDenied):
                 delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)
+
+    def test_services_allowed_must_equal_scope_set(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _identity_ok(services_allowed=['storage', 'extra']),
+            )
+            with self.assertRaises(DelegatedAuthorityDenied):
+                delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)
+
+    def test_services_allowed_order_insensitive(self):
+        claims = {**_CLAIMS_DELEGATED, 'scope': 'actions storage'}
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _identity_ok(services_allowed=['storage', 'actions']),
+            )
+            self.assertTrue(delegated_regional_authority_live_ok(claims, expected_resource=_RES))

@@ -103,7 +103,7 @@ def _delegated_identity_authority_ok(*, body: dict, claims: dict) -> dict:
         'access_mode': str(claims.get('mcp_access') or 'read_only').strip() or 'read_only',
         'read_level': str(claims.get('mcp_read') or 'safe').strip() or 'safe',
         'allow_destructive': bool(claims.get('mcp_destructive')),
-        'services_allowed': sorted(scope_parts),
+        'services_allowed': sorted(set(scope_parts)),
         'revoked_at': None,
     }
 
@@ -232,7 +232,7 @@ class McpEndpointTests(TestCase):
     def test_public_url_refuses_a_token_for_the_request_host(self):
         self.assertEqual(self._initialize(_agent_token()).status_code, 401)
 
-    def test_personal_token_may_omit_grant_version(self):
+    def test_personal_token_requires_grant_version_int(self):
         token = _agent_token(omit_grant_version=True)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: _signed_revocation_for_tests())
@@ -243,7 +243,8 @@ class McpEndpointTests(TestCase):
                 HTTP_AUTHORIZATION=f'Bearer {token}',
                 **_mcp_host_kwargs(),
             )
-        self.assertNotEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['error'], 'identity_invalid')
 
     def test_delegated_token_requires_grant_version(self):
         agent_id = str(uuid.uuid4())

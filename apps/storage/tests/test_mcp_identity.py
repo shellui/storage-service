@@ -379,8 +379,25 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                 json=lambda: {'error_code': 'out_of_sync', 'message': 'Use the AI gateway.'},
             )
         ):
-            r = create_approval_request(payload, _claims_write())
+            r = create_approval_request(payload, _claims_personal())
         self.assertEqual(r, {'_approval_error': True, 'error_code': 'out_of_sync', 'message': 'Use the AI gateway.'})
+
+    def test_create_approval_request_delegated_preflight_out_of_sync_no_http(self):
+        """Exchange-delegated agents must not POST {} to Identity; fail closed before HTTP."""
+        payload = {
+            'agent_id': _AGENT_A,
+            'company_id': 1,
+            'service': 'storage',
+            'action': 'write',
+            'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
+        }
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            r = create_approval_request(payload, _claims_write())
+        mock_post.assert_not_called()
+        self.assertIsInstance(r, dict)
+        self.assertEqual(r.get('error_code'), 'out_of_sync')
+        self.assertTrue(r.get('_approval_error'))
 
     def test_approval_state_returns_denied(self):
         payload = {
@@ -538,7 +555,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertNotIn('evil', body)
         self.assertNotIn('arguments', body)
         self.assertNotIn('operation_title', body)
-        self.assertEqual(body.get('error_code'), 'upstream_error')
+        self.assertNotIn('error_code', body)
         self.assertEqual(body.get('method'), 'POST')
         self.assertEqual(body.get('path'), '/mcp')
         self.assertNotIn('http_method', body)

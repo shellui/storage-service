@@ -61,6 +61,31 @@ _CALL_LOG_ACCESS_KINDS = frozenset({'read', 'write', 'destructive', 'unknown'})
 
 _APPROVAL_HTTP_METHODS = frozenset({'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'})
 
+# Identity ingest error_code allowlist; values outside this set are mapped to ``unknown``.
+_CALL_LOG_WIRE_ERROR_CODES = frozenset(
+    {
+        'bad_request',
+        'unauthorized',
+        'forbidden',
+        'not_found',
+        'conflict',
+        'rate_limited',
+        'timeout',
+        'upstream_error',
+        'internal_error',
+        'denied',
+        'expired',
+        'out_of_sync',
+        'unknown',
+        'identity_unavailable',
+        'identity_invalid',
+        'invalid_json',
+        'method_not_allowed',
+        'agent_revoked',
+        'approval_unavailable',
+    }
+)
+
 
 def _public_mcp_path() -> str:
     """RFC 8707 audience path `{STORAGE_PUBLIC_URL}/mcp` (empty public URL means ``/mcp`` on the request host)."""
@@ -569,6 +594,19 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
 
 
 def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any]) -> dict | None:
+    ok_claims, _r, norm = parse_trusted_agent_claims(agent_claims)
+    if (
+        ok_claims
+        and norm is not None
+        and norm.get('global_company_id') is not None
+        and norm.get('mcp_authority') == 'delegated'
+    ):
+        # Exchange-delegated agents must open approvals through the AI gateway, not direct HTTP with an empty body.
+        return {
+            '_approval_error': True,
+            'error_code': 'out_of_sync',
+            'message': 'Use the AI gateway for delegated approvals.',
+        }
     try:
         allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
     except DelegatedAuthorityDenied:
@@ -743,6 +781,26 @@ def consume_approval(
     return data.get('consumed') is True
 
 
+def _safe_call_log_access_kind_for_identity(
+    *,
+    access_kind: str,
+    outcome: str,
+    approval_id_present: bool,
+) -> str | None:
+    """
+    Identity only treats ``destructive`` as the strict approval path for successful rows with ``approval_id``.
+
+    Map other outcomes to a supported access_kind so denied / waiting / failed rows still ingest.
+    """
+    if access_kind != 'destructive':
+        return access_kind
+    if outcome in ('allowed', 'session_used'):
+        return 'destructive' if approval_id_present else None
+    if outcome in ('denied', 'waiting_approval', 'failed'):
+        return 'write'
+    return None
+
+
 def _canonical_call_log_outcome(raw: Any) -> str | None:
     """Normalize to Identity ``call_log_outcome`` ingest (d7fe351): five canonical strings."""
     if not isinstance(raw, str):
@@ -835,9 +893,13 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if isinstance(raw_appr, str) and raw_appr.strip() and _UUID_RE.match(raw_appr.strip()):
         appr_uuid = raw_appr.strip()
 
-    if access_kind == 'destructive' and oc in ('allowed', 'session_used'):
-        if appr_uuid is None:
-            return {}
+    wire_access = _safe_call_log_access_kind_for_identity(
+        access_kind=access_kind,
+        outcome=oc,
+        approval_id_present=appr_uuid is not None,
+    )
+    if wire_access is None:
+        return {}
 
     wire_path = _public_mcp_path().split('?', 1)[0].split('#', 1)[0].strip()[:500]
     out: dict[str, Any] = {
@@ -851,7 +913,7 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
         'status': st,
         'duration_ms': dm,
         'grant_version': pgv,
-        'access_kind': access_kind,
+        'access_kind': wire_access,
     }
     if delegated:
         out['global_company_id'] = gcid_parsed
@@ -863,9 +925,12 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     res = entry.get('result')
     if isinstance(res, str) and res.strip():
         out['result'] = res.strip()[:32]
-    ec = entry.get('error_code')
-    if isinstance(ec, str) and ec.strip():
-        out['error_code'] = ec.strip()[:128]
+    raw_ec = entry.get('error_code')
+    ec = raw_ec.strip()[:128] if isinstance(raw_ec, str) and raw_ec.strip() else None
+    if oc == 'allowed' and st < 400:
+        pass
+    elif ec:
+        out['error_code'] = ec if ec in _CALL_LOG_WIRE_ERROR_CODES else 'unknown'
     return out
 
 

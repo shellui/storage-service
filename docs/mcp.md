@@ -48,7 +48,7 @@ On **200**, the JSON object must have exactly these 15 keys (no extras), per Ide
 
 For every outcome, values for `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` in the response must match the POST body. `global_agent_id` in the response must match the verified JWT.
 
-When `authorized` is true, storage also requires the JWT to be no wider than the live row: `mcp_access` must equal `access_mode`, `mcp_read` must equal `read_level`, `mcp_destructive` must equal `allow_destructive`, every space-separated `scope` token must appear in `services_allowed`, and `storage` must appear in `services_allowed`. Delegated exchange agents get `allow_destructive` false from Identity (destructive flows still use approvals). When `authorized` is true, `revoked_at` must be null.
+When `authorized` is true, storage also requires the JWT to match the live row: `mcp_access` must equal `access_mode`, `mcp_read` must equal `read_level`, `mcp_destructive` must equal `allow_destructive`, and the sorted set of space-separated `scope` tokens must equal the sorted set of `services_allowed` entries (same services, no extra allowance on either side). Delegated exchange agents get `allow_destructive` false from Identity (destructive flows still use approvals). When `authorized` is true, `revoked_at` must be null.
 
 ### Errors and caching
 
@@ -74,7 +74,7 @@ Claims must use the types below. Types match Identity's regional agent access to
 | Claim | Personal regional | Delegated (SaaS or global exchange) |
 | --- | --- | --- |
 | `company_id` | integer (regional, `>= 1`) | integer, `>= 1` (must match the snapshot row) |
-| `grant_version` | optional (omit allowed) | required, integer 0 or higher |
+| `grant_version` | required, integer 0 or higher | required, integer 0 or higher |
 | `global_company_id` | omit | required UUID string |
 | `company_binding_version` | omit | required integer, explicit 0 allowed |
 | `global_agent_id` | omit | required for delegated exchange tokens (same lexical rules as `global_company_id`) |
@@ -233,7 +233,7 @@ Operation ids match `tools/list` names. Examples:
 
 Revocation polling, approvals, and call logs send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json` (same origin as this service). Identity must register that issuer; dynamic values such as `GITHUB_SHA` are not a substitute for the stable issuer string.
 
-Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same optional delegated fields as the agent token (default assertion lifetime is the ordinary internal limit, 60 seconds). Personal tokens may omit `grant_version` in the assertion; delegated tokens pass the full triple. Internal approval HTTP calls send an empty JSON body; authority is carried only in the signed assertion (including `arguments_hash`).
+Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same delegated fields as the agent token when the exchange triple is present (default assertion lifetime is the ordinary internal limit, 60 seconds). Personal tokens still pass `grant_version` when present on the JWT. Internal approval HTTP calls send an empty JSON body; authority is carried only in the signed assertion (including `arguments_hash`). Storage does not call Identity to create an approval for exchange-delegated agents (`global_company_id` with `mcp_authority: delegated`); those flows must use the AI gateway (MCP surfaces `out_of_sync` instead of probing Identity with `{}`).
 
 This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`1f0754b421688ed26b7eb2e76b25b6fa3eea2a37`). Install with `uv lock` and `uv sync`; Docker images install `git` so `uv` can fetch that git source dependency.
 
@@ -245,6 +245,8 @@ Each tool attempt forwards a small JSON object. Storage first validates `tool`, 
 
 Storage does not forward `operation_title`, `resource_label`, or raw MCP arguments. There is no raw MCP `arguments` map in the log payload.
 
-Fields on the wire include `agent_id`, `company_id`, `service`, `tool`, `method`, `path`, `access_kind` (`read`, `write`, `destructive`, or `unknown`), required `outcome`, `status` (non-negative int), `duration_ms`, `grant_version` (JSON int, required on the wire; personal activity uses `0` when the token omits `grant_version`), optional `error_code`, optional `result` (short fixed cap). **Delegated** agents (regional token with `global_company_id`) send `global_company_id`, `company_binding_version`, and optional `global_agent_id` on the wire; **personal** agents omit all three. For `access_kind` `destructive` with `outcome` `allowed` or `session_used`, `approval_id` (UUID of a destructive approval row) is required. Optional `approval_id` otherwise when the activity row exists. Canonical outcomes are `waiting_approval`, `allowed`, `denied`, `failed`, and `session_used`; legacy `pending_approval` is normalized to `waiting_approval` before forward. Error taxonomy for failures uses `error_code`, not nested objects.
+Fields on the wire include `agent_id`, `company_id`, `service`, `tool`, `method`, `path`, `access_kind`, required `outcome`, `status` (non-negative int), `duration_ms`, `grant_version` (strict JSON int copied from the verified JWT), optional `error_code`, optional `result` (short fixed cap). **Delegated** agents (regional token with `global_company_id`) send `global_company_id`, `company_binding_version`, and optional `global_agent_id` on the wire; **personal** agents omit all three.
 
-Delegated agents must create approvals through the AI gateway: Identity may answer `409` with `error_code` `out_of_sync` when the caller is not allowed to open an approval directly; storage surfaces that code on MCP.
+For Inner REST operations classified as **destructive**, Identity only ingests `access_kind` `destructive` when `outcome` is `allowed` or `session_used` and a matching `approval_id` is present; other outcomes for the same inner tool map to `access_kind` `write` so the row still forwards. Optional `approval_id` otherwise when the activity row exists. For successful `allowed` rows with HTTP status below 400, `error_code` is omitted even when an inner business error was redacted into the result text. Canonical outcomes are `waiting_approval`, `allowed`, `denied`, `failed`, and `session_used`; legacy `pending_approval` is normalized to `waiting_approval` before forward. Error taxonomy for failures uses `error_code`, not nested objects; values outside Identity's allowlist map to `unknown`.
+
+Delegated agents must create approvals through the AI gateway; storage returns `out_of_sync` on MCP when a delegated token attempts direct approval creation without the gateway.
