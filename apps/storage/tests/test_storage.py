@@ -1461,6 +1461,82 @@ class StorageAPITests(TestCase):
         )
         self.assertEqual(denied_write.status_code, 403)
 
+    def test_connector_rest_lifecycle_owner(self):
+        owner_auth = {'HTTP_AUTHORIZATION': f'Bearer {make_token(is_company_owner=True)}'}
+
+        denied = self.client.post(
+            '/storage/v1/connector',
+            {
+                'name': 'sp-new',
+                'connector_provider': 'sharepoint',
+                'connector_settings': {'simulation': {'mode': 'ok'}},
+                'credential': 'oauth-refresh-token',
+            },
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json().get('error'), 'connector_admin_required')
+
+        created = self.client.post(
+            '/storage/v1/connector',
+            {
+                'name': 'sp-new',
+                'connector_provider': 'sharepoint',
+                'connector_settings': {'simulation': {'mode': 'ok'}},
+                'credential': 'oauth-refresh-token',
+            },
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(created.status_code, 201)
+        body = created.json()
+        self.assertEqual(body['name'], 'sp-new')
+        self.assertTrue(body['credential_configured'])
+        self.assertNotIn('credential', body)
+        self.assertNotIn('connector_credential_encrypted', body)
+
+        listed = self.client.get('/storage/v1/connector', **owner_auth)
+        self.assertEqual(listed.status_code, 200)
+        rows = {r['name']: r for r in listed.json()}
+        self.assertIn('sp-new', rows)
+        self.assertNotIn('connector_last_error', rows['sp-new'])
+
+        buckets = self.client.get('/storage/v1/bucket', **self.auth)
+        self.assertEqual(buckets.status_code, 200)
+        by_name = {b['name']: b for b in buckets.json()}
+        self.assertIn('sp-new', by_name)
+        self.assertFalse(by_name['sp-new']['access']['can_write'])
+
+        failed = self.client.post(
+            '/storage/v1/connector',
+            {
+                'name': 'sp-bad',
+                'connector_provider': 'sharepoint',
+                'connector_settings': {'simulation': {'mode': 'error', 'message': 'Simulated outage'}},
+            },
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(failed.status_code, 201)
+        self.assertTrue(failed.json()['has_credential_error'])
+
+        fixed = self.client.patch(
+            '/storage/v1/connector/sp-bad',
+            {'connector_settings': {'simulation': {'mode': 'ok'}}},
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(fixed.status_code, 200)
+        self.assertFalse(fixed.json()['has_credential_error'])
+
+        refreshed = self.client.post('/storage/v1/connector/sp-bad/refresh', **owner_auth)
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertFalse(refreshed.json()['has_credential_error'])
+
+        deleted = self.client.delete('/storage/v1/connector/sp-bad', **owner_auth)
+        self.assertEqual(deleted.status_code, 204)
+
     def test_share_link_expiry_and_max_downloads(self):
         self.client.post(
             f'/storage/v1/object/{COMPANY_BUCKET_NAME}/deck.pdf',

@@ -13,6 +13,16 @@ def register_storage_mcp_tools() -> None:
     read('storage_v1_bucket_retrieve')
     write('storage_v1_bucket_empty_create', destructive=True)
 
+    read('storage_v1_connector_list')
+    read('storage_v1_connector_retrieve')
+    write('storage_v1_connector_create', sensitive=True)
+    write('storage_v1_connector_update', sensitive=True)
+    write('storage_v1_connector_partial_update', sensitive=True)
+    write('storage_v1_connector_destroy', destructive=True)
+    write('storage_v1_connector_refresh_create', sensitive=True)
+    write('storage_v1_connector_test_create', sensitive=True)
+    write('storage_v1_connector_retry_create', sensitive=True)
+
     read('storage_v1_object_list_create')
     read('storage_v1_object_id_retrieve')
     read('storage_v1_object_retrieve')

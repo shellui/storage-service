@@ -185,6 +185,7 @@ Shellui MCP exposes tagged OpenAPI operations to agents over `POST /mcp`. See [S
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MCP_RATE_LIMIT_AGENT` | `120` | Per-agent request limit per minute on `POST /mcp` |
+| `SHELLUI_CONNECTOR_PROVIDER_AVAILABLE` | `false` | When `true`, connector refresh or test reports success without deterministic simulation (non-default; tests or special deployments) |
 
 ## Shellui Actions
 

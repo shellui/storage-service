@@ -23,6 +23,7 @@ from . import metrics as storage_metrics
 from .openapi_admin import (
     ADMIN_API_ERRORS,
     BUCKET_ID_PATH,
+    CONNECTOR_ID_PATH,
     COMPANY_ID_PATH,
     GRANT_ID_PATH,
     OBJECT_ID_PATH,
@@ -38,10 +39,20 @@ from .access import (
     list_accessible_buckets,
     serialize_grant,
 )
+from .connector_services import (
+    ConnectorError,
+    create_connector_bucket,
+    delete_connector_bucket,
+    refresh_connector_bucket,
+    retry_connector_bucket,
+    serialize_connector_bucket_api,
+    test_connector_bucket,
+    update_connector_bucket,
+)
 from .downloads import build_download_response, build_signed_url
 from .grants import create_grant, delete_grant, list_grants, list_grants_effective
 from .mime import safe_object_path
-from .models import StorageObject, UserQuota
+from .models import Bucket, BucketKind, StorageObject, UserQuota
 from .quotas import get_or_create_company_quota, snapshot
 from .renderers import PrometheusTextRenderer
 from .serializers import (
@@ -67,6 +78,9 @@ from .serializers import (
     PrefixRenameResponseSerializer,
     PrefixSummarySerializer,
     QuotaSerializer,
+    ConnectorBucketApiSerializer,
+    ConnectorBucketCreateSerializer,
+    ConnectorBucketUpdateSerializer,
     ShareLinkCreateSerializer,
     ShareLinkSerializer,
     SignRequestSerializer,
@@ -128,7 +142,7 @@ class AnyBinaryParser(BaseParser):
         return stream
 
 
-def _error(exc: StorageError) -> Response:
+def _error(exc: StorageError | ConnectorError) -> Response:
     if exc.status >= 500:
         logger.error('Storage error %s (%s): %s', exc.status, exc.code, exc)
     return Response(
@@ -186,7 +200,7 @@ class HealthView(APIView):
     ),
     post=extend_schema(
         tags=['buckets'],
-        summary='Create bucket (disabled)',
+        summary='Create bucket (use connector routes for external mounts)',
         operation_id='storage_v1_bucket_create',
         request=None,
         responses={403: ErrorSerializer},
@@ -204,9 +218,264 @@ class BucketListCreateView(APIView):
 
     def post(self, request):
         return _error_message(
-            'Creating custom buckets is disabled. Use the company bucket with access grants.',
+            'Creating custom buckets is disabled. Use POST /storage/v1/connector for external connector mounts '
+            'or the company bucket with access grants.',
             status_code=403,
             code='bucket_create_disabled',
+        )
+
+
+def _require_connector_admin(principal) -> None:
+    if not getattr(principal, 'is_company_owner', False) and not getattr(principal, 'is_staff', False):
+        raise StorageError(
+            'Company owner or staff required for this operation.',
+            status=403,
+            code='connector_admin_required',
+        )
+
+
+def _get_connector_bucket(principal, connector_id: str) -> Bucket:
+    """Resolve a connector bucket for the principal's company."""
+    company_id = require_company_id(principal)
+    try:
+        bucket = Bucket.objects.get(company_id=company_id, name=connector_id)
+    except Bucket.DoesNotExist as exc:
+        raise StorageError('Connector not found', status=404, code='connector_not_found') from exc
+    if bucket.kind != BucketKind.CONNECTOR:
+        raise StorageError('Connector not found', status=404, code='connector_not_found')
+    return bucket
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_list',
+        responses={200: ConnectorBucketApiSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_list'),
+    ),
+    post=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_create',
+        request=ConnectorBucketCreateSerializer,
+        responses={201: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_create'),
+    ),
+)
+class ConnectorListCreateView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    def get(self, request):
+        company_id = require_company_id(request.user)
+        rows = Bucket.objects.filter(company_id=company_id, kind=BucketKind.CONNECTOR).order_by('name')
+        data = [
+            serialize_connector_bucket_api(b, include_secret_hint=True, include_provider_details=False)
+            for b in rows
+        ]
+        return Response(data)
+
+    def post(self, request):
+        try:
+            _require_connector_admin(request.user)
+            ser = ConnectorBucketCreateSerializer(data=request.data)
+            ser.is_valid(raise_exception=True)
+            vd = ser.validated_data
+            company_id = require_company_id(request.user)
+            bucket = create_connector_bucket(
+                company_id=company_id,
+                name=vd['name'],
+                connector_provider=vd['connector_provider'],
+                connector_settings=vd.get('connector_settings'),
+                credential=vd.get('credential') or None,
+                owner_id=int(request.user.user_id),
+            )
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_last_error=True,
+            ),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_retrieve',
+        parameters=[CONNECTOR_ID_PATH],
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_retrieve'),
+    ),
+    put=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_update',
+        parameters=[CONNECTOR_ID_PATH],
+        request=ConnectorBucketUpdateSerializer,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_update'),
+    ),
+    patch=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_partial_update',
+        parameters=[CONNECTOR_ID_PATH],
+        request=ConnectorBucketUpdateSerializer,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_partial_update'),
+    ),
+    delete=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_destroy',
+        parameters=[CONNECTOR_ID_PATH],
+        responses={204: None, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_destroy'),
+    ),
+)
+class ConnectorDetailView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    def get(self, request, connector_id):
+        try:
+            bucket = _get_connector_bucket(request.user, connector_id)
+        except StorageError as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_last_error=True,
+            )
+        )
+
+    def put(self, request, connector_id):
+        return self._update(request, connector_id, partial=False)
+
+    def patch(self, request, connector_id):
+        return self._update(request, connector_id, partial=True)
+
+    def _update(self, request, connector_id, *, partial: bool):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            ser = ConnectorBucketUpdateSerializer(data=request.data, partial=partial)
+            ser.is_valid(raise_exception=True)
+            vd = ser.validated_data
+            merge_default = False if request.method == 'PUT' else True
+            merge = vd.get('merge_settings', merge_default)
+            kwargs = {}
+            if 'connector_provider' in vd:
+                kwargs['connector_provider'] = vd['connector_provider']
+            if 'connector_settings' in vd:
+                kwargs['connector_settings'] = vd['connector_settings']
+                kwargs['merge_settings'] = merge
+            if 'credential' in vd:
+                kwargs['credential'] = vd['credential']
+            bucket = update_connector_bucket(bucket, **kwargs)
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_last_error=True,
+            )
+        )
+
+    def delete(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            delete_connector_bucket(bucket)
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ConnectorRefreshView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_refresh_create',
+        parameters=[CONNECTOR_ID_PATH],
+        request=None,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_refresh_create'),
+    )
+    def post(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            bucket = refresh_connector_bucket(bucket)
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_last_error=True,
+            )
+        )
+
+
+class ConnectorTestView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_test_create',
+        parameters=[CONNECTOR_ID_PATH],
+        request=None,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_test_create'),
+    )
+    def post(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            bucket = test_connector_bucket(bucket)
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_last_error=True,
+            )
+        )
+
+
+class ConnectorRetryView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_retry_create',
+        parameters=[CONNECTOR_ID_PATH],
+        request=None,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_retry_create'),
+    )
+    def post(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            bucket = retry_connector_bucket(bucket)
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_last_error=True,
+            )
         )
 
 

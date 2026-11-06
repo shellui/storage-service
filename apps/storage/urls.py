@@ -7,6 +7,23 @@ urlpatterns = [
     path('bucket', views.BucketListCreateView.as_view(), name='bucket-list'),
     path('bucket/<slug:bucket_id>', views.BucketDetailView.as_view(), name='bucket-detail'),
     path('bucket/<slug:bucket_id>/empty', views.BucketEmptyView.as_view(), name='bucket-empty'),
+    path('connector', views.ConnectorListCreateView.as_view(), name='connector-list'),
+    path('connector/<slug:connector_id>', views.ConnectorDetailView.as_view(), name='connector-detail'),
+    path(
+        'connector/<slug:connector_id>/refresh',
+        views.ConnectorRefreshView.as_view(),
+        name='connector-refresh',
+    ),
+    path(
+        'connector/<slug:connector_id>/test',
+        views.ConnectorTestView.as_view(),
+        name='connector-test',
+    ),
+    path(
+        'connector/<slug:connector_id>/retry',
+        views.ConnectorRetryView.as_view(),
+        name='connector-retry',
+    ),
     path('access/grant', views.AccessGrantListCreateView.as_view(), name='access-grant-list'),
     path(
         'access/grant/<uuid:grant_id>',

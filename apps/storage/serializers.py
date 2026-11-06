@@ -38,6 +38,61 @@ class BucketAccessSerializer(serializers.Serializer):
     can_write = serializers.BooleanField()
 
 
+class ConnectorBucketCredentialField(McpSecretCharField):
+    """Write-only OAuth or API credential for an external connector (never returned on GET)."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('required', False)
+        kwargs.setdefault('allow_blank', True)
+        kwargs.setdefault('write_only', True)
+        super().__init__(**kwargs)
+
+
+class ConnectorBucketApiSerializer(serializers.Serializer):
+    """Connector bucket row for REST (no raw credential fields)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    company_id = serializers.IntegerField()
+    kind = serializers.ChoiceField(choices=BucketKind.choices)
+    connector_provider = serializers.CharField(allow_null=True)
+    connector_settings = serializers.DictField()
+    credential_configured = serializers.BooleanField()
+    credential_hint = serializers.CharField(required=False)
+    connector_last_refresh_at = serializers.CharField(allow_null=True)
+    connector_last_test_at = serializers.CharField(allow_null=True)
+    connector_retry_after = serializers.CharField(allow_null=True)
+    connector_credential_updated_at = serializers.CharField(allow_null=True)
+    has_credential_error = serializers.BooleanField()
+
+
+class ConnectorBucketCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text='Unique slug for this connector mount within the company (not `company`).',
+    )
+    connector_provider = serializers.CharField()
+    connector_settings = serializers.DictField(required=False)
+    credential = ConnectorBucketCredentialField(
+        required=False,
+        help_text='OAuth refresh token or API secret. Stored encrypted; omitted from every read.',
+    )
+
+
+class ConnectorBucketUpdateSerializer(serializers.Serializer):
+    connector_provider = serializers.CharField(required=False)
+    connector_settings = serializers.DictField(required=False)
+    merge_settings = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text='When true (default), body `connector_settings` merge into existing settings.',
+    )
+    credential = ConnectorBucketCredentialField(
+        required=False,
+        allow_null=True,
+        help_text='Set a new credential, or null to clear.',
+    )
+
+
 class BucketSerializer(serializers.Serializer):
     id = serializers.CharField()
     name = serializers.CharField()

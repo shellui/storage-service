@@ -2,6 +2,12 @@
 
 Notable changes to this project. Format: [Keep a Changelog](http://keepachangelog.com/). Versioning: [Semantic Versioning](http://semver.org/).
 
+## [Unreleased] - yyyy-mm-dd
+
+### ✨ Feature - for new features
+
+- REST and MCP: external connector lifecycle under `/storage/v1/connector` (list, get, create, update, patch, delete, refresh, test, retry). Credentials are encrypted at rest, marked `x-mcp-secret` in OpenAPI, and omitted from responses and connector list rows. Deterministic connectivity simulation uses `connector_settings.simulation` unless `SHELLUI_CONNECTOR_PROVIDER_AVAILABLE=true`.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 

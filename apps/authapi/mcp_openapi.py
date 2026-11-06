@@ -31,6 +31,15 @@ MCP_REQUIRED_OPERATION_IDS: frozenset[str] = frozenset(
         'storage_v1_bucket_list',
         'storage_v1_bucket_retrieve',
         'storage_v1_bucket_empty_create',
+        'storage_v1_connector_list',
+        'storage_v1_connector_retrieve',
+        'storage_v1_connector_create',
+        'storage_v1_connector_update',
+        'storage_v1_connector_partial_update',
+        'storage_v1_connector_destroy',
+        'storage_v1_connector_refresh_create',
+        'storage_v1_connector_test_create',
+        'storage_v1_connector_retry_create',
         'storage_v1_object_list_create',
         'storage_v1_object_id_retrieve',
         'storage_v1_object_retrieve',
@@ -80,6 +89,8 @@ MCP_REQUIRED_SECRET_SCHEMA_PROPERTIES: frozenset[tuple[str, str]] = frozenset(
         ('ShareLink', 'token'),
         ('ActionRuleCreate', 'secret'),
         ('PatchedActionRuleUpdate', 'secret'),
+        ('ConnectorBucketCreate', 'credential'),
+        ('ConnectorBucketUpdate', 'credential'),
     }
 )
 

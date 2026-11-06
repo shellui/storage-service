@@ -26,7 +26,7 @@ Your product stays in the shell. storage-service does not replace identity-servi
 
 ## What it stores and serves
 
-Each company has one system bucket named `company`. The first request that needs it creates that bucket. You do not create extra buckets through the API.
+Each company has one system bucket named `company`. The first request that needs it creates that bucket. Arbitrary bucket names are still disabled on `POST /storage/v1/bucket`; company owners register external read-only connector mounts with `POST /storage/v1/connector` instead.
 
 A file is a `StorageObject`: a path such as `docs/report.pdf`, a size, a MIME type, an owner, and a blob key in the backend. Folders are prefixes. An empty folder is a marker object named `.emptyFolderPlaceholder`.
 

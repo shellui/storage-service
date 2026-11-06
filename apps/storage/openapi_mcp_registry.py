@@ -33,6 +33,54 @@ MCP_SPECS: dict[str, _McpSpec] = {
         'Removes object rows and backend blobs for the bucket scope.', destructive=True,
         notes='Does not delete the bucket row itself.',
     ),
+    'storage_v1_connector_list': _McpSpec(
+        'List external connector mounts',
+        'Returns connector buckets for the JWT company. Omits `connector_last_error` text; use get for details.',
+        'Read-only.',
+    ),
+    'storage_v1_connector_retrieve': _McpSpec(
+        'Read one connector mount',
+        'Returns provider, merged `connector_settings`, credential presence metadata, and the last error string if any.',
+        'Read-only. Does not return stored credentials.',
+    ),
+    'storage_v1_connector_create': _McpSpec(
+        'Create a connector mount',
+        'Company owner only. Registers a read-only `connector` bucket with optional encrypted `credential` and provider `connector_settings`.',
+        'Inserts a bucket row and runs a deterministic connectivity check (or honors `connector_settings.simulation`).',
+        notes='`credential` is write-only with `x-mcp-secret` and never appears in list or detail responses.',
+    ),
+    'storage_v1_connector_update': _McpSpec(
+        'Replace connector configuration (PUT)',
+        'Company owner only. Replaces `connector_settings` unless `merge_settings` is true.',
+        'Updates the bucket row and may rotate the encrypted credential.',
+        notes='Send `credential` only when rotating. Omit the field to keep the previous secret.',
+    ),
+    'storage_v1_connector_partial_update': _McpSpec(
+        'Patch connector configuration',
+        'Company owner only. PATCH merges `connector_settings` by default.',
+        'Updates the bucket row.',
+        notes='Same secret rules as create and PUT.',
+    ),
+    'storage_v1_connector_destroy': _McpSpec(
+        'Delete a connector mount',
+        'Company owner only. Removes the connector bucket row (no objects are stored in connector buckets today).',
+        'Deletes one bucket row.', destructive=True,
+    ),
+    'storage_v1_connector_refresh_create': _McpSpec(
+        'Refresh connector connectivity',
+        'Company owner only. Re-runs the provider check using the stored encrypted credential.',
+        'Updates last refresh or test timestamps and error or retry fields.',
+    ),
+    'storage_v1_connector_test_create': _McpSpec(
+        'Test connector connectivity',
+        'Company owner only. Same behavior as refresh for the deterministic adapter.',
+        'Updates last test timestamp and error state.',
+    ),
+    'storage_v1_connector_retry_create': _McpSpec(
+        'Retry connector after backoff',
+        'Company owner only. Clears or sets `connector_retry_after` based on check outcome.',
+        'Updates connector health metadata.',
+    ),
     'storage_v1_object_list_create': _McpSpec(
         'List objects in a bucket',
         'POST body lists folders and files under an optional `prefix` with paging, search, and sort. '

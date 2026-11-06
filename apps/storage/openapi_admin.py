@@ -22,6 +22,13 @@ BUCKET_ID_PATH = OpenApiParameter(
     description='Bucket slug (for example `company` or a connector mount id).',
 )
 
+CONNECTOR_ID_PATH = OpenApiParameter(
+    name='connector_id',
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description='Connector mount slug (not the reserved `company` bucket name).',
+)
+
 OBJECT_ID_PATH = OpenApiParameter(
     name='object_id',
     type=OpenApiTypes.UUID,

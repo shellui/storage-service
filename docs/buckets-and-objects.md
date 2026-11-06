@@ -22,7 +22,15 @@ A bucket may set `file_size_limit` and `allowed_mime_types`. An empty MIME list 
 
 ## Connector buckets
 
-`kind=connector` is reserved for a read-only mount such as SharePoint or Dropbox. No sync client ships in this service. If a connector row exists, company members can read it and cannot write it. Create and delete of buckets through the API stay disabled, so a connector row is an operator record in Django admin, not an API call.
+`kind=connector` is for a read-only external mount such as SharePoint or Dropbox. **Company owners and Shellui staff** register mounts under `/storage/v1/connector` with a unique slug (not `company`). The body includes `connector_provider`, optional `connector_settings`, and an optional `credential` field that is stored encrypted and is **never** returned on `GET`.
+
+- `GET /storage/v1/connector` lists mounts for the JWT company (`connector_last_error` is omitted on the list; use `GET /storage/v1/connector/{id}` for the last error string when present).
+- `POST /storage/v1/connector` creates the row and runs a deterministic connectivity check. By default the check does **not** call the network. For tests or local use, set `connector_settings.simulation.mode` to `ok`, `error`, or `unavailable`, or set env `SHELLUI_CONNECTOR_PROVIDER_AVAILABLE=true` to skip simulation and report success.
+- `PUT` and `PATCH /storage/v1/connector/{id}` update provider settings; `merge_settings` defaults to false on `PUT` and true on `PATCH`. Sending `credential` rotates the secret; omit it to keep the previous value; send `null` to clear.
+- `POST …/refresh`, `…/test`, and `…/retry` re-run the connectivity check and update timestamps and error metadata. They do not return secrets.
+- `DELETE /storage/v1/connector/{id}` removes the mount row.
+
+Other members see connector buckets on `GET /storage/v1/bucket` and may read paths when a sync materializes objects; writes stay denied by bucket kind. `POST /storage/v1/bucket` is still disabled for arbitrary bucket names; use `/storage/v1/connector` instead.
 
 ## Folders
 

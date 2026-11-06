@@ -76,6 +76,15 @@ class Bucket(models.Model):
     owner_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     # Future: 'sharepoint', 'dropbox', …
     connector_provider = models.CharField(max_length=64, blank=True, default='')
+    # Non-sensitive JSON (display name, root path, provider-specific ids that are not secrets).
+    connector_settings = models.JSONField(default=dict, blank=True)
+    # Fernet-encrypted credential blob (never exposed on list/detail).
+    connector_credential_encrypted = models.TextField(blank=True, default='')
+    connector_last_refresh_at = models.DateTimeField(null=True, blank=True)
+    connector_last_test_at = models.DateTimeField(null=True, blank=True)
+    connector_last_error = models.CharField(max_length=512, blank=True, default='')
+    connector_retry_after = models.DateTimeField(null=True, blank=True)
+    connector_credential_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

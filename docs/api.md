@@ -27,7 +27,8 @@ Paths below are on the storage host, for example `http://localhost:8001`.
 | Group | Paths |
 | --- | --- |
 | Health | `GET /storage/v1/health` |
-| Buckets | `GET /storage/v1/bucket`, `GET /storage/v1/bucket/{name}`. Create, update, and delete return 403 |
+| Buckets | `GET /storage/v1/bucket`, `GET /storage/v1/bucket/{name}`. Create, update, and delete return 403 for non-connectors |
+| Connectors | `GET`, `POST /storage/v1/connector`, `GET`, `PUT`, `PATCH`, `DELETE /storage/v1/connector/{id}`, `POST …/refresh`, `…/test`, `…/retry` (company owner or staff for writes) |
 | Access grants | `GET` and `POST /storage/v1/access/grant`, `DELETE /storage/v1/access/grant/{id}` |
 | Share links | `POST` and `GET /storage/v1/share/{bucket}/{path}`, `GET` and `DELETE /storage/v1/share/link/{token}` |
 | Upload and download | `POST`, `PUT`, `GET`, and `DELETE /storage/v1/object/{bucket}/{path}` |

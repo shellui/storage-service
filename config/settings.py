@@ -173,6 +173,11 @@ if not _secret_key:
     )
 SECRET_KEY = _secret_key
 
+# When true, connector refresh or test skips deterministic simulation and reports success (non-default; tests only).
+SHELLUI_CONNECTOR_PROVIDER_AVAILABLE = os.getenv(
+    'SHELLUI_CONNECTOR_PROVIDER_AVAILABLE', 'false'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
 DEBUG = os.getenv('DEBUG', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 # One-time web bootstrap token for creating the first superuser when DEBUG=false.
 # When unset, use `manage.py createsuperuser` instead of the public form at `/`.
@@ -268,6 +273,7 @@ SPECTACULAR_SETTINGS = {
     },
     'TAGS': [
         {'name': 'buckets', 'description': 'Create and manage storage buckets.'},
+        {'name': 'connectors', 'description': 'External read-only connector mounts (company owner).'},
         {'name': 'objects', 'description': 'Upload, download, list, move, copy, and delete objects.'},
         {'name': 'access', 'description': 'Path-level access grants (invite / restrict / block).'},
         {'name': 'share', 'description': 'Capability share links for anonymous downloads.'},
