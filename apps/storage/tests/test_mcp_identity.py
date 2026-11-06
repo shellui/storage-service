@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -16,6 +17,8 @@ from apps.storage.tests.rs256_helpers import (
     signed_revocation_poll_response_body,
 )
 
+from apps.authapi.mcp_authority import clear_delegated_authority_cache
+
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
@@ -28,21 +31,82 @@ from apps.storage.mcp_identity import (
 _TEST_ISSUER = 'https://identity.test'
 _JWKS, _PRIVATE_PEM, _KID = generate_test_rsa_jwks()
 _SAMPLE_GLOBAL = '18e20f88-286e-46ea-858e-1d75bca615ff'
+_MCP_RESOURCE = 'http://127.0.0.1/mcp'
+
+
+def _identity_authority_response(*, agent_id: str, company_id: int, global_company_id: str, grant_version: int, company_binding_version: int):
+    return {
+        'authorized': True,
+        'revoked': False,
+        'paused': False,
+        'row': {
+            'agent_id': agent_id,
+            'company_id': company_id,
+            'global_company_id': global_company_id,
+            'grant_version': grant_version,
+            'company_binding_version': company_binding_version,
+        },
+    }
+
+
+def _delegated_authority_ok_from_json(body: dict) -> dict:
+    return _identity_authority_response(
+        agent_id=str(body.get('agent_id') or ''),
+        company_id=int(body['company_id']),
+        global_company_id=str(body.get('global_company_id') or ''),
+        grant_version=int(body['grant_version']),
+        company_binding_version=int(body['company_binding_version']),
+    )
+
+
+def _post_mcp_shared_side_effect(*responses):
+    """One side_effect for both Identity client modules: authority URL first, then sequential inner mocks."""
+
+    seq = list(responses)
+    idx = {'n': 0}
+
+    def _fn(*args, **kwargs):
+        url = str(args[0]) if args else ''
+        if 'mcp-delegated-agent-authority' in url:
+            body = kwargs.get('json') if isinstance(kwargs.get('json'), dict) else {}
+            data = _delegated_authority_ok_from_json(body)
+            return MagicMock(status_code=200, json=lambda d=data: d)
+        r = seq[idx['n']]
+        idx['n'] += 1
+        return r() if callable(r) else r
+
+    return _fn
+
+
+@contextmanager
+def _patch_identity_posts(*responses):
+    """Patch ``requests.post`` in mcp_authority and mcp_identity with shared call sequencing."""
+    side = _post_mcp_shared_side_effect(*responses)
+    with (
+        patch('apps.authapi.mcp_authority.requests.post', side_effect=side),
+        patch('apps.storage.mcp_identity.requests.post', side_effect=side) as mock_identity_post,
+    ):
+        yield mock_identity_post
 
 
 def _claims_write(
     *,
+    agent_id: str = 'a1',
     company_id: int = 1,
     grant_version: int = 0,
     global_company_id: str | None = _SAMPLE_GLOBAL,
     company_binding_version: int | None = 0,
 ) -> dict:
     return {
+        'agent_id': agent_id,
         'mcp_access': 'ask',
         'company_id': company_id,
         'grant_version': grant_version,
         'global_company_id': global_company_id,
         'company_binding_version': company_binding_version,
+        'mcp_authority': 'delegated',
+        'iss': _TEST_ISSUER,
+        'aud': _MCP_RESOURCE,
     }
 
 
@@ -76,6 +140,7 @@ def _signed_revocation_body(*, revoked_ids=None, agents=None, max_gv=0):
 )
 class McpIdentityFailClosedTests(SimpleTestCase):
     def setUp(self):
+        clear_delegated_authority_cache()
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
         cache.delete('mcp:revoked_verified_claims')
@@ -251,10 +316,11 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=404)
+        with _patch_identity_posts(lambda: MagicMock(status_code=404)) as mock_post:
             self.assertIsNone(approval_state(payload, _claims_write()))
+        self.assertTrue(mock_post.call_count >= 1)
 
     def test_approval_state_error_on_400(self):
         payload = {
@@ -263,9 +329,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=400)
+        with _patch_identity_posts(lambda: MagicMock(status_code=400)):
             self.assertEqual(approval_state(payload, _claims_write()), 'error')
 
     def test_approval_state_error_on_unknown_status(self):
@@ -275,9 +341,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'status': 'weird'})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'status': 'weird'})):
             self.assertEqual(approval_state(payload, _claims_write()), 'error')
 
     def test_approval_state_returns_denied(self):
@@ -287,9 +353,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'status': 'denied'})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'status': 'denied'})):
             self.assertEqual(approval_state(payload, _claims_write()), 'denied')
 
     def test_approval_state_error_when_approved_missing_id(self):
@@ -299,9 +365,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'status': 'approved'})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'status': 'approved'})):
             self.assertEqual(approval_state(payload, _claims_write()), 'error')
 
     def test_approval_state_returns_expired_for_consumed_row(self):
@@ -311,9 +377,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'status': 'expired'})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'status': 'expired'})):
             self.assertEqual(approval_state(payload, _claims_write()), 'expired')
 
     def test_approval_state_posts_empty_json_body(self):
@@ -323,17 +389,19 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=404)
+        with _patch_identity_posts(lambda: MagicMock(status_code=404)) as mock_post:
             approval_state(payload, _claims_write())
-        self.assertEqual(mock_post.call_args.kwargs['json'], {})
+        last = [c for c in mock_post.call_args_list if 'mcp-approval-state' in str(c)]
+        self.assertTrue(last)
+        self.assertEqual(last[-1].kwargs['json'], {})
 
     def test_consume_approval_false_on_error(self):
-        with patch(
-            'apps.storage.mcp_identity.requests.post',
-            side_effect=requests.RequestException('down'),
-        ):
+        def _fail_consume(*_a, **_k):
+            raise requests.RequestException('down')
+
+        with _patch_identity_posts(_fail_consume):
             self.assertFalse(
                 consume_approval(
                     str(uuid.uuid4()),
@@ -343,6 +411,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                         'service': 'storage',
                         'action': 'write',
                         'arguments_hash': 'hash',
+                        'mcp_expected_resource': _MCP_RESOURCE,
                     },
                     _claims_write(),
                 )
@@ -355,9 +424,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {})):
             self.assertFalse(
                 consume_approval(str(uuid.uuid4()), payload, _claims_write()),
             )
@@ -369,9 +438,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'consumed': False})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'consumed': False})):
             self.assertFalse(
                 consume_approval(str(uuid.uuid4()), payload, _claims_write()),
             )
@@ -383,6 +452,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
         self.assertFalse(consume_approval('not-a-uuid', payload, _claims_write()))
 
@@ -394,12 +464,14 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'service': 'storage',
             'action': 'write',
             'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
         }
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'consumed': True})
+        with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'consumed': True})) as mock_post:
             self.assertTrue(consume_approval(aid, payload, _claims_write()))
-        self.assertEqual(mock_post.call_args.kwargs['json'], {'approval_id': aid})
-        self.assertTrue(mock_post.call_args.kwargs['headers']['Authorization'].startswith('Bearer '))
+        consume_calls = [c for c in mock_post.call_args_list if 'mcp-approval-consume' in str(c)]
+        self.assertTrue(consume_calls)
+        self.assertEqual(consume_calls[-1].kwargs['json'], {'approval_id': aid})
+        self.assertTrue(consume_calls[-1].kwargs['headers']['Authorization'].startswith('Bearer '))
 
     def test_forward_call_log_drops_unapproved_keys(self):
         from apps.storage.mcp_identity import forward_call_log

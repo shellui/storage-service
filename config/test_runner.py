@@ -26,6 +26,10 @@ class IsolatedMediaDiscoverRunner(DiscoverRunner):
     """
 
     def setup_test_environment(self, **kwargs):
+        # Subprocess tests and local .env sometimes set IDENTITY_ISSUER / IDENTITY_AUDIENCE.
+        # Most suite JWTs are HS256 test tokens without iss or aud; clear unless a case overrides.
+        self._identity_claims_override = override_settings(IDENTITY_ISSUER=None, IDENTITY_AUDIENCE=None)
+        self._identity_claims_override.enable()
         self._media_tmpdir = tempfile.TemporaryDirectory(prefix='shellui-storage-tests-')
         media_root = Path(self._media_tmpdir.name)
         self._media_override = override_settings(
@@ -64,6 +68,9 @@ class IsolatedMediaDiscoverRunner(DiscoverRunner):
         try:
             super().teardown_test_environment(**kwargs)
         finally:
+            ident = getattr(self, '_identity_claims_override', None)
+            if ident is not None:
+                ident.disable()
             override = getattr(self, '_media_override', None)
             if override is not None:
                 override.disable()

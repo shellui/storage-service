@@ -23,6 +23,7 @@ from shellui_django.mcp.internal import (
     verify_mcp_revocation_list_response,
 )
 
+from apps.authapi.mcp_authority import DelegatedAuthorityUnavailable, delegated_regional_authority_live_ok
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
     parse_global_agent_id,
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 _REVOKED_CACHE_KEY = 'mcp:revoked_trusted_payload'
 _REVOKED_TRUST_KEY = 'mcp:revoked_list_trusted'
 _REVOKED_VERIFIED_KEY = 'mcp:revoked_verified_claims'
+_REVOKED_EPOCH_KEY = 'mcp:revoked_cache_epoch'
 _REVOKED_LOCK = threading.Lock()
 
 # Allowlist forwarded to Identity call logs (shellui-django / gateway contract).
@@ -112,6 +114,19 @@ def _mark_revocation_untrusted() -> None:
     cache.delete(_REVOKED_CACHE_KEY)
     cache.delete(_REVOKED_VERIFIED_KEY)
     cache.set(_REVOKED_TRUST_KEY, False, timeout=REVOCATION_CACHE_SECONDS)
+    _bump_revocation_epoch()
+
+
+def _bump_revocation_epoch() -> None:
+    try:
+        cache.incr(_REVOKED_EPOCH_KEY)
+    except ValueError:
+        cache.set(_REVOKED_EPOCH_KEY, 1, timeout=None)
+
+
+def revocation_cache_epoch() -> int:
+    v = cache.get(_REVOKED_EPOCH_KEY)
+    return int(v) if isinstance(v, int) and not isinstance(v, bool) else 0
 
 
 def _store_trusted_revocation(
@@ -132,6 +147,7 @@ def _store_trusted_revocation(
     )
     cache.set(_REVOKED_VERIFIED_KEY, verified_signed_claims, timeout=max(cache_seconds, REVOCATION_CACHE_SECONDS))
     cache.set(_REVOKED_TRUST_KEY, True, timeout=max(cache_seconds, REVOCATION_CACHE_SECONDS))
+    _bump_revocation_epoch()
 
 
 def _cached_revocation() -> dict[str, Any] | None:
@@ -482,6 +498,31 @@ def grant_versions_compatible(agent_claims: dict[str, Any]) -> bool | None:
     return gv >= mv
 
 
+def delegated_live_authority_gate(
+    payload: dict[str, Any], agent_claims: dict[str, Any]
+) -> tuple[bool, bool]:
+    """
+    Returns (allow, identity_unavailable).
+
+    When a regional resource token carries the delegated exchange triple, Identity must
+    confirm the live row before approval calls and before direct tools.
+    """
+    ok_claims, _reason, norm = parse_trusted_agent_claims(agent_claims)
+    if not ok_claims or norm is None:
+        return False, False
+    if norm.get('global_company_id') is None:
+        return True, False
+    if norm.get('mcp_authority') != 'delegated':
+        return False, False
+    expected = payload.get('mcp_expected_resource')
+    if not isinstance(expected, str) or not expected.strip():
+        return False, False
+    try:
+        return delegated_regional_authority_live_ok(agent_claims, expected_resource=expected), False
+    except DelegatedAuthorityUnavailable:
+        return False, True
+
+
 def identity_token_ok(agent_claims: dict[str, Any]) -> tuple[bool, str]:
     """Strict claim shape for MCP (all tools). Returns (ok, reason_code)."""
     ok, reason, _norm = parse_trusted_agent_claims(agent_claims)
@@ -495,10 +536,9 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
     args_hash = str(payload.get('arguments_hash') or '')
     if not origin or not agent_id or company_id is None or not args_hash:
         return None
-    try:
-        company_int = int(company_id)
-    except (TypeError, ValueError):
+    if not isinstance(company_id, int) or isinstance(company_id, bool) or company_id < 0:
         return None
+    company_int = company_id
 
     ok_claims, _reason, _norm = parse_trusted_agent_claims(agent_claims)
     if not ok_claims:
@@ -530,6 +570,11 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
 
 
 def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any]) -> dict | None:
+    allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
+    if unavailable:
+        return {'_approval_error': True, 'error_code': 'identity_unavailable', 'message': 'Approval unavailable.'}
+    if not allow:
+        return {'_approval_error': True, 'error_code': 'approval_unavailable', 'message': 'Approval unavailable.'}
     origin = _identity_origin()
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not assertion:
@@ -561,6 +606,11 @@ def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any
 
 def approval_state(payload: dict[str, Any], agent_claims: dict[str, Any]) -> str | None:
     """Resolve approval status from identity-service. Fail closed on errors."""
+    allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
+    if unavailable:
+        return 'error'
+    if not allow:
+        return 'error'
     origin = _identity_origin()
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not assertion:
@@ -648,8 +698,11 @@ def consume_approval(
     payload: dict[str, Any] | None,
     agent_claims: dict[str, Any],
 ) -> bool:
-    origin = _identity_origin()
     payload = payload or {}
+    allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
+    if unavailable or not allow:
+        return False
+    origin = _identity_origin()
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not approval_id or not assertion:
         return False

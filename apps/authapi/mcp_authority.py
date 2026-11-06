@@ -1,8 +1,7 @@
 """
-Live delegated MCP authority check for regional Identity-issued agent tokens.
+Live delegated MCP authority: Identity must confirm the current regional agent row.
 
-Regional tokens that carry the global delegation triple must match Identity's current
-active agent row. Personal regional tokens (no ``global_company_id``) skip this step.
+Used for tokens with a global org triple and ``mcp_authority: delegated``.
 """
 
 from __future__ import annotations
@@ -16,20 +15,19 @@ from typing import Any
 import jwt
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
-from apps.storage.mcp_assertions import (
-    parse_global_company_id,
-    parse_trusted_agent_claims,
-)
+from apps.storage.mcp_assertions import parse_global_company_id, parse_trusted_agent_claims
 from config.service_signing import signing_kwargs
+
+_REVOKED_CACHE_KEY = 'mcp:revoked_trusted_payload'
+_REVOKED_EPOCH_KEY = 'mcp:revoked_cache_epoch'
 
 logger = logging.getLogger(__name__)
 
 _AUTH_LOCK = threading.Lock()
 _AUTH_CACHE: dict[tuple[Any, ...], tuple[float, bool]] = {}
-_AUTH_TTL_SECONDS = 5
 
-# Internal assertion audience for Identity (must match identity-service registration).
 _AGENT_AUTH_AUDIENCE = 'shellui-mcp-agent-authority'
 _AGENT_AUTH_SCOPE = 'mcp.agent.authority.verify'
 
@@ -39,7 +37,6 @@ class DelegatedAuthorityUnavailable(Exception):
 
 
 def build_mcp_agent_authority_assertion(*, audience_url: str, lifetime_seconds: int = 60) -> str:
-    """RS256 assertion for Identity delegated-authority verification."""
     kwargs = signing_kwargs()
     now = int(time.time())
     claims = {
@@ -83,7 +80,6 @@ def _identity_audience_for_assertion(origin: str) -> str:
 
 
 def _is_regional_identity_mcp_token(claims: dict[str, Any], *, expected_resource: str) -> bool:
-    """True when issuer and audience match this service's verified regional MCP access token."""
     iss = str(claims.get('iss') or '')
     cfg_iss = (settings.IDENTITY_ISSUER or '').strip().rstrip('/')
     if not cfg_iss or iss.rstrip('/') != cfg_iss:
@@ -96,24 +92,42 @@ def _is_regional_identity_mcp_token(claims: dict[str, Any], *, expected_resource
     return access_token_audience_matches(claims, exp)
 
 
-def _non_negative_int_strict(v: Any, *, field: str) -> int:
-    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
-        raise ValueError(f'{field}')
-    return v
+def _revocation_ttl_seconds() -> int:
+    from shellui_django.mcp.internal import REVOCATION_CACHE_SECONDS
+
+    payload = cache.get(_REVOKED_CACHE_KEY)
+    if not isinstance(payload, dict):
+        return int(REVOCATION_CACHE_SECONDS)
+    cs = payload.get('cache_seconds')
+    if isinstance(cs, int) and not isinstance(cs, bool) and cs > 0:
+        return min(cs, int(REVOCATION_CACHE_SECONDS))
+    return int(REVOCATION_CACHE_SECONDS)
+
+
+def _revocation_epoch() -> int:
+    v = cache.get(_REVOKED_EPOCH_KEY)
+    return int(v) if isinstance(v, int) and not isinstance(v, bool) else 0
+
+
+def _cache_ttl() -> int:
+    return min(5, _revocation_ttl_seconds())
 
 
 def _request_body_from_claims(claims: dict[str, Any]) -> dict[str, Any]:
     ok, _reason, norm = parse_trusted_agent_claims(claims)
     if not ok or norm is None:
         raise ValueError('claims')
-    gci = norm['global_company_id']
-    if gci is None:
+    if norm.get('global_company_id') is None:
         raise ValueError('not_delegated')
+    if norm.get('mcp_authority') != 'delegated':
+        raise ValueError('not_delegated_exchange')
+    gci = norm['global_company_id']
     agent_id = str(claims.get('agent_id') or '').strip()
     if not agent_id:
         raise ValueError('agent_id')
     cid = claims.get('company_id')
-    _non_negative_int_strict(cid, field='company_id')
+    if not isinstance(cid, int) or isinstance(cid, bool) or cid < 0:
+        raise ValueError('company_id')
     gv = norm['grant_version']
     cbv = norm['company_binding_version']
     if gv is None or cbv is None:
@@ -127,14 +141,56 @@ def _request_body_from_claims(claims: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _row_strict_int(row: dict[str, Any], key: str) -> int | None:
+    if key not in row:
+        return None
+    v = row[key]
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        return None
+    return v
+
+
+def _response_authorizes(body: dict[str, Any], data: dict[str, Any]) -> bool:
+    if data.get('authorized') is not True:
+        return False
+    if data.get('revoked') is not False:
+        return False
+    if data.get('paused') is not False:
+        return False
+    row = data.get('row')
+    if not isinstance(row, dict):
+        return False
+    if str(row.get('agent_id') or '') != body['agent_id']:
+        return False
+    rc = row.get('company_id')
+    if not isinstance(rc, int) or isinstance(rc, bool) or rc != body['company_id']:
+        return False
+    rg = parse_global_company_id(row.get('global_company_id'))
+    if rg != body['global_company_id']:
+        return False
+    rgv = _row_strict_int(row, 'grant_version')
+    rcb = _row_strict_int(row, 'company_binding_version')
+    if rgv is None or rcb is None:
+        return False
+    if rgv != body['grant_version'] or rcb != body['company_binding_version']:
+        return False
+    return True
+
+
+def clear_delegated_authority_cache() -> None:
+    with _AUTH_LOCK:
+        _AUTH_CACHE.clear()
+
+
 def _cache_get(key: tuple[Any, ...]) -> bool | None:
     now = time.monotonic()
+    ttl = _cache_ttl()
     with _AUTH_LOCK:
         ent = _AUTH_CACHE.get(key)
         if not ent:
             return None
         ts, ok = ent
-        if now - ts > _AUTH_TTL_SECONDS:
+        if now - ts > ttl:
             del _AUTH_CACHE[key]
             return None
         return ok
@@ -145,31 +201,25 @@ def _cache_set(key: tuple[Any, ...], ok: bool) -> None:
         _AUTH_CACHE[key] = (time.monotonic(), ok)
 
 
-def clear_delegated_authority_cache() -> None:
-    """Tests: drop cached delegated-authority results."""
-    with _AUTH_LOCK:
-        _AUTH_CACHE.clear()
-
-
 def delegated_regional_authority_live_ok(
     claims: dict[str, Any],
     *,
     expected_resource: str,
 ) -> bool:
     """
-    Return True when claims do not require live delegated verification, or Identity confirms.
+    True when no delegated exchange triple, or Identity authorizes the live row.
 
-    Raises DelegatedAuthorityUnavailable when Identity is required but unreachable.
+    Raises DelegatedAuthorityUnavailable when Identity is required but not reachable.
     """
     if claims.get('global_company_id') is None:
         return True
-    ok_claims, _reason, _norm = parse_trusted_agent_claims(claims)
-    if not ok_claims:
-        # Invalid shape: let ``StrictMcpServer`` return ``identity_invalid``.
+    ok_claims, _reason, norm = parse_trusted_agent_claims(claims)
+    if not ok_claims or norm is None:
+        return False
+    if norm.get('global_company_id') is None:
         return True
-    gci = parse_global_company_id(claims.get('global_company_id'))
-    if gci is None:
-        return True
+    if norm.get('mcp_authority') != 'delegated':
+        return False
 
     if not _is_regional_identity_mcp_token(claims, expected_resource=expected_resource):
         return False
@@ -184,7 +234,9 @@ def delegated_regional_authority_live_ok(
         logger.warning('Delegated authority check skipped: identity URL not configured')
         raise DelegatedAuthorityUnavailable('identity URL not configured')
 
+    epoch = _revocation_epoch()
     cache_key = (
+        epoch,
         body['agent_id'],
         body['company_id'],
         body['global_company_id'],
@@ -232,38 +284,8 @@ def delegated_regional_authority_live_ok(
         _cache_set(cache_key, False)
         return False
 
-    ok = data.get('authorized') is True or data.get('ok') is True
-    status = str(data.get('status') or data.get('state') or '').lower()
-    if status in ('active', 'authorized', 'ok'):
-        ok = True
-    if status in ('revoked', 'paused', 'inactive', 'denied', 'absent'):
-        ok = False
-
-    row = data.get('row') if isinstance(data.get('row'), dict) else None
-    if row:
-
-        def _row_nn_int(key: str) -> int | None:
-            if key not in row:
-                return None
-            v = row.get(key)
-            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
-                return None
-            return v
-
-        if str(row.get('agent_id') or '') != body['agent_id']:
-            ok = False
-        rc = row.get('company_id')
-        if not isinstance(rc, int) or isinstance(rc, bool) or rc != body['company_id']:
-            ok = False
-        rg = parse_global_company_id(row.get('global_company_id'))
-        if rg != body['global_company_id']:
-            ok = False
-        rgv = _row_nn_int('grant_version')
-        rcb = _row_nn_int('company_binding_version')
-        if rgv is None or rcb is None:
-            ok = False
-        elif rgv != body['grant_version'] or rcb != body['company_binding_version']:
-            ok = False
-
+    ok = _response_authorizes(body, data)
     _cache_set(cache_key, ok)
     return ok
+
+

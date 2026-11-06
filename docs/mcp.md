@@ -16,17 +16,36 @@ Exchange for regional tokens uses the Identity OAuth token endpoint for that reg
 
 ## Live delegated authority (regional tokens)
 
-If `global_company_id` is present (delegated regional token), storage-service also calls Identity with a signed service assertion. The POST JSON body is only:
+If `global_company_id` is present and `mcp_authority` is `delegated` (regional exchange token), storage-service calls Identity before **every** delegated-sensitive path: approval create, approval state, approval consume, and each `tools/call` that reaches a direct storage operation.
+
+**HTTP contract (canonical unless Identity publishes a different path; override with `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH`):**
+
+- `POST {IDENTITY_SERVICE_URL}/api/v1/mcp/internal/mcp-delegated-agent-authority`
+- `Authorization: Bearer <service RS256 assertion>`
+- Service assertion `aud`: `shellui-mcp-agent-authority`, `scope`: `mcp.agent.authority.verify`, `target`: Identity issuer URL (see `apps.authapi.mcp_authority.build_mcp_agent_authority_assertion`).
+
+**JSON body (only these keys, strict JSON integers for versions):**
 
 - `agent_id` (UUID string)
 - `company_id` (int, regional)
-- `global_company_id` (canonical lowercase UUID)
+- `global_company_id` (canonical lowercase UUID string)
 - `grant_version` (int, `0` is valid)
 - `company_binding_version` (int, `0` is valid)
 
-No `int()` on raw strings in storage: claim shapes are validated first; the request uses the same Python types as the verified claims. If Identity returns `404`, `5xx`, or the request fails, `POST /mcp` answers `503` with `identity_unavailable`. If Identity answers `200` but denies, or the optional `row` object does not match the triple, the token is rejected (`401`). Wrong `iss` or `aud` skips the network call and rejects delegated tokens. Personal tokens (no `global_company_id`) skip this step.
+No string digit coercion: claim parsing rejects non-integers before the request is built.
 
-Configure `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` when Identity mounts the check elsewhere (see `docs/configuration.md`).
+**Identity must answer with a single authoritative row.** The response is rejected unless `authorized` is `true`, `revoked` is `false`, `paused` is `false`, and `row` is an object whose `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` match the request exactly (same int and UUID rules). Any mismatch, ambiguous semantics, `404`, `5xx`, or transport error is failure. A signed revocation list alone cannot prove “not revoked” or “active”; it only enumerates revocations. Positive authorization comes from this live check (and from the signed snapshot inside the revocation JWT where applicable).
+
+Results for `tools/call`: if Identity is required but unavailable, the HTTP response is `503`. If Identity denies or the row does not match, the HTTP response is `401`. Wrong `iss` or `aud` on the agent token skips the network call and fails closed for delegated exchange tokens. Personal tokens (no `global_company_id`) skip this step.
+
+A short in-process cache (at most a few seconds) is keyed with the revocation cache epoch and bounded by the signed list `cache_seconds`, so a success does not outlive the revocation validation window.
+
+Configure `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` when Identity mounts the check elsewhere (see `docs/configuration.md`). Identity and email-service should implement the **same** URL and payload; do not keep parallel GET query routes for live checks.
+
+## Direct `POST /mcp` versus gateway
+
+- **Direct:** clients call this service at `POST {public origin}/mcp` (see `STORAGE_PUBLIC_URL`). Tools use paths such as `/storage/v1/...` from OpenAPI.
+- **Gateway:** regional Shellui gateways may expose MCP under a company-scoped prefix such as `…/c/{numeric_company_id}/mcp`. That is routing only: the tool definitions and `storage_v1_*` operation ids are the same; the bearer token still targets this service's resource URL (`…/mcp`) per RFC 8707.
 
 ## Required agent token claims
 
@@ -40,6 +59,7 @@ Claims must use the types below. Types match Identity’s regional agent access 
 | `company_binding_version` | omit | required integer, explicit 0 allowed |
 | `global_agent_id` | omit | optional; when present, `global_company_id` and the full triple are required (no partial global) |
 | `personal_token_id` | optional UUID | omit for delegated |
+| `mcp_authority` | omit | required `delegated` for exchange tokens that carry `global_company_id`; must not be `global_delegated` on regional resource tokens (that value is for direct SaaS-issued tokens only) |
 
 If any rule fails, `POST /mcp` returns `401` with `identity_invalid`.
 
@@ -108,6 +128,8 @@ Webhook rules, deliveries, event types, and the company event log carry `x-mcp` 
 
 3. Use JSON-RPC methods `initialize`, `tools/list`, and `tools/call`.
 
+Successful tool execution in JSON-RPC means `result.isError` is false. The inner storage HTTP handler may still return a Supabase-shaped body with `error` or `statusCode` while using HTTP `200`; that case is treated as failure and surfaces as `result.isError` true (HTTP status on the MCP response may be `422` for observability). Do not treat HTTP status on the MCP response alone as success for `tools/call`; inspect `isError` and the text payload.
+
 Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity internal APIs (revocation, approvals, call logs).
 
 ### Example `tools/list` (excerpt)
@@ -125,7 +147,7 @@ Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity
 
 Operation ids match `tools/list` names. Examples:
 
-**List buckets** (`storage_v1_bucket_list`): `GET /storage/v1/bucket`
+**List buckets** (`storage_v1_bucket_list`): `GET /storage/v1/bucket`. The default bucket id is `company` (auto-created). **Create bucket** (`storage_v1_bucket_create`) may respond with `bucket_create_disabled` when custom buckets are not enabled for the company.
 
 ```json
 {

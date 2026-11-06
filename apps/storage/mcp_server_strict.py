@@ -23,7 +23,12 @@ from apps.storage.mcp_assertions import (
     parse_grant_version,
     parse_global_company_id,
 )
-from apps.storage.mcp_identity import grant_versions_compatible, identity_revocation_unavailable, identity_token_ok
+from apps.storage.mcp_identity import (
+    delegated_live_authority_gate,
+    grant_versions_compatible,
+    identity_revocation_unavailable,
+    identity_token_ok,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +62,31 @@ AUDIT_ERROR_CODES = frozenset(
 _IDENTITY_RPC_ERRORS = frozenset({'identity_unavailable', 'identity_invalid', 'agent_revoked'})
 
 
+def _inner_response_failed(*, status_code: int, data: Any) -> bool:
+    """True when HTTP status is a success but the body is a storage business error (not success by code alone)."""
+    if status_code >= 400:
+        return False
+    if isinstance(data, dict) and data.get('ok') is False:
+        return True
+    if isinstance(data, dict) and data.get('error') is not None:
+        return True
+    if isinstance(data, dict) and data.get('statusCode') is not None:
+        return True
+    return False
+
+
+def _inner_response_effective_status(*, status_code: int, data: Any) -> int:
+    if _inner_response_failed(status_code=status_code, data=data):
+        return max(status_code, 422)
+    return status_code
+
+
+def _inner_http_error_code(status_code: int) -> str | None:
+    if status_code >= 400:
+        return _http_status_bucket(status_code)
+    return None
+
+
 def _http_status_bucket(status_code: int) -> str:
     if status_code == 400:
         return 'bad_request'
@@ -68,6 +98,8 @@ def _http_status_bucket(status_code: int) -> str:
         return 'not_found'
     if status_code == 409:
         return 'conflict'
+    if status_code == 422:
+        return 'bad_request'
     if status_code == 408:
         return 'timeout'
     if status_code == 429:
@@ -115,6 +147,7 @@ class StrictMcpServer:
         urlconf: str,
         service_name: str,
         identity_revocation_check: Callable[..., bool],
+        delegated_authority_gate: Callable[[dict[str, Any], dict[str, Any]], tuple[bool, bool]] | None = None,
         on_call: Callable[[dict[str, Any]], None] | None = None,
         approval_handler: Callable[..., dict[str, Any] | None] | None = None,
         approval_state: Callable[..., str | None] | None = None,
@@ -124,13 +157,20 @@ class StrictMcpServer:
         self.urlconf = urlconf
         self.service_name = service_name
         self.identity_revocation_check = identity_revocation_check
+        self.delegated_authority_gate = delegated_authority_gate or delegated_live_authority_gate
         self.on_call = on_call
         self.approval_handler = approval_handler
         self.approval_state = approval_state
         self.approval_consume = approval_consume
         self._factory = APIRequestFactory()
 
-    def handle(self, request: HttpRequest, *, agent_claims: dict[str, Any] | None) -> JsonResponse:
+    def handle(
+        self,
+        request: HttpRequest,
+        *,
+        agent_claims: dict[str, Any] | None,
+        mcp_resource_audience: str | None = None,
+    ) -> JsonResponse:
         if request.method != 'POST':
             return JsonResponse({'error': 'method_not_allowed'}, status=405)
         if agent_claims is None:
@@ -176,7 +216,7 @@ class StrictMcpServer:
             tools = [{k: v for k, v in t.items() if not k.startswith('_')} for t in tools_from_schema(schema)]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
-            return self._tools_call(request, req_id, params, agent_claims)
+            return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
         return JsonResponse(self._error(req_id, -32601, 'Method not found'))
 
     def _tools_call(
@@ -185,6 +225,8 @@ class StrictMcpServer:
         req_id: Any,
         params: dict[str, Any],
         agent_claims: dict[str, Any],
+        *,
+        mcp_resource_audience: str | None,
     ) -> JsonResponse:
         started = time.perf_counter()
         tool_name = str(params.get('name') or '')
@@ -229,6 +271,7 @@ class StrictMcpServer:
         approval_flow_state: str | None = None
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
+            expected_res = mcp_resource_audience if isinstance(mcp_resource_audience, str) else ''
             approval_payload = {
                 'agent_id': agent_claims.get('agent_id'),
                 'company_id': agent_claims.get('company_id'),
@@ -237,6 +280,7 @@ class StrictMcpServer:
                 'arguments_hash': args_hash,
                 'resource_path': audit_path,
                 'http_method': method,
+                'mcp_expected_resource': expected_res.strip() or None,
             }
             granted = False
             if self.approval_state:
@@ -515,6 +559,63 @@ class StrictMcpServer:
                 )
             )
 
+        if parse_global_company_id(agent_claims.get('global_company_id')) is not None:
+            gate = self.delegated_authority_gate
+            payload_gate = {'mcp_expected_resource': (mcp_resource_audience or '').strip() or None}
+            allow, unavailable = gate(payload_gate, agent_claims)
+            if unavailable:
+                self._emit_audit(
+                    request=request,
+                    agent_claims=agent_claims,
+                    tool_name=tool_name,
+                    method=method,
+                    audit_path=audit_path,
+                    operation_title=operation_title,
+                    access_kind=access_kind,
+                    destructive=destructive,
+                    read_level=read_level,
+                    arguments=arguments,
+                    status_code=503,
+                    outcome='failed',
+                    error_code='identity_unavailable',
+                    approval_request_id=None,
+                    approval_id=None,
+                    started=started,
+                )
+                return JsonResponse(
+                    self._result(
+                        req_id,
+                        {'content': [{'type': 'text', 'text': 'Identity unavailable.'}], 'isError': True},
+                    ),
+                    status=503,
+                )
+            if not allow:
+                self._emit_audit(
+                    request=request,
+                    agent_claims=agent_claims,
+                    tool_name=tool_name,
+                    method=method,
+                    audit_path=audit_path,
+                    operation_title=operation_title,
+                    access_kind=access_kind,
+                    destructive=destructive,
+                    read_level=read_level,
+                    arguments=arguments,
+                    status_code=401,
+                    outcome='failed',
+                    error_code='identity_invalid',
+                    approval_request_id=None,
+                    approval_id=None,
+                    started=started,
+                )
+                return JsonResponse(
+                    self._result(
+                        req_id,
+                        {'content': [{'type': 'text', 'text': 'Delegated authority rejected.'}], 'isError': True},
+                    ),
+                    status=401,
+                )
+
         inner_kwargs: dict[str, Any] = {
             'query_params': arguments.get('query') or {},
             'HTTP_AUTHORIZATION': request.META.get('HTTP_AUTHORIZATION', ''),
@@ -533,13 +634,15 @@ class StrictMcpServer:
             data = response.data  # type: ignore[attr-defined]
         except AttributeError:
             data = {'detail': 'ok'}
+        eff_status = _inner_response_effective_status(status_code=status_code, data=data)
         read_sensitive = read_level == 'sensitive'
         redacted = redact_mapping(
             data if isinstance(data, dict) else {'result': data},
             read_sensitive=read_sensitive,
             markers=response_markers,
         )
-        http_outcome = 'allowed' if status_code < 400 else 'failed'
+        inner_fail = _inner_response_failed(status_code=status_code, data=data)
+        http_outcome = 'failed' if eff_status >= 400 else 'allowed'
         cons_approval_id = str(approval_payload['approval_id']) if approval_payload.get('approval_id') else None
         self._emit_audit(
             request=request,
@@ -552,20 +655,20 @@ class StrictMcpServer:
             destructive=destructive,
             read_level=read_level,
             arguments=arguments,
-            status_code=status_code,
+            status_code=eff_status,
             outcome=http_outcome,
-            error_code=None if status_code < 400 else _http_status_bucket(status_code),
+            error_code=_inner_http_error_code(eff_status),
             approval_request_id=None,
             approval_id=cons_approval_id,
             started=started,
-            result_for_audit=redacted if status_code < 400 else None,
+            result_for_audit=redacted if eff_status < 400 else None,
         )
         return JsonResponse(
             self._result(
                 req_id,
                 {
                     'content': [{'type': 'text', 'text': json.dumps(redacted)}],
-                    'isError': status_code >= 400,
+                    'isError': eff_status >= 400,
                 },
             )
         )

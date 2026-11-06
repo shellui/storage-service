@@ -30,7 +30,12 @@ class ParseTrustedAgentClaimsTests(SimpleTestCase):
 
     def test_delegated_requires_full_triplet_including_zero(self):
         ok, _, norm = parse_trusted_agent_claims(
-            _base(global_company_id=_GLOBAL, company_binding_version=0, grant_version=0)
+            _base(
+                global_company_id=_GLOBAL,
+                company_binding_version=0,
+                grant_version=0,
+                mcp_authority='delegated',
+            )
         )
         self.assertTrue(ok)
         assert norm is not None
@@ -81,10 +86,10 @@ class ParseTrustedAgentClaimsTests(SimpleTestCase):
         assert norm is not None
         self.assertEqual(norm['personal_token_id'], tok)
 
-    def test_grant_version_accepts_digit_string(self):
+    def test_grant_version_rejects_digit_strings(self):
         from apps.storage.mcp_assertions import parse_grant_version
 
-        self.assertEqual(parse_grant_version('0'), 0)
-        self.assertEqual(parse_grant_version('12'), 12)
+        self.assertIsNone(parse_grant_version('0'))
+        self.assertIsNone(parse_grant_version('12'))
         self.assertIsNone(parse_grant_version(''))
         self.assertIsNone(parse_grant_version('-1'))

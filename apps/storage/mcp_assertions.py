@@ -28,18 +28,13 @@ def parse_global_company_id(raw: Any) -> str | None:
 
 
 def parse_grant_version(raw: Any) -> int | None:
-    """Non-negative int only; legacy JWT may use decimal digit strings (no bool, no float)."""
+    """Non-negative JSON integer only (no bool, float, or string digits)."""
     if raw is None:
         return None
     if isinstance(raw, bool):
         return None
     if isinstance(raw, int):
         return raw if raw >= 0 else None
-    if isinstance(raw, str):
-        s = raw.strip()
-        if s.isdigit():
-            v = int(s)
-            return v if v >= 0 else None
     return None
 
 
@@ -104,6 +99,15 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     if 'grant_version' in claims and gv is None:
         return False, 'invalid_grant_version', None
 
+    raw_ma = claims.get('mcp_authority')
+    mcp_authority: str | None
+    if raw_ma is None:
+        mcp_authority = None
+    elif isinstance(raw_ma, str) and raw_ma.strip():
+        mcp_authority = raw_ma.strip()
+    else:
+        return False, 'invalid_mcp_authority', None
+
     delegated = gcid is not None or global_agent_id is not None
     if delegated:
         if gcid is None:
@@ -112,9 +116,17 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
             return False, 'missing_company_binding_version', None
         if gv is None:
             return False, 'missing_grant_version', None
+        if mcp_authority is None:
+            return False, 'missing_mcp_authority', None
+        if mcp_authority != 'delegated':
+            if mcp_authority == 'global_delegated':
+                return False, 'global_delegated_not_resource_token', None
+            return False, 'invalid_mcp_authority', None
     else:
         if cbv is not None:
             return False, 'unexpected_company_binding_version', None
+        if mcp_authority in ('delegated', 'global_delegated'):
+            return False, 'unexpected_mcp_authority', None
 
     normalized = {
         'mcp_access': access,
@@ -124,5 +136,6 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
         'company_binding_version': cbv,
         'global_agent_id': global_agent_id,
         'personal_token_id': personal_token_id,
+        'mcp_authority': mcp_authority,
     }
     return True, '', normalized

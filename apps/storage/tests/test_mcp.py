@@ -45,6 +45,7 @@ def _agent_token(
     global_company_id: str | None = None,
     company_binding_version: int | None = None,
     global_agent_id: str | None = None,
+    mcp_authority: str | None = None,
     secret: str = 'test-secret',
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
@@ -68,7 +69,26 @@ def _agent_token(
         payload['company_binding_version'] = company_binding_version
     if global_agent_id is not None:
         payload['global_agent_id'] = global_agent_id
+    if global_company_id is not None or global_agent_id is not None:
+        payload['mcp_authority'] = mcp_authority or 'delegated'
+    elif mcp_authority is not None:
+        payload['mcp_authority'] = mcp_authority
     return jwt.encode(payload, secret, algorithm='HS256')
+
+
+def _delegated_identity_row_json(agent_id: str, company_id: int, global_company_id: str, grant_version: int, company_binding_version: int):
+    return {
+        'authorized': True,
+        'revoked': False,
+        'paused': False,
+        'row': {
+            'agent_id': agent_id,
+            'company_id': company_id,
+            'global_company_id': global_company_id,
+            'grant_version': grant_version,
+            'company_binding_version': company_binding_version,
+        },
+    }
 
 
 _TEST_ISSUER = 'https://identity.test'
@@ -112,7 +132,24 @@ class McpEndpointTests(TestCase):
         self._p_auth_post = patch(_AUTH_POST)
         mock_post = self._p_auth_post.start()
         self.addCleanup(self._p_auth_post.stop)
-        mock_post.return_value = MagicMock(status_code=200, json=lambda: {'authorized': True})
+        def _post_side_effect(*args, **kwargs):
+            url = str(args[0]) if args else ''
+            if 'mcp-delegated-agent-authority' in url:
+                body = kwargs.get('json')
+                if isinstance(body, dict):
+                    return MagicMock(
+                        status_code=200,
+                        json=lambda b=body: _delegated_identity_row_json(
+                            str(b.get('agent_id') or ''),
+                            int(b['company_id']),
+                            str(b.get('global_company_id') or ''),
+                            int(b['grant_version']),
+                            int(b['company_binding_version']),
+                        ),
+                    )
+            return MagicMock(status_code=200, json=lambda: {'authorized': True})
+
+        mock_post.side_effect = _post_side_effect
 
     def test_untagged_internal_path_not_in_openapi(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
