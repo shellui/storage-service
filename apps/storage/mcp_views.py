@@ -7,20 +7,19 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework.request import Request
-from shellui_django.mcp.server import McpServer
-
 from apps.authapi.agent_tokens import authenticate_agent_bearer, mcp_resource_audience
 from shellui_django.mcp.resources import access_token_audience_matches
+
+from apps.storage.mcp_server_strict import StrictMcpServer
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
     consume_approval,
     create_approval_request,
     forward_call_log,
-    identity_revocation_unavailable,
 )
 
-_server: McpServer | None = None
+_server: StrictMcpServer | None = None
 
 
 def _schema() -> dict:
@@ -28,18 +27,18 @@ def _schema() -> dict:
     return generator.get_schema(request=None, public=True)
 
 
-def _approval_state_for_mcp(payload: dict) -> str | None:
-    """Map identity ``expired`` (consumed approval) to ``executed`` for shared ``McpServer``."""
-    state = approval_state(payload)
+def _approval_state_for_mcp(payload: dict, agent_claims: dict) -> str | None:
+    """Map identity ``expired`` (consumed approval) to ``executed`` for the MCP server."""
+    state = approval_state(payload, agent_claims)
     if state == 'expired':
         return 'executed'
     return state
 
 
-def _get_server() -> McpServer:
+def _get_server() -> StrictMcpServer:
     global _server
     if _server is None:
-        _server = McpServer(
+        _server = StrictMcpServer(
             schema_provider=_schema,
             urlconf=settings.ROOT_URLCONF,
             service_name='storage',
@@ -73,6 +72,4 @@ def _agent_claims(request: HttpRequest) -> dict | None:
 @csrf_exempt
 def mcp_endpoint(request: HttpRequest):
     claims = _agent_claims(request)
-    if claims is not None and identity_revocation_unavailable():
-        return JsonResponse({'error': 'identity_unavailable'}, status=503)
     return _get_server().handle(request, agent_claims=claims)

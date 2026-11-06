@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import json
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jwt
 from django.test import Client, TestCase, override_settings
 from drf_spectacular.generators import SchemaGenerator
 
 from apps.storage.access import COMPANY_BUCKET_NAME
-from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
+from apps.storage.tests.rs256_helpers import (
+    MCP_SIGNING_TEST_SETTINGS,
+    generate_test_rsa_jwks,
+    sign_test_revocation_list_assertion,
+)
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
@@ -33,6 +37,9 @@ def _agent_token(
     mcp_access: str = 'read_only',
     scope: str = 'storage',
     aud: str | None = None,
+    grant_version: int | None = None,
+    global_company_id: int | None = None,
+    company_binding_version: int | None = None,
     secret: str = 'test-secret',
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
@@ -48,7 +55,35 @@ def _agent_token(
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
     }
+    if grant_version is not None:
+        payload['grant_version'] = grant_version
+    if global_company_id is not None:
+        payload['global_company_id'] = global_company_id
+    if company_binding_version is not None:
+        payload['company_binding_version'] = company_binding_version
     return jwt.encode(payload, secret, algorithm='HS256')
+
+
+_TEST_ISSUER = 'https://identity.test'
+_TEST_JWKS, _TEST_ID_PEM, _TEST_ID_KID = generate_test_rsa_jwks()
+
+
+def _signed_revocation_for_tests(*, agents=None, revoked=None, max_gv=0):
+    assertion = sign_test_revocation_list_assertion(
+        private_pem=_TEST_ID_PEM,
+        kid=_TEST_ID_KID,
+        issuer=_TEST_ISSUER,
+        revoked_agent_ids=revoked or [],
+        agents=agents or [],
+        cache_seconds=30,
+        max_active_grant_version=max_gv,
+    )
+    return {
+        'revoked_agent_ids': revoked or [],
+        'agents': agents or [],
+        'cache_seconds': 30,
+        'revocation_assertion': assertion,
+    }
 
 
 @override_settings(
@@ -57,7 +92,7 @@ def _agent_token(
     ALLOW_JWT_HS256_FALLBACK=True,
     IDENTITY_ISSUER='https://identity.test',
     IDENTITY_SERVICE_URL='https://identity.test',
-    IDENTITY_JWKS_URL='http://jwks.test/.well-known/jwks.json',
+    IDENTITY_JWKS_DOCUMENT=_TEST_JWKS,
 )
 class McpEndpointTests(TestCase):
     def setUp(self):
@@ -65,6 +100,11 @@ class McpEndpointTests(TestCase):
         import apps.storage.mcp_views as mcp_views
 
         mcp_views._server = None
+        from django.core.cache import cache
+
+        cache.delete('mcp:revoked_trusted_payload')
+        cache.delete('mcp:revoked_list_trusted')
+        cache.delete('mcp:revoked_signed_context')
 
     def test_untagged_internal_path_not_in_openapi(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
@@ -136,10 +176,6 @@ class McpEndpointTests(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_revocation_list_failure_refuses_agent(self):
-        from django.core.cache import cache
-
-        cache.delete('mcp:revoked_trusted_payload')
-        cache.delete('mcp:revoked_list_trusted')
         token = _agent_token()
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value.status_code = 404
@@ -159,15 +195,19 @@ class McpEndpointTests(TestCase):
     def test_revoked_agent_refused(self):
         agent_id = str(uuid.uuid4())
         token = _agent_token(agent_id=agent_id)
-        with patch('apps.storage.mcp_views.identity_revocation_unavailable', return_value=False):
-            with patch('apps.storage.mcp_views.agent_is_revoked', return_value=True):
-                response = self.client.post(
-                    '/mcp',
-                    data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
-                    content_type='application/json',
-                    HTTP_AUTHORIZATION=f'Bearer {token}',
-                    **_mcp_host_kwargs(),
-                )
+        body = _signed_revocation_for_tests(
+            revoked=[agent_id],
+            agents=[{'agent_id': agent_id, 'company_id': 10, 'grant_version': 0}],
+        )
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            response = self.client.post(
+                '/mcp',
+                data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['error'], 'agent_revoked')
 
@@ -176,6 +216,9 @@ class McpEndpointTests(TestCase):
         tools = tools_from_schema(schema)
         write_tool = next(t for t in tools if t['name'] == 'storage_v1_object_destroy')
         token = _agent_token(mcp_access=ACCESS_READ_ONLY)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        aid = str(claims['agent_id'])
+        cid = int(claims['company_id'])
         body = {
             'jsonrpc': '2.0',
             'id': 2,
@@ -194,15 +237,20 @@ class McpEndpointTests(TestCase):
                 },
             },
         }
-        with patch('apps.storage.mcp_views.identity_revocation_unavailable', return_value=False):
-            with patch('apps.storage.mcp_views.agent_is_revoked', return_value=False):
-                response = self.client.post(
-                    '/mcp',
-                    data=json.dumps(body),
-                    content_type='application/json',
-                    HTTP_AUTHORIZATION=f'Bearer {token}',
-                    **_mcp_host_kwargs(),
-                )
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(
+                    agents=[{'agent_id': aid, 'company_id': cid, 'grant_version': 0}],
+                ),
+            )
+            response = self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
         payload = response.json()
         self.assertIn('result', payload)
         self.assertTrue(payload['result'].get('isError'))
@@ -218,7 +266,15 @@ class McpEndpointTests(TestCase):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = tools_from_schema(schema)
         tool = next(t for t in tools if t['name'] == 'storage_v1_access_grant_create')
-        token = _agent_token(mcp_access=ACCESS_ASK)
+        token = _agent_token(
+            mcp_access=ACCESS_ASK,
+            grant_version=0,
+            global_company_id=10,
+            company_binding_version=1,
+        )
+        claims = jwt.decode(token, options={'verify_signature': False})
+        aid = str(claims['agent_id'])
+        cid = int(claims['company_id'])
         body = {
             'jsonrpc': '2.0',
             'id': 3,
@@ -233,19 +289,24 @@ class McpEndpointTests(TestCase):
                 },
             },
         }
-        with patch('apps.storage.mcp_views.identity_revocation_unavailable', return_value=False):
-            with patch('apps.storage.mcp_views.agent_is_revoked', return_value=False):
-                with patch(
-                    'apps.storage.mcp_views.create_approval_request',
-                    return_value={'id': 'approval-1'},
-                ):
-                    response = self.client.post(
-                        '/mcp',
-                        data=json.dumps(body),
-                        content_type='application/json',
-                        HTTP_AUTHORIZATION=f'Bearer {token}',
-                        **_mcp_host_kwargs(),
-                    )
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(
+                    agents=[{'agent_id': aid, 'company_id': cid, 'grant_version': 0}],
+                ),
+            )
+            with patch(
+                'apps.storage.mcp_views.create_approval_request',
+                return_value={'id': 'approval-1'},
+            ):
+                response = self.client.post(
+                    '/mcp',
+                    data=json.dumps(body),
+                    content_type='application/json',
+                    HTTP_AUTHORIZATION=f'Bearer {token}',
+                    **_mcp_host_kwargs(),
+                )
         payload = response.json()['result']
         self.assertTrue(payload.get('isError'))
         meta = payload.get('meta') or {}

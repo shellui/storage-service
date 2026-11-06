@@ -56,6 +56,7 @@ def sign_test_revocation_list_assertion(
     revoked_agent_ids: list[str],
     agents: list[dict] | None = None,
     cache_seconds: int = 30,
+    max_active_grant_version: int = 0,
 ) -> str:
     now = int(time.time())
     claims = {
@@ -66,6 +67,7 @@ def sign_test_revocation_list_assertion(
         'revoked_agent_ids': revoked_agent_ids,
         'agents': agents or [],
         'cache_seconds': cache_seconds,
+        'max_active_grant_version': max_active_grant_version,
         'iat': now,
         'exp': now + cache_seconds,
         'jti': uuid.uuid4().hex,
