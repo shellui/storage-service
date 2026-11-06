@@ -32,7 +32,7 @@ The published schema excludes `/api/v1/internal/*` and `/api/v1/scheduled-jobs*`
 | Area | Examples |
 | --- | --- |
 | Buckets | List and read the company bucket; empty a bucket (destructive). |
-| Connectors | List, read, create, update, delete connector mounts; refresh, test, or retry connectivity (company owner; `credential` is `x-mcp-secret`). |
+| Connectors | List, read, create, update, delete connector mounts; re-run local configuration checks (`configuration/check`, `configuration/validate`, `configuration/retry`; company owner; `credential` is `x-mcp-secret`). |
 | Objects | List, upload, download, move, copy, delete, folder prefix stats/rename/delete, signed URLs. |
 | Access | List, create, and revoke path-level access grants. |
 | Share links | Create and list links for an object; revoke by token (not anonymous redeem). |

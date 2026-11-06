@@ -41,12 +41,11 @@ from .access import (
 )
 from .connector_services import (
     ConnectorError,
+    allow_connector_dev_simulation,
+    check_connector_configuration,
     create_connector_bucket,
     delete_connector_bucket,
-    refresh_connector_bucket,
-    retry_connector_bucket,
     serialize_connector_bucket_api,
-    test_connector_bucket,
     update_connector_bucket,
 )
 from .downloads import build_download_response, build_signed_url
@@ -287,6 +286,7 @@ class ConnectorListCreateView(APIView):
                 connector_settings=vd.get('connector_settings'),
                 credential=vd.get('credential') or None,
                 owner_id=int(request.user.user_id),
+                allow_dev_simulation=allow_connector_dev_simulation(),
             )
         except (StorageError, ConnectorError) as exc:
             return _error(exc)
@@ -295,7 +295,7 @@ class ConnectorListCreateView(APIView):
                 bucket,
                 include_secret_hint=True,
                 include_provider_details=True,
-                include_last_error=True,
+                include_issue_code=True,
             ),
             status=status.HTTP_201_CREATED,
         )
@@ -346,7 +346,7 @@ class ConnectorDetailView(APIView):
                 bucket,
                 include_secret_hint=True,
                 include_provider_details=True,
-                include_last_error=True,
+                include_issue_code=True,
             )
         )
 
@@ -373,7 +373,11 @@ class ConnectorDetailView(APIView):
                 kwargs['merge_settings'] = merge
             if 'credential' in vd:
                 kwargs['credential'] = vd['credential']
-            bucket = update_connector_bucket(bucket, **kwargs)
+            bucket = update_connector_bucket(
+                bucket,
+                allow_dev_simulation=allow_connector_dev_simulation(),
+                **kwargs,
+            )
         except (StorageError, ConnectorError) as exc:
             return _error(exc)
         return Response(
@@ -381,7 +385,7 @@ class ConnectorDetailView(APIView):
                 bucket,
                 include_secret_hint=True,
                 include_provider_details=True,
-                include_last_error=True,
+                include_issue_code=True,
             )
         )
 
@@ -395,22 +399,22 @@ class ConnectorDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ConnectorRefreshView(APIView):
+class ConnectorConfigurationCheckView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
     @extend_schema(
         tags=['connectors'],
-        operation_id='storage_v1_connector_refresh_create',
+        operation_id='storage_v1_connector_configuration_check_create',
         parameters=[CONNECTOR_ID_PATH],
         request=None,
         responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
-        **mcp_openapi_fields('storage_v1_connector_refresh_create'),
+        **mcp_openapi_fields('storage_v1_connector_configuration_check_create'),
     )
     def post(self, request, connector_id):
         try:
             _require_connector_admin(request.user)
             bucket = _get_connector_bucket(request.user, connector_id)
-            bucket = refresh_connector_bucket(bucket)
+            bucket = check_connector_configuration(bucket, allow_dev_simulation=allow_connector_dev_simulation())
         except (StorageError, ConnectorError) as exc:
             return _error(exc)
         return Response(
@@ -418,27 +422,27 @@ class ConnectorRefreshView(APIView):
                 bucket,
                 include_secret_hint=True,
                 include_provider_details=True,
-                include_last_error=True,
+                include_issue_code=True,
             )
         )
 
 
-class ConnectorTestView(APIView):
+class ConnectorConfigurationValidateView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
     @extend_schema(
         tags=['connectors'],
-        operation_id='storage_v1_connector_test_create',
+        operation_id='storage_v1_connector_configuration_validate_create',
         parameters=[CONNECTOR_ID_PATH],
         request=None,
         responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
-        **mcp_openapi_fields('storage_v1_connector_test_create'),
+        **mcp_openapi_fields('storage_v1_connector_configuration_validate_create'),
     )
     def post(self, request, connector_id):
         try:
             _require_connector_admin(request.user)
             bucket = _get_connector_bucket(request.user, connector_id)
-            bucket = test_connector_bucket(bucket)
+            bucket = check_connector_configuration(bucket, allow_dev_simulation=allow_connector_dev_simulation())
         except (StorageError, ConnectorError) as exc:
             return _error(exc)
         return Response(
@@ -446,27 +450,27 @@ class ConnectorTestView(APIView):
                 bucket,
                 include_secret_hint=True,
                 include_provider_details=True,
-                include_last_error=True,
+                include_issue_code=True,
             )
         )
 
 
-class ConnectorRetryView(APIView):
+class ConnectorConfigurationRetryView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
     @extend_schema(
         tags=['connectors'],
-        operation_id='storage_v1_connector_retry_create',
+        operation_id='storage_v1_connector_configuration_retry_create',
         parameters=[CONNECTOR_ID_PATH],
         request=None,
         responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
-        **mcp_openapi_fields('storage_v1_connector_retry_create'),
+        **mcp_openapi_fields('storage_v1_connector_configuration_retry_create'),
     )
     def post(self, request, connector_id):
         try:
             _require_connector_admin(request.user)
             bucket = _get_connector_bucket(request.user, connector_id)
-            bucket = retry_connector_bucket(bucket)
+            bucket = check_connector_configuration(bucket, allow_dev_simulation=allow_connector_dev_simulation())
         except (StorageError, ConnectorError) as exc:
             return _error(exc)
         return Response(
@@ -474,7 +478,7 @@ class ConnectorRetryView(APIView):
                 bucket,
                 include_secret_hint=True,
                 include_provider_details=True,
-                include_last_error=True,
+                include_issue_code=True,
             )
         )
 

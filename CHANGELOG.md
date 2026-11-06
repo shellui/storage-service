@@ -6,7 +6,7 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 ### ✨ Feature - for new features
 
-- REST and MCP: external connector lifecycle under `/storage/v1/connector` (list, get, create, update, patch, delete, refresh, test, retry). Credentials are encrypted at rest, marked `x-mcp-secret` in OpenAPI, and omitted from responses and connector list rows. Deterministic connectivity simulation uses `connector_settings.simulation` unless `SHELLUI_CONNECTOR_PROVIDER_AVAILABLE=true`.
+- REST and MCP: external connector lifecycle under `/storage/v1/connector` (list, get, create, update, patch, delete) plus local configuration actions `POST …/configuration/check`, `…/configuration/validate`, and `…/configuration/retry`. Credentials are encrypted at rest, marked `x-mcp-secret` in OpenAPI, and omitted from responses. Only allowlisted non-secret `connector_settings` keys are stored and returned. Responses use `connector_last_issue_code` and `connector_configuration_status`, not raw provider errors. Checks validate configuration locally; they do not call live providers. Optional `connector_settings._dev_simulation` applies only when DEBUG or `TEST_MODE` is on.
 
 <!---
 ## [Unreleased] - yyyy-mm-dd

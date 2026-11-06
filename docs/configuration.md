@@ -48,6 +48,7 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DEBUG` | `false` | Local mode. The image sets `false`. Compose passes the value from `.env`, where the example file sets `true` |
+| `TEST_MODE` | `false` | Django test runs set this. Enables connector `_dev_simulation` for tests only. Leave false in production |
 | `LOG_LEVEL` | `INFO`, or `DEBUG` when `DEBUG=true` | Python log level |
 | `SETUP_TOKEN` | empty | One-time token for the web form that creates the first superuser when `DEBUG=false` |
 | `STORAGE_SERVICE_PORT` | `8001` | Host port published by Docker Compose. Gunicorn inside the image listens on 8000 |
@@ -185,8 +186,6 @@ Shellui MCP exposes tagged OpenAPI operations to agents over `POST /mcp`. See [S
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MCP_RATE_LIMIT_AGENT` | `120` | Per-agent request limit per minute on `POST /mcp` |
-| `SHELLUI_CONNECTOR_PROVIDER_AVAILABLE` | `false` | When `true`, connector refresh or test reports success without deterministic simulation (non-default; tests or special deployments) |
-
 ## Shellui Actions
 
 Webhooks do not need Redis. These variables tune delivery. The catalog and the admin API are in [Webhooks](actions.md).

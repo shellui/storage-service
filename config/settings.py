@@ -173,12 +173,9 @@ if not _secret_key:
     )
 SECRET_KEY = _secret_key
 
-# When true, connector refresh or test skips deterministic simulation and reports success (non-default; tests only).
-SHELLUI_CONNECTOR_PROVIDER_AVAILABLE = os.getenv(
-    'SHELLUI_CONNECTOR_PROVIDER_AVAILABLE', 'false'
-).strip().lower() in {'1', 'true', 'yes', 'on'}
-
 DEBUG = os.getenv('DEBUG', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
+# True during Django test runs (see manage.py). Used for connector dev simulation in tests only.
+TEST_MODE = os.getenv('TEST_MODE', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 # One-time web bootstrap token for creating the first superuser when DEBUG=false.
 # When unset, use `manage.py createsuperuser` instead of the public form at `/`.
 SETUP_TOKEN = os.getenv('SETUP_TOKEN', '').strip()

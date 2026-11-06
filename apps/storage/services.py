@@ -110,7 +110,8 @@ def serialize_bucket(bucket: Bucket, *, principal=None) -> dict:
                 'connector_last_test_at': meta['connector_last_test_at'],
                 'connector_retry_after': meta['connector_retry_after'],
                 'connector_credential_updated_at': meta['connector_credential_updated_at'],
-                'has_credential_error': meta['has_credential_error'],
+                'connector_configuration_status': meta['connector_configuration_status'],
+                'has_connector_issue': meta['has_connector_issue'],
                 'connector_settings': {},
             }
         )

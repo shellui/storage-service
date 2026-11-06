@@ -63,7 +63,14 @@ class ConnectorBucketApiSerializer(serializers.Serializer):
     connector_last_test_at = serializers.CharField(allow_null=True)
     connector_retry_after = serializers.CharField(allow_null=True)
     connector_credential_updated_at = serializers.CharField(allow_null=True)
-    has_credential_error = serializers.BooleanField()
+    connector_configuration_status = serializers.CharField(
+        help_text='configured, disconnected, unsupported, adapter_unavailable, or configuration_invalid (local checks only; not live provider status).',
+    )
+    has_connector_issue = serializers.BooleanField()
+    connector_last_issue_code = serializers.CharField(
+        required=False,
+        help_text='Stable machine code when a check recorded an issue (no raw provider text).',
+    )
 
 
 class ConnectorBucketCreateSerializer(serializers.Serializer):

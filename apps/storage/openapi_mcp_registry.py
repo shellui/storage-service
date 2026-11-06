@@ -35,19 +35,19 @@ MCP_SPECS: dict[str, _McpSpec] = {
     ),
     'storage_v1_connector_list': _McpSpec(
         'List external connector mounts',
-        'Returns connector buckets for the JWT company. Omits `connector_last_error` text; use get for details.',
+        'Returns connector buckets for the JWT company. Omits secrets and returns only allowlisted `connector_settings` keys on GET detail.',
         'Read-only.',
     ),
     'storage_v1_connector_retrieve': _McpSpec(
         'Read one connector mount',
-        'Returns provider, merged `connector_settings`, credential presence metadata, and the last error string if any.',
+        'Returns provider, allowlisted `connector_settings`, credential presence metadata, and a stable `connector_last_issue_code` when present (no raw provider errors).',
         'Read-only. Does not return stored credentials.',
     ),
     'storage_v1_connector_create': _McpSpec(
         'Create a connector mount',
-        'Company owner only. Registers a read-only `connector` bucket with optional encrypted `credential` and provider `connector_settings`.',
-        'Inserts a bucket row and runs a deterministic connectivity check (or honors `connector_settings.simulation`).',
-        notes='`credential` is write-only with `x-mcp-secret` and never appears in list or detail responses.',
+        'Company owner only. Registers a read-only `connector` bucket with optional encrypted `credential` and allowlisted `connector_settings`.',
+        'Inserts a bucket row and runs a local configuration and credential check (no live provider call; no remote sync).',
+        notes='`credential` is write-only with `x-mcp-secret` and never appears in list or detail responses. In DEBUG or tests, optional `connector_settings._dev_simulation` may steer the check.',
     ),
     'storage_v1_connector_update': _McpSpec(
         'Replace connector configuration (PUT)',
@@ -66,20 +66,20 @@ MCP_SPECS: dict[str, _McpSpec] = {
         'Company owner only. Removes the connector bucket row (no objects are stored in connector buckets today).',
         'Deletes one bucket row.', destructive=True,
     ),
-    'storage_v1_connector_refresh_create': _McpSpec(
-        'Refresh connector connectivity',
-        'Company owner only. Re-runs the provider check using the stored encrypted credential.',
-        'Updates last refresh or test timestamps and error or retry fields.',
+    'storage_v1_connector_configuration_check_create': _McpSpec(
+        'Re-run local connector configuration check',
+        'Company owner only. Validates allowlisted settings and stored credential decrypt using the same rules as create and update. Not a live provider or remote connectivity test.',
+        'Updates last refresh and test timestamps, `connector_last_issue_code`, and `connector_retry_after` when the check does not pass.',
     ),
-    'storage_v1_connector_test_create': _McpSpec(
-        'Test connector connectivity',
-        'Company owner only. Same behavior as refresh for the deterministic adapter.',
-        'Updates last test timestamp and error state.',
+    'storage_v1_connector_configuration_validate_create': _McpSpec(
+        'Validate stored connector configuration locally',
+        'Company owner only. Same local check as configuration check (alias for agents).',
+        'Updates last refresh and test timestamps and issue metadata when the check does not pass.',
     ),
-    'storage_v1_connector_retry_create': _McpSpec(
-        'Retry connector after backoff',
-        'Company owner only. Clears or sets `connector_retry_after` based on check outcome.',
-        'Updates connector health metadata.',
+    'storage_v1_connector_configuration_retry_create': _McpSpec(
+        'Retry local configuration check after backoff',
+        'Company owner only. Same local check; may clear `connector_retry_after` when the configuration check passes.',
+        'Updates connector health metadata fields.',
     ),
     'storage_v1_object_list_create': _McpSpec(
         'List objects in a bucket',

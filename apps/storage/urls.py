@@ -10,19 +10,19 @@ urlpatterns = [
     path('connector', views.ConnectorListCreateView.as_view(), name='connector-list'),
     path('connector/<slug:connector_id>', views.ConnectorDetailView.as_view(), name='connector-detail'),
     path(
-        'connector/<slug:connector_id>/refresh',
-        views.ConnectorRefreshView.as_view(),
-        name='connector-refresh',
+        'connector/<slug:connector_id>/configuration/check',
+        views.ConnectorConfigurationCheckView.as_view(),
+        name='connector-configuration-check',
     ),
     path(
-        'connector/<slug:connector_id>/test',
-        views.ConnectorTestView.as_view(),
-        name='connector-test',
+        'connector/<slug:connector_id>/configuration/validate',
+        views.ConnectorConfigurationValidateView.as_view(),
+        name='connector-configuration-validate',
     ),
     path(
-        'connector/<slug:connector_id>/retry',
-        views.ConnectorRetryView.as_view(),
-        name='connector-retry',
+        'connector/<slug:connector_id>/configuration/retry',
+        views.ConnectorConfigurationRetryView.as_view(),
+        name='connector-configuration-retry',
     ),
     path('access/grant', views.AccessGrantListCreateView.as_view(), name='access-grant-list'),
     path(

@@ -45,6 +45,7 @@ REQUIRED = (
 
 OPTIONAL = (
     Var('LOG_LEVEL', 'INFO', 'Runtime'),
+    Var('TEST_MODE', 'false', 'Runtime'),
     Var('SETUP_TOKEN', ''),
     Var('DJANGO_ADMIN_ENABLED', 'true'),
     Var('STORAGE_SERVICE_PORT', '8001'),
@@ -107,11 +108,6 @@ OPTIONAL = (
     Var('EMAIL_SERVICE_URL', 'https://email.shellui.com'),
     Var('EMAIL_SERVICE_ALLOW_PRIVATE', 'false'),
     Var('MCP_RATE_LIMIT_AGENT', '120', 'Shellui MCP per-agent rate limit (requests per minute).'),
-    Var(
-        'SHELLUI_CONNECTOR_PROVIDER_AVAILABLE',
-        'false',
-        'When true, connector refresh or test reports success without deterministic simulation',
-    ),
     Var('SENTRY_DSN', '', 'Sentry'),
     Var('SENTRY_ENVIRONMENT', 'production'),
     Var('SENTRY_RELEASE', ''),

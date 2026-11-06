@@ -1469,7 +1469,7 @@ class StorageAPITests(TestCase):
             {
                 'name': 'sp-new',
                 'connector_provider': 'sharepoint',
-                'connector_settings': {'simulation': {'mode': 'ok'}},
+                'connector_settings': {'_dev_simulation': {'mode': 'ok'}},
                 'credential': 'oauth-refresh-token',
             },
             format='json',
@@ -1483,7 +1483,7 @@ class StorageAPITests(TestCase):
             {
                 'name': 'sp-new',
                 'connector_provider': 'sharepoint',
-                'connector_settings': {'simulation': {'mode': 'ok'}},
+                'connector_settings': {'_dev_simulation': {'mode': 'ok'}},
                 'credential': 'oauth-refresh-token',
             },
             format='json',
@@ -1493,6 +1493,8 @@ class StorageAPITests(TestCase):
         body = created.json()
         self.assertEqual(body['name'], 'sp-new')
         self.assertTrue(body['credential_configured'])
+        self.assertEqual(body['connector_configuration_status'], 'configured')
+        self.assertFalse(body['has_connector_issue'])
         self.assertNotIn('credential', body)
         self.assertNotIn('connector_credential_encrypted', body)
 
@@ -1500,39 +1502,74 @@ class StorageAPITests(TestCase):
         self.assertEqual(listed.status_code, 200)
         rows = {r['name']: r for r in listed.json()}
         self.assertIn('sp-new', rows)
-        self.assertNotIn('connector_last_error', rows['sp-new'])
+        self.assertNotIn('connector_last_issue_code', rows['sp-new'])
 
         buckets = self.client.get('/storage/v1/bucket', **self.auth)
         self.assertEqual(buckets.status_code, 200)
         by_name = {b['name']: b for b in buckets.json()}
         self.assertIn('sp-new', by_name)
         self.assertFalse(by_name['sp-new']['access']['can_write'])
+        self.assertEqual(by_name['sp-new']['connector_configuration_status'], 'configured')
+        self.assertFalse(by_name['sp-new']['has_connector_issue'])
+
+        bad_nested = self.client.post(
+            '/storage/v1/connector',
+            {
+                'name': 'sp-nested-secret',
+                'connector_provider': 'sharepoint',
+                'connector_settings': {'display_name': 'x', 'nested': {'client_secret': 'nope'}},
+            },
+            format='json',
+            **owner_auth,
+        )
+        self.assertEqual(bad_nested.status_code, 400)
+        self.assertEqual(bad_nested.json().get('error'), 'settings_secret_key_forbidden')
 
         failed = self.client.post(
             '/storage/v1/connector',
             {
                 'name': 'sp-bad',
                 'connector_provider': 'sharepoint',
-                'connector_settings': {'simulation': {'mode': 'error', 'message': 'Simulated outage'}},
+                'connector_settings': {'_dev_simulation': {'mode': 'error'}},
             },
             format='json',
             **owner_auth,
         )
         self.assertEqual(failed.status_code, 201)
-        self.assertTrue(failed.json()['has_credential_error'])
+        self.assertTrue(failed.json()['has_connector_issue'])
+        self.assertEqual(failed.json()['connector_last_issue_code'], 'dev_simulation_error')
 
         fixed = self.client.patch(
             '/storage/v1/connector/sp-bad',
-            {'connector_settings': {'simulation': {'mode': 'ok'}}},
+            {
+                'connector_settings': {'_dev_simulation': {'mode': 'ok'}},
+                'credential': 'rotated-token',
+            },
             format='json',
             **owner_auth,
         )
         self.assertEqual(fixed.status_code, 200)
-        self.assertFalse(fixed.json()['has_credential_error'])
+        self.assertFalse(fixed.json()['has_connector_issue'])
+        self.assertEqual(fixed.json()['connector_configuration_status'], 'configured')
 
-        refreshed = self.client.post('/storage/v1/connector/sp-bad/refresh', **owner_auth)
+        refreshed = self.client.post('/storage/v1/connector/sp-bad/configuration/check', **owner_auth)
         self.assertEqual(refreshed.status_code, 200)
-        self.assertFalse(refreshed.json()['has_credential_error'])
+        self.assertFalse(refreshed.json()['has_connector_issue'])
+
+        with override_settings(DEBUG=False, TEST_MODE=False):
+            prod = self.client.post(
+                '/storage/v1/connector',
+                {
+                    'name': 'sp-prod-sim',
+                    'connector_provider': 'sharepoint',
+                    'connector_settings': {'_dev_simulation': {'mode': 'ok'}},
+                    'credential': 'token',
+                },
+                format='json',
+                **owner_auth,
+            )
+        self.assertEqual(prod.status_code, 400)
+        self.assertEqual(prod.json().get('error'), 'simulation_not_allowed')
 
         deleted = self.client.delete('/storage/v1/connector/sp-bad', **owner_auth)
         self.assertEqual(deleted.status_code, 204)

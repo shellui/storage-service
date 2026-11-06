@@ -19,9 +19,9 @@ def register_storage_mcp_tools() -> None:
     write('storage_v1_connector_update', sensitive=True)
     write('storage_v1_connector_partial_update', sensitive=True)
     write('storage_v1_connector_destroy', destructive=True)
-    write('storage_v1_connector_refresh_create', sensitive=True)
-    write('storage_v1_connector_test_create', sensitive=True)
-    write('storage_v1_connector_retry_create', sensitive=True)
+    write('storage_v1_connector_configuration_check_create', sensitive=True)
+    write('storage_v1_connector_configuration_validate_create', sensitive=True)
+    write('storage_v1_connector_configuration_retry_create', sensitive=True)
 
     read('storage_v1_object_list_create')
     read('storage_v1_object_id_retrieve')

@@ -31,6 +31,7 @@ class IsolatedMediaDiscoverRunner(DiscoverRunner):
         self._media_override = override_settings(
             STORAGE_BACKEND='filesystem',
             MEDIA_ROOT=str(media_root),
+            TEST_MODE=True,
             AWS_STORAGE_BUCKET_NAME='',
             AWS_ACCESS_KEY_ID='',
             AWS_SECRET_ACCESS_KEY='',

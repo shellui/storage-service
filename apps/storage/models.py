@@ -82,7 +82,12 @@ class Bucket(models.Model):
     connector_credential_encrypted = models.TextField(blank=True, default='')
     connector_last_refresh_at = models.DateTimeField(null=True, blank=True)
     connector_last_test_at = models.DateTimeField(null=True, blank=True)
-    connector_last_error = models.CharField(max_length=512, blank=True, default='')
+    connector_last_issue_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Stable code for the last configuration or credential check (never raw provider text).',
+    )
     connector_retry_after = models.DateTimeField(null=True, blank=True)
     connector_credential_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
