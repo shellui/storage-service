@@ -30,8 +30,13 @@ def _identity_ok(
     active: bool = True,
     revoked: bool = False,
     paused: bool = False,
+    access_mode: str = 'read_only',
+    read_level: str = 'safe',
+    allow_destructive: bool = False,
+    services_allowed: list[str] | None = None,
+    revoked_at: int | None = None,
 ) -> dict:
-    """Identity ``mcp-agent-delegated-authority`` HTTP 200 body (identity-service 6a27176, no extra keys)."""
+    """Identity ``mcp-agent-delegated-authority`` HTTP 200 body (identity-service d7fe351: exactly 15 keys)."""
     return {
         'authorized': authorized,
         'active': active if authorized else False,
@@ -43,6 +48,11 @@ def _identity_ok(
         'global_agent_id': global_agent_id,
         'grant_version': grant_version,
         'company_binding_version': company_binding_version,
+        'access_mode': access_mode,
+        'read_level': read_level,
+        'allow_destructive': allow_destructive,
+        'services_allowed': (['storage'] if services_allowed is None else services_allowed),
+        'revoked_at': revoked_at,
     }
 
 
@@ -53,6 +63,8 @@ _CLAIMS_DELEGATED = {
     'global_agent_id': _GAI,
     'scope': 'storage',
     'mcp_access': 'read_only',
+    'mcp_read': 'safe',
+    'mcp_destructive': False,
     'aud': 'http://127.0.0.1/mcp',
     'iss': 'https://identity.test',
     'global_company_id': _GCC,
@@ -166,7 +178,7 @@ class DelegatedAuthorityTests(SimpleTestCase):
     def test_extra_top_level_key_raises_denied(self):
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
             bad = _identity_ok()
-            bad['services_allowed'] = ['storage']
+            bad['extra_key'] = 'no'
             mock_post.return_value = MagicMock(status_code=200, json=lambda: bad)
             with self.assertRaises(DelegatedAuthorityDenied):
                 delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)
@@ -209,3 +221,12 @@ class DelegatedAuthorityTests(SimpleTestCase):
             with self.assertRaises(DelegatedAuthorityDenied):
                 delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)
             self.assertEqual(mock_post.call_count, 2)
+
+    def test_live_access_mode_must_match_claim(self):
+        with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _identity_ok(access_mode='full'),
+            )
+            with self.assertRaises(DelegatedAuthorityDenied):
+                delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)

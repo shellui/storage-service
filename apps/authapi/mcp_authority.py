@@ -213,6 +213,7 @@ def delegated_regional_authority_live_ok(
 
     epoch = _revocation_epoch()
     ga = parse_global_agent_id(claims.get('global_agent_id'))
+    scope_norm = ' '.join(sorted(p for p in str(claims.get('scope') or '').split() if p))
     cache_key = (
         epoch,
         body['agent_id'],
@@ -221,6 +222,10 @@ def delegated_regional_authority_live_ok(
         ga or '',
         body['grant_version'],
         body['company_binding_version'],
+        str(claims.get('mcp_access') or 'read_only'),
+        str(claims.get('mcp_read') or 'safe'),
+        bool(claims.get('mcp_destructive')),
+        scope_norm,
     )
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -271,7 +276,12 @@ def delegated_regional_authority_live_ok(
     if not isinstance(data, dict):
         raise DelegatedAuthorityDenied('invalid_body')
 
-    ok, deny = _delegated_identity_authority_response_ok(data, body, token_global_agent_id=token_global_agent_id)
+    ok, deny = _delegated_identity_authority_response_ok(
+        data,
+        body,
+        claims,
+        token_global_agent_id=token_global_agent_id,
+    )
     if ok:
         _cache_set_positive(cache_key)
         return True
@@ -289,7 +299,7 @@ def _strict_bool(data: dict[str, Any], key: str) -> bool | None:
     return None
 
 
-_BASE_DELEGATED_AUTH_KEYS = frozenset(
+_DELEGATED_AUTHORITY_RESPONSE_KEYS = frozenset(
     {
         'authorized',
         'active',
@@ -301,93 +311,123 @@ _BASE_DELEGATED_AUTH_KEYS = frozenset(
         'global_company_id',
         'grant_version',
         'company_binding_version',
+        'access_mode',
+        'read_level',
+        'allow_destructive',
+        'services_allowed',
+        'revoked_at',
     }
 )
+
+
+def _delegated_services_allowed_ok(claims: dict[str, Any], services_allowed: Any) -> bool:
+    if not isinstance(services_allowed, list):
+        return False
+    parts = [p for p in str(claims.get('scope') or '').split() if p]
+    if not parts:
+        return False
+    allowed = {str(s).strip() for s in services_allowed if str(s).strip()}
+    return 'storage' in allowed and all(p in allowed for p in parts)
+
+
+def _delegated_live_caps_match_claims(
+    *,
+    claims: dict[str, Any],
+    access_mode: Any,
+    read_level: Any,
+    allow_destructive: Any,
+) -> bool:
+    cap_access = str(claims.get('mcp_access') or 'read_only').strip() or 'read_only'
+    cap_read = str(claims.get('mcp_read') or 'safe').strip() or 'safe'
+    cap_dest = bool(claims.get('mcp_destructive'))
+    if not isinstance(access_mode, str) or not access_mode.strip():
+        return False
+    if not isinstance(read_level, str) or not read_level.strip():
+        return False
+    if allow_destructive is not True and allow_destructive is not False:
+        return False
+    if access_mode.strip() != cap_access:
+        return False
+    if read_level.strip() != cap_read:
+        return False
+    if cap_dest != allow_destructive:
+        return False
+    return True
 
 
 def _delegated_identity_authority_response_ok(
     data: dict[str, Any],
     body: dict[str, Any],
+    claims: dict[str, Any],
     *,
     token_global_agent_id: str | None,
 ) -> tuple[bool, str | None]:
     """
     Parse Identity ``McpInternalDelegatedAgentAuthorityView`` JSON (HTTP 200).
 
-    identity-service ``6a27176``: live payload has ``active`` and optional ``revoked_at``;
-    mismatch payload omits ``global_agent_id`` (deny, do not treat as transport error).
+    identity-service ``d7fe351``: every **200** response has exactly 15 keys (see tests in
+    ``apps/agents/tests/test_mcp_delegated_authority.py``). Storage rejects unknown keys, validates
+    binding fields against the POST body for every outcome, and when ``authorized`` is true also
+    checks live capabilities against the verified JWT (``mcp_access``, ``mcp_read``,
+    ``mcp_destructive``, ``scope`` vs ``services_allowed``).
     """
     keys = set(data.keys())
-    unknown = keys - _BASE_DELEGATED_AUTH_KEYS - {'revoked_at'}
-    if unknown:
+    if keys != _DELEGATED_AUTHORITY_RESPONSE_KEYS:
         return False, None
 
-    for k in ('authorized', 'active', 'revoked', 'paused'):
+    for k in ('authorized', 'active', 'revoked', 'paused', 'allow_destructive'):
         b = _strict_bool(data, k)
         if b is None:
             return False, None
 
-    if data['authorized'] is True:
-        if keys != _BASE_DELEGATED_AUTH_KEYS and keys != (_BASE_DELEGATED_AUTH_KEYS | {'revoked_at'}):
+    ra = data.get('revoked_at')
+    if ra is not None:
+        if not isinstance(ra, int) or isinstance(ra, bool) or ra < 0:
             return False, None
+
+    aid = parse_regional_agent_id(data.get('agent_id'))
+    if aid is None or aid != str(body['agent_id']).strip().lower():
+        return False, None
+
+    cid = data.get('company_id')
+    if isinstance(cid, bool) or not isinstance(cid, int) or cid < 1 or cid != body['company_id']:
+        return False, None
+
+    gg = parse_global_company_id(data.get('global_company_id'))
+    if gg is None or gg != body['global_company_id']:
+        return False, None
+
+    gv = data.get('grant_version')
+    if isinstance(gv, bool) or not isinstance(gv, int) or gv < 0 or gv != body['grant_version']:
+        return False, None
+
+    cbv = data.get('company_binding_version')
+    if isinstance(cbv, bool) or not isinstance(cbv, int) or cbv < 0 or cbv != body['company_binding_version']:
+        return False, None
+
+    gai = parse_global_agent_id(data.get('global_agent_id'))
+    if gai is None or token_global_agent_id is None or gai != token_global_agent_id:
+        return False, None
+
+    if not _delegated_live_caps_match_claims(
+        claims=claims,
+        access_mode=data.get('access_mode'),
+        read_level=data.get('read_level'),
+        allow_destructive=data.get('allow_destructive'),
+    ):
+        return False, None
+
+    if not _delegated_services_allowed_ok(claims, data.get('services_allowed')):
+        return False, None
+
+    if data['authorized'] is True:
         if data['active'] is not True or data['revoked'] is not False or data['paused'] is not False:
             return False, 'forbidden'
-        ra = data.get('revoked_at')
         if ra is not None:
-            if not isinstance(ra, int) or isinstance(ra, bool) or ra < 0:
-                return False, None
-
-        aid = parse_regional_agent_id(data.get('agent_id'))
-        if aid is None or aid != str(body['agent_id']).strip().lower():
             return False, None
-
-        cid = data.get('company_id')
-        if isinstance(cid, bool) or not isinstance(cid, int) or cid < 1 or cid != body['company_id']:
-            return False, None
-
-        gg = parse_global_company_id(data.get('global_company_id'))
-        if gg is None or gg != body['global_company_id']:
-            return False, None
-
-        gv = data.get('grant_version')
-        if isinstance(gv, bool) or not isinstance(gv, int) or gv < 0 or gv != body['grant_version']:
-            return False, None
-
-        cbv = data.get('company_binding_version')
-        if isinstance(cbv, bool) or not isinstance(cbv, int) or cbv < 0 or cbv != body['company_binding_version']:
-            return False, None
-
-        gai = parse_global_agent_id(data.get('global_agent_id'))
-        if gai is None or token_global_agent_id is None or gai != token_global_agent_id:
-            return False, None
-
         return True, None
 
-    # Denial payloads (authorized false): strict 8-key mismatch shape without global_agent_id.
     if data['authorized'] is False:
-        mismatch_keys = frozenset(
-            {
-                'authorized',
-                'active',
-                'revoked',
-                'paused',
-                'agent_id',
-                'company_id',
-                'global_company_id',
-                'grant_version',
-                'company_binding_version',
-            }
-        )
-        if keys != mismatch_keys:
-            return False, None
-        if (
-            data['active'] is not False
-            or data['revoked'] is not False
-            or data['paused'] is not False
-            or 'global_agent_id' in data
-            or 'revoked_at' in data
-        ):
-            return False, None
         return False, 'forbidden'
 
     return False, None

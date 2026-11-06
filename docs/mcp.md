@@ -16,7 +16,7 @@ Exchange for regional tokens uses the Identity OAuth token endpoint for that reg
 
 ## Live delegated authority (regional tokens)
 
-Contract names and path match **identity-service** PR #135 (for example git ref `6a27176`; storage does not accept legacy alias routes).
+Contract names and path match **identity-service** PR #135 (for example git ref `d7fe351`; storage does not accept legacy alias routes).
 
 If `global_company_id` is present and `mcp_authority` is `delegated` (regional exchange token), storage-service calls Identity on the delegated-sensitive path after JWT verification (for example authentication on `POST /mcp`, plus approval flows that rely on the same live row).
 
@@ -38,17 +38,17 @@ These keys only, same types as verified JWT claims (no string digit coercion int
 
 ### Response (strict)
 
-On **200**, Identity returns one of two shapes (no other top-level keys).
+On **200**, the JSON object must have exactly these 15 keys (no extras), per Identity ``McpInternalDelegatedAgentAuthorityView``:
 
-**Authorized** (live row allowed): exactly
+- `authorized`, `active`, `revoked`, `paused` (JSON booleans, not strings)
+- `agent_id`, `company_id`, `global_agent_id`, `global_company_id`, `grant_version`, `company_binding_version`
+- `access_mode`, `read_level`, `allow_destructive` (live agent caps)
+- `services_allowed` (JSON array of service id strings)
+- `revoked_at` (JSON int epoch seconds, or JSON null)
 
-- `authorized`, `active`, `revoked`, `paused` (JSON booleans, not strings): `true`, `true`, `false`, `false`.
-- `agent_id`, `company_id`, `global_company_id`, `global_agent_id`, `grant_version`, `company_binding_version` with native types.
-- Optional `revoked_at` (JSON int, `>= 0`) when present.
+For every outcome, values for `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` in the response must match the POST body. `global_agent_id` in the response must match the verified JWT.
 
-Values for `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` must match the POST body. `global_agent_id` in the response must match the verified JWT (regional agent row is bound to one global subject id).
-
-**Not authorized** (policy denial, still HTTP 200): exactly eight keys: `authorized` false, `active` false, `revoked` false, `paused` false, plus `agent_id`, `company_id`, `global_company_id`, `grant_version`, `company_binding_version` matching the POST body. No `global_agent_id` and no `revoked_at`.
+When `authorized` is true, storage also requires the JWT to be no wider than the live row: `mcp_access` must equal `access_mode`, `mcp_read` must equal `read_level`, `mcp_destructive` must equal `allow_destructive`, every space-separated `scope` token must appear in `services_allowed`, and `storage` must appear in `services_allowed`. Delegated exchange agents get `allow_destructive` false from Identity (destructive flows still use approvals). When `authorized` is true, `revoked_at` must be null.
 
 ### Errors and caching
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -41,6 +42,8 @@ def _agent_token(
     agent_id: str | None = None,
     company_id: int = 10,
     mcp_access: str = 'read_only',
+    mcp_read: str = 'safe',
+    mcp_destructive: bool = False,
     scope: str = 'storage',
     aud: str | None = None,
     grant_version: int | None = 0,
@@ -58,8 +61,8 @@ def _agent_token(
         'company_id': company_id,
         'scope': scope,
         'mcp_access': mcp_access,
-        'mcp_read': 'safe',
-        'mcp_destructive': False,
+        'mcp_read': mcp_read,
+        'mcp_destructive': mcp_destructive,
         'aud': aud if aud is not None else _mcp_audience(),
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
@@ -81,8 +84,11 @@ def _agent_token(
     return jwt.encode(payload, secret, algorithm='HS256')
 
 
-def _delegated_identity_authority_ok(body: dict) -> dict:
-    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (identity-service 6a27176)."""
+def _delegated_identity_authority_ok(*, body: dict, claims: dict) -> dict:
+    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (identity-service d7fe351: 15 keys)."""
+    scope_parts = sorted(p for p in str(claims.get('scope') or '').split() if p)
+    if not scope_parts:
+        scope_parts = ['storage']
     return {
         'authorized': True,
         'active': True,
@@ -94,7 +100,22 @@ def _delegated_identity_authority_ok(body: dict) -> dict:
         'global_agent_id': _DELEGATED_OK_GAI,
         'grant_version': int(body['grant_version']),
         'company_binding_version': int(body['company_binding_version']),
+        'access_mode': str(claims.get('mcp_access') or 'read_only').strip() or 'read_only',
+        'read_level': str(claims.get('mcp_read') or 'safe').strip() or 'safe',
+        'allow_destructive': bool(claims.get('mcp_destructive')),
+        'services_allowed': sorted(scope_parts),
+        'revoked_at': None,
     }
+
+
+def _agent_claims_from_delegated_authority_stack() -> dict:
+    """``requests.post`` for delegated authority sends a service assertion, not the agent JWT."""
+    for fr in inspect.stack():
+        if fr.function == 'delegated_regional_authority_live_ok':
+            c = fr.frame.f_locals.get('claims')
+            if isinstance(c, dict):
+                return c
+    return {}
 
 
 _TEST_ISSUER = 'https://identity.test'
@@ -143,9 +164,10 @@ class McpEndpointTests(TestCase):
             if 'mcp-agent-delegated-authority' in url:
                 body = kwargs.get('json')
                 if isinstance(body, dict):
+                    claims = _agent_claims_from_delegated_authority_stack()
                     return MagicMock(
                         status_code=200,
-                        json=lambda b=body: _delegated_identity_authority_ok(b),
+                        json=lambda b=body, c=claims: _delegated_identity_authority_ok(body=b, claims=c),
                     )
             return MagicMock(status_code=200, json=lambda: {'authorized': True})
 

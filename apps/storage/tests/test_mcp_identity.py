@@ -49,6 +49,11 @@ def _identity_authority_response(*, agent_id: str, company_id: int, global_compa
         'global_agent_id': _SAMPLE_GLOBAL_AGENT,
         'grant_version': grant_version,
         'company_binding_version': company_binding_version,
+        'access_mode': 'ask',
+        'read_level': 'safe',
+        'allow_destructive': False,
+        'services_allowed': ['storage'],
+        'revoked_at': None,
     }
 
 
@@ -104,6 +109,9 @@ def _claims_write(
     out = {
         'agent_id': agent_id,
         'mcp_access': 'ask',
+        'mcp_read': 'safe',
+        'mcp_destructive': False,
+        'scope': 'storage',
         'company_id': company_id,
         'grant_version': grant_version,
         'global_company_id': global_company_id,
