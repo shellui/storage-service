@@ -751,7 +751,7 @@ wheels = [
 [[package]]
 name = "shellui-django"
 version = "0.4.1"
-source = { git = "https://github.com/shellui/django-commons.git?rev=5f0fdf44bb140848fb1440cf04da6ada7996711d#5f0fdf44bb140848fb1440cf04da6ada7996711d" }
+source = { git = "https://github.com/shellui/django-commons.git?rev=1f0754b421688ed26b7eb2e76b25b6fa3eea2a37#1f0754b421688ed26b7eb2e76b25b6fa3eea2a37" }
 dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
@@ -833,7 +833,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "sentry-sdk", specifier = "==2.63.0" },
-    { name = "shellui-django", extras = ["mcp"], git = "https://github.com/shellui/django-commons.git?rev=5f0fdf44bb140848fb1440cf04da6ada7996711d" },
+    { name = "shellui-django", extras = ["mcp"], git = "https://github.com/shellui/django-commons.git?rev=1f0754b421688ed26b7eb2e76b25b6fa3eea2a37" },
     { name = "sqlparse", specifier = "==0.6.0" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]

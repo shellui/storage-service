@@ -95,7 +95,7 @@ Revocation polling, approvals, and call logs send short-lived RS256 assertions s
 
 Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same optional delegated fields as the agent token (default assertion lifetime is the ordinary internal limit, 60 seconds).
 
-This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`5f0fdf44bb140848fb1440cf04da6ada7996711d`) until a matching release is published to PyPI. Local development needs Git available to install that source dependency; workflows use `uv lock` / `uv sync` accordingly.
+This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`1f0754b421688ed26b7eb2e76b25b6fa3eea2a37`, merge of PR #14) until a matching release is published to PyPI. Local development needs Git available to install that source dependency; workflows use `uv lock` / `uv sync` accordingly.
 
 Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STORAGE_SERVICE_SIGNING_KEY_FILE`).
 
