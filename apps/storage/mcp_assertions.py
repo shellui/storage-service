@@ -9,6 +9,10 @@ from typing import Any
 _GLOBAL_COMPANY_UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 )
+# Regional agent id and JWT ``jti``-style UUIDs (any version nibble).
+_AGENT_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
 
 
 def parse_global_company_id(raw: Any) -> str | None:
@@ -48,6 +52,22 @@ def parse_global_agent_id(raw: Any) -> str | None:
     return parse_global_company_id(raw)
 
 
+def parse_regional_agent_id(raw: Any) -> str | None:
+    """Regional storage agent id (non-empty UUID string, lowercase normalized)."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip().lower()
+    if not s:
+        return None
+    if _AGENT_UUID_RE.match(s):
+        return s
+    return None
+
+
 def parse_personal_token_id(raw: Any) -> str | None:
     """Optional personal agent token id (UUID string)."""
     return parse_global_company_id(raw)
@@ -72,7 +92,7 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     raw_company = claims.get('company_id')
     if not isinstance(raw_company, int) or isinstance(raw_company, bool):
         return False, 'invalid_company_id', None
-    if raw_company < 0:
+    if raw_company < 1:
         return False, 'invalid_company_id', None
 
     gcid = parse_global_company_id(claims.get('global_company_id'))
@@ -108,10 +128,17 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     else:
         return False, 'invalid_mcp_authority', None
 
+    raw_agent = claims.get('agent_id')
+    regional_agent_id = parse_regional_agent_id(raw_agent)
+    if raw_agent is not None and regional_agent_id is None:
+        return False, 'invalid_agent_id', None
+
     delegated = gcid is not None or global_agent_id is not None
     if delegated:
         if gcid is None:
             return False, 'missing_global_company_id', None
+        if global_agent_id is None:
+            return False, 'missing_global_agent_id', None
         if cbv is None:
             return False, 'missing_company_binding_version', None
         if gv is None:
@@ -131,6 +158,7 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     normalized = {
         'mcp_access': access,
         'company_id': raw_company,
+        'agent_id': regional_agent_id,
         'grant_version': gv,
         'global_company_id': gcid,
         'company_binding_version': cbv,

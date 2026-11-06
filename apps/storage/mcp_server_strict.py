@@ -175,6 +175,8 @@ class StrictMcpServer:
             return JsonResponse({'error': 'method_not_allowed'}, status=405)
         if agent_claims is None:
             return JsonResponse({'error': 'unauthorized'}, status=401)
+        if agent_claims.get('_mcp_delegated_authority_denied'):
+            return JsonResponse({'error': 'forbidden'}, status=403)
         agent_id = str(agent_claims.get('agent_id') or '')
         if not agent_id:
             return JsonResponse({'error': 'unauthorized'}, status=401)
@@ -558,63 +560,6 @@ class StrictMcpServer:
                     {'content': [{'type': 'text', 'text': decision.reason or 'Forbidden'}], 'isError': True},
                 )
             )
-
-        if parse_global_company_id(agent_claims.get('global_company_id')) is not None:
-            gate = self.delegated_authority_gate
-            payload_gate = {'mcp_expected_resource': (mcp_resource_audience or '').strip() or None}
-            allow, unavailable = gate(payload_gate, agent_claims)
-            if unavailable:
-                self._emit_audit(
-                    request=request,
-                    agent_claims=agent_claims,
-                    tool_name=tool_name,
-                    method=method,
-                    audit_path=audit_path,
-                    operation_title=operation_title,
-                    access_kind=access_kind,
-                    destructive=destructive,
-                    read_level=read_level,
-                    arguments=arguments,
-                    status_code=503,
-                    outcome='failed',
-                    error_code='identity_unavailable',
-                    approval_request_id=None,
-                    approval_id=None,
-                    started=started,
-                )
-                return JsonResponse(
-                    self._result(
-                        req_id,
-                        {'content': [{'type': 'text', 'text': 'Identity unavailable.'}], 'isError': True},
-                    ),
-                    status=503,
-                )
-            if not allow:
-                self._emit_audit(
-                    request=request,
-                    agent_claims=agent_claims,
-                    tool_name=tool_name,
-                    method=method,
-                    audit_path=audit_path,
-                    operation_title=operation_title,
-                    access_kind=access_kind,
-                    destructive=destructive,
-                    read_level=read_level,
-                    arguments=arguments,
-                    status_code=401,
-                    outcome='failed',
-                    error_code='identity_invalid',
-                    approval_request_id=None,
-                    approval_id=None,
-                    started=started,
-                )
-                return JsonResponse(
-                    self._result(
-                        req_id,
-                        {'content': [{'type': 'text', 'text': 'Delegated authority rejected.'}], 'isError': True},
-                    ),
-                    status=401,
-                )
 
         inner_kwargs: dict[str, Any] = {
             'query_params': arguments.get('query') or {},

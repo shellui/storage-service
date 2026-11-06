@@ -16,7 +16,7 @@ Exchange for regional tokens uses the Identity OAuth token endpoint for that reg
 
 ## Live delegated authority (regional tokens)
 
-Contract names and path match **identity-service** at git ref `17f09487115e45` (storage does not accept legacy alias routes).
+Contract names and path match **identity-service** PR #135 head (for example git ref `d79d433278ac`; storage does not accept legacy alias routes).
 
 If `global_company_id` is present and `mcp_authority` is `delegated` (regional exchange token), storage-service calls Identity on the delegated-sensitive path after JWT verification (for example authentication on `POST /mcp`, plus approval flows that rely on the same live row).
 
@@ -31,27 +31,26 @@ If `global_company_id` is present and `mcp_authority` is `delegated` (regional e
 These keys only, same types as verified JWT claims (no string digit coercion into ints in this client):
 
 - `agent_id` (string)
-- `company_id` (int, `>= 0`)
+- `company_id` (int, `>= 1`, matches Identity positive regional company id)
 - `global_company_id` (canonical lowercase UUID string)
 - `grant_version` (int, `>= 0`)
 - `company_binding_version` (int, `>= 0`)
 
 ### Response (strict)
 
-On **200**, storage accepts the body only when all of the following hold:
+On **200**, the JSON object must have exactly these keys (no extras):
 
-- `authorized`, `revoked`, and `paused` are JSON booleans (not strings) with values `true`, `false`, `false`.
-- When `active` is present it must be boolean `true`; omitted `active` is allowed.
-- Top-level `agent_id`, `company_id`, `global_company_id`, `global_agent_id`, `grant_version`, and `company_binding_version` are present with native types. The five identity fields other than `global_agent_id` must match the POST body. `global_agent_id` is taken only from the response (Identity is authoritative for the global subject UUID). Capability arrays or other extra keys are ignored.
-
-Extra keys such as `status` or `ok` are ignored and never turn a failed check into an allow.
+- `authorized`, `revoked`, `paused` (JSON booleans, not strings): `true`, `false`, `false`.
+- `agent_id`, `company_id`, `global_company_id`, `global_agent_id`, `grant_version`, `company_binding_version` with native types.
+- Values for `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` must match the POST body. `global_agent_id` in the response must match the verified JWT (regional agent row is bound to one global subject id).
 
 ### Errors and caching
 
 - Transport failure or Identity **5xx**: MCP answers `503` with `identity_unavailable` (fail closed).
-- Identity **404** on this route: same `503` (missing endpoint or wrong path).
-- Identity **403** with an authenticated error body: deny (`401` on MCP paths that require live delegated authority, or approval failure where applicable), not `503`.
-- **200** with any failed check above: token rejected (`401`) where the call path maps to unauthorized.
+- Identity **401** on this route (assertion rejected): same `503` (`identity_unavailable`).
+- Identity **404** (agent not found or not a delegated exchange agent): deny delegated use; `POST /mcp` returns **403** with `forbidden`.
+- Identity **403**: deny delegated use; `POST /mcp` returns **403** with `forbidden`.
+- **200** with any failed check above: same **403** (`forbidden`).
 
 A short in-process TTL caches **positive** outcomes only. The cache key includes the revocation cache epoch plus the delegated identity tuple; TTL is `min(5 seconds, signed revocation list cache_seconds)`. Negative outcomes are not cached, so a small lag after revocation is possible but an infinite allow from a stale deny is not.
 
@@ -64,15 +63,15 @@ Personal regional tokens (no `global_company_id`) skip this live step. Configure
 
 ## Required agent token claims
 
-Claims must use the types below. Types match Identity’s regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
+Claims must use the types below. Types match Identity's regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
 
 | Claim | Personal regional | Delegated (SaaS or global exchange) |
 | --- | --- | --- |
-| `company_id` | integer (regional) | integer (must match the snapshot row) |
+| `company_id` | integer (regional, `>= 1`) | integer, `>= 1` (must match the snapshot row) |
 | `grant_version` | optional (omit allowed) | required, integer 0 or higher |
 | `global_company_id` | omit | required UUID string |
 | `company_binding_version` | omit | required integer, explicit 0 allowed |
-| `global_agent_id` | omit | optional; when present, `global_company_id` and the full triple are required (no partial global) |
+| `global_agent_id` | omit | required for delegated exchange tokens (same lexical rules as `global_company_id`) |
 | `personal_token_id` | optional UUID | omit for delegated |
 | `mcp_authority` | omit | required `delegated` for exchange tokens that carry `global_company_id`; must not be `global_delegated` on regional resource tokens (that value is for direct SaaS-issued tokens only) |
 
@@ -82,7 +81,7 @@ Connectors: at most five connector mounts are documented for agents; service-sco
 
 ## Revocation and staleness
 
-Identity returns a signed `revocation_assertion` with optional `revocation_policy_version`, `max_active_grant_version`, and agent rows. storage verifies the JWT with Identity’s JWKS (`verify_mcp_revocation_list_response` in django-commons). Values in the HTTP body must match the signed claims.
+Identity returns a signed `revocation_assertion` with optional `revocation_policy_version`, `max_active_grant_version`, and agent rows. storage verifies the JWT with Identity's JWKS (`verify_mcp_revocation_list_response` in django-commons). Values in the HTTP body must match the signed claims.
 
 When the list is unavailable, `POST /mcp` returns `503` with `identity_unavailable`.
 

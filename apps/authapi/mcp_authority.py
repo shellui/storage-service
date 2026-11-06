@@ -20,6 +20,7 @@ from django.core.cache import cache
 from apps.storage.mcp_assertions import (
     parse_global_agent_id,
     parse_global_company_id,
+    parse_regional_agent_id,
     parse_trusted_agent_claims,
 )
 from config.service_signing import signing_kwargs
@@ -37,7 +38,11 @@ _AGENT_AUTH_SCOPE = 'mcp.agent.delegated.authority.read'
 
 
 class DelegatedAuthorityUnavailable(Exception):
-    """Identity delegated-authority lookup failed (network or misconfiguration)."""
+    """Identity delegated-authority lookup failed (network, 5xx, assertion rejected, or misconfiguration)."""
+
+
+class DelegatedAuthorityDenied(Exception):
+    """Identity denied delegated authority (policy); map to HTTP 403 on MCP, not 503."""
 
 
 def build_mcp_agent_authority_assertion(*, audience_url: str, lifetime_seconds: int = 60) -> str:
@@ -126,11 +131,11 @@ def _request_body_from_claims(claims: dict[str, Any]) -> dict[str, Any]:
     if norm.get('mcp_authority') != 'delegated':
         raise ValueError('not_delegated_exchange')
     gci = norm['global_company_id']
-    agent_id = str(claims.get('agent_id') or '').strip()
+    agent_id = str(norm.get('agent_id') or '').strip()
     if not agent_id:
         raise ValueError('agent_id')
     cid = claims.get('company_id')
-    if not isinstance(cid, int) or isinstance(cid, bool) or cid < 0:
+    if not isinstance(cid, int) or isinstance(cid, bool) or cid < 1:
         raise ValueError('company_id')
     gv = norm['grant_version']
     cbv = norm['company_binding_version']
@@ -178,6 +183,7 @@ def delegated_regional_authority_live_ok(
     """
     True when no delegated exchange triple, or Identity authorizes the live row.
 
+    Raises DelegatedAuthorityDenied when Identity denies policy or returns an invalid success payload.
     Raises DelegatedAuthorityUnavailable when Identity is required but not reachable.
     """
     if claims.get('global_company_id') is None:
@@ -206,11 +212,13 @@ def delegated_regional_authority_live_ok(
         raise DelegatedAuthorityUnavailable('identity URL not configured')
 
     epoch = _revocation_epoch()
+    ga = parse_global_agent_id(claims.get('global_agent_id'))
     cache_key = (
         epoch,
         body['agent_id'],
         body['company_id'],
         body['global_company_id'],
+        ga or '',
         body['grant_version'],
         body['company_binding_version'],
     )
@@ -238,12 +246,20 @@ def delegated_regional_authority_live_ok(
         logger.warning('Delegated authority request failed: %s', type(exc).__name__)
         raise DelegatedAuthorityUnavailable('request') from exc
 
-    if response.status_code == 404 or response.status_code >= 500:
-        logger.warning('Delegated authority rejected: %s', response.status_code)
-        raise DelegatedAuthorityUnavailable('upstream')
+    if response.status_code == 404:
+        logger.info('Delegated authority not found or not delegated: %s', response.status_code)
+        raise DelegatedAuthorityDenied('not_found')
 
     if response.status_code == 403:
-        return False
+        raise DelegatedAuthorityDenied('forbidden')
+
+    if response.status_code == 401:
+        logger.warning('Delegated authority assertion rejected by Identity: %s', response.status_code)
+        raise DelegatedAuthorityUnavailable('assertion_rejected')
+
+    if response.status_code >= 500:
+        logger.warning('Delegated authority rejected: %s', response.status_code)
+        raise DelegatedAuthorityUnavailable('upstream')
 
     if response.status_code != 200:
         return False
@@ -251,14 +267,15 @@ def delegated_regional_authority_live_ok(
     try:
         data = response.json()
     except ValueError:
-        return False
+        raise DelegatedAuthorityDenied('invalid_body')
     if not isinstance(data, dict):
-        return False
+        raise DelegatedAuthorityDenied('invalid_body')
 
     ok = _delegated_identity_authority_strict_ok(data, body, token_global_agent_id=token_global_agent_id)
     if ok:
         _cache_set_positive(cache_key)
-    return ok
+        return True
+    raise DelegatedAuthorityDenied('invalid_response')
 
 
 def _strict_bool(data: dict[str, Any], key: str) -> bool | None:
@@ -277,14 +294,26 @@ def _delegated_identity_authority_strict_ok(
     token_global_agent_id: str | None,
 ) -> bool:
     """
-    Fail closed on Identity ``mcp-agent-delegated-authority`` JSON (200 only).
+    Fail closed on Identity ``McpInternalDelegatedAgentAuthorityView`` JSON (HTTP 200).
 
-    Required booleans (actual JSON bool, not strings): ``authorized``, ``revoked``, ``paused``.
-    Accept only ``authorized`` true, ``revoked`` false, ``paused`` false.
-    When ``active`` is present it must be true; omitted ``active`` is allowed.
-    Top-level identity fields must match the POST body; ``global_agent_id`` is taken from the
-    response (Identity is authoritative). Extra keys (for example capability lists) are ignored.
+    Matches identity-service PR #135 head (for example ``d79d433278ac``): exact top-level keys only.
     """
+    allowed_keys = frozenset(
+        {
+            'authorized',
+            'revoked',
+            'paused',
+            'agent_id',
+            'company_id',
+            'global_agent_id',
+            'global_company_id',
+            'grant_version',
+            'company_binding_version',
+        }
+    )
+    if set(data.keys()) != allowed_keys:
+        return False
+
     for k in ('authorized', 'revoked', 'paused'):
         b = _strict_bool(data, k)
         if b is None:
@@ -292,16 +321,12 @@ def _delegated_identity_authority_strict_ok(
     if data['authorized'] is not True or data['revoked'] is not False or data['paused'] is not False:
         return False
 
-    act = _strict_bool(data, 'active')
-    if act is not None and act is not True:
-        return False
-
-    aid = str(data.get('agent_id') or '').strip()
-    if not aid or aid != str(body['agent_id']):
+    aid = parse_regional_agent_id(data.get('agent_id'))
+    if aid is None or aid != str(body['agent_id']).strip().lower():
         return False
 
     cid = data.get('company_id')
-    if isinstance(cid, bool) or not isinstance(cid, int) or cid < 0 or cid != body['company_id']:
+    if isinstance(cid, bool) or not isinstance(cid, int) or cid < 1 or cid != body['company_id']:
         return False
 
     gg = parse_global_company_id(data.get('global_company_id'))
@@ -317,8 +342,7 @@ def _delegated_identity_authority_strict_ok(
         return False
 
     gai = parse_global_agent_id(data.get('global_agent_id'))
-    if gai is None:
+    if gai is None or token_global_agent_id is None or gai != token_global_agent_id:
         return False
-    if token_global_agent_id is not None and gai != token_global_agent_id:
-        return False
+
     return True

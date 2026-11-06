@@ -31,6 +31,8 @@ from apps.storage.mcp_identity import (
 _TEST_ISSUER = 'https://identity.test'
 _JWKS, _PRIVATE_PEM, _KID = generate_test_rsa_jwks()
 _SAMPLE_GLOBAL = '18e20f88-286e-46ea-858e-1d75bca615ff'
+_SAMPLE_GLOBAL_AGENT = '28e20f88-286e-46ea-858e-1d75bca615ff'
+_AGENT_A = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
 _MCP_RESOURCE = 'http://127.0.0.1/mcp'
 
 
@@ -42,11 +44,9 @@ def _identity_authority_response(*, agent_id: str, company_id: int, global_compa
         'agent_id': agent_id,
         'company_id': company_id,
         'global_company_id': global_company_id,
-        'global_agent_id': '28e20f88-286e-46ea-858e-1d75bca615ff',
+        'global_agent_id': _SAMPLE_GLOBAL_AGENT,
         'grant_version': grant_version,
         'company_binding_version': company_binding_version,
-        'mcp_capabilities': [],
-        'delegation_capabilities': [],
     }
 
 
@@ -92,13 +92,14 @@ def _patch_identity_posts(*responses):
 
 def _claims_write(
     *,
-    agent_id: str = 'a1',
+    agent_id: str = _AGENT_A,
     company_id: int = 1,
     grant_version: int = 0,
     global_company_id: str | None = _SAMPLE_GLOBAL,
     company_binding_version: int | None = 0,
+    global_agent_id: str | None = _SAMPLE_GLOBAL_AGENT,
 ) -> dict:
-    return {
+    out = {
         'agent_id': agent_id,
         'mcp_access': 'ask',
         'company_id': company_id,
@@ -109,6 +110,9 @@ def _claims_write(
         'iss': _TEST_ISSUER,
         'aud': _MCP_RESOURCE,
     }
+    if global_agent_id is not None:
+        out['global_agent_id'] = global_agent_id
+    return out
 
 
 def _claims_personal(*, company_id: int = 1, grant_version: int = 0) -> dict:
@@ -192,31 +196,31 @@ class McpIdentityFailClosedTests(SimpleTestCase):
     def test_grant_row_mismatch_revokes_when_claims_provided(self):
         body = _signed_revocation_body(
             revoked_ids=[],
-            agents=[{'agent_id': 'a1', 'company_id': 1, 'grant_version': 1}],
+            agents=[{'agent_id': _AGENT_A, 'company_id': 1, 'grant_version': 1}],
             max_gv=1,
         )
         claims = _claims_personal(company_id=1, grant_version=0)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('a1', 1, claims))
+            self.assertTrue(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_grant_row_accepts_zero_as_valid_snapshot(self):
         body = _signed_revocation_body(
             revoked_ids=[],
-            agents=[{'agent_id': 'a1', 'company_id': 1, 'grant_version': 0}],
+            agents=[{'agent_id': _AGENT_A, 'company_id': 1, 'grant_version': 0}],
             max_gv=0,
         )
         claims = _claims_personal(company_id=1, grant_version=0)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertFalse(agent_is_revoked('a1', 1, claims))
+            self.assertFalse(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_global_snapshot_matches_on_uuid_not_regional_id(self):
         body = _signed_revocation_body(
             revoked_ids=[],
             agents=[
                 {
-                    'agent_id': 'a1',
+                    'agent_id': _AGENT_A,
                     'company_id': 1,
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
@@ -228,21 +232,21 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         claims = _claims_write(company_id=1, grant_version=0, global_company_id=_SAMPLE_GLOBAL)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertFalse(agent_is_revoked('a1', 1, claims))
+            self.assertFalse(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_delegated_no_authoritative_row_revokes(self):
         body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=0)
         claims = _claims_write()
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('a1', 1, claims))
+            self.assertTrue(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_delegated_does_not_match_across_regional_company(self):
         body = _signed_revocation_body(
             revoked_ids=[],
             agents=[
                 {
-                    'agent_id': 'a1',
+                    'agent_id': _AGENT_A,
                     'company_id': 2,
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
@@ -254,11 +258,11 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         claims = _claims_write(company_id=1, grant_version=0, global_company_id=_SAMPLE_GLOBAL)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('a1', 1, claims))
+            self.assertTrue(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_delegated_ambiguous_rows_revokes(self):
         row = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'global_company_id': _SAMPLE_GLOBAL,
             'company_binding_version': 0,
@@ -268,21 +272,21 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         claims = _claims_write()
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('a1', 1, claims))
+            self.assertTrue(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_delegated_absent_snapshot_revokes(self):
         body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=0)
         claims = _claims_write()
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('a1', 1, claims))
+            self.assertTrue(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_personal_absent_snapshot_not_revoked(self):
         body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=0)
         claims = _claims_personal()
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertFalse(agent_is_revoked('a1', 1, claims))
+            self.assertFalse(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_grant_versions_personal_ok_when_no_snapshot_row(self):
         body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=1)
@@ -296,7 +300,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             revoked_ids=[],
             agents=[
                 {
-                    'agent_id': 'a1',
+                    'agent_id': _AGENT_A,
                     'company_id': 1,
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 1,
@@ -308,11 +312,11 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         claims = _claims_write(company_binding_version=0)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
-            self.assertTrue(agent_is_revoked('a1', 1, claims))
+            self.assertTrue(agent_is_revoked(_AGENT_A, 1, claims))
 
     def test_approval_state_none_on_404(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -325,7 +329,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_approval_state_error_on_400(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -337,7 +341,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_approval_state_error_on_unknown_status(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -349,7 +353,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_approval_state_returns_denied(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -361,7 +365,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_approval_state_error_when_approved_missing_id(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -373,7 +377,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_approval_state_returns_expired_for_consumed_row(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -385,7 +389,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_approval_state_posts_empty_json_body(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -407,7 +411,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                 consume_approval(
                     str(uuid.uuid4()),
                     {
-                        'agent_id': 'a1',
+                        'agent_id': _AGENT_A,
                         'company_id': 1,
                         'service': 'storage',
                         'action': 'write',
@@ -420,7 +424,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_consume_approval_false_when_consumed_missing(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -434,7 +438,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_consume_approval_false_when_http200_but_consumed_false(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -448,7 +452,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
 
     def test_consume_approval_rejects_non_uuid(self):
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -460,7 +464,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
     def test_consume_approval_sends_approval_id_and_assertion(self):
         aid = str(uuid.uuid4())
         payload = {
-            'agent_id': 'a1',
+            'agent_id': _AGENT_A,
             'company_id': 1,
             'service': 'storage',
             'action': 'write',
@@ -483,7 +487,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'tool': 'api_v1_actions_deliveries_list',
                     'evil': 'payload',
                     'arguments': {'secret': 'no'},
-                    'agent_id': 'a1',
+                    'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
                     'global_company_id': _SAMPLE_GLOBAL,
@@ -513,7 +517,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             forward_call_log(
                 {
                     'tool': 'api_v1_actions_deliveries_list',
-                    'agent_id': 'a1',
+                    'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
                     'global_company_id': _SAMPLE_GLOBAL,

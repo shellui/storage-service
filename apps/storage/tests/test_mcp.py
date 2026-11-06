@@ -33,6 +33,9 @@ def _mcp_host_kwargs() -> dict[str, str]:
     return {'HTTP_HOST': '127.0.0.1'}
 
 
+_DELEGATED_OK_GAI = '28e20f88-286e-46ea-858e-1d75bca615ff'
+
+
 def _agent_token(
     *,
     agent_id: str | None = None,
@@ -69,6 +72,8 @@ def _agent_token(
         payload['company_binding_version'] = company_binding_version
     if global_agent_id is not None:
         payload['global_agent_id'] = global_agent_id
+    elif global_company_id is not None:
+        payload['global_agent_id'] = _DELEGATED_OK_GAI
     if global_company_id is not None or global_agent_id is not None:
         payload['mcp_authority'] = mcp_authority or 'delegated'
     elif mcp_authority is not None:
@@ -76,11 +81,8 @@ def _agent_token(
     return jwt.encode(payload, secret, algorithm='HS256')
 
 
-_DELEGATED_OK_GAI = '28e20f88-286e-46ea-858e-1d75bca615ff'
-
-
 def _delegated_identity_authority_ok(body: dict) -> dict:
-    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (see identity-service head)."""
+    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (identity-service PR #135 head)."""
     return {
         'authorized': True,
         'revoked': False,
@@ -91,8 +93,6 @@ def _delegated_identity_authority_ok(body: dict) -> dict:
         'global_agent_id': _DELEGATED_OK_GAI,
         'grant_version': int(body['grant_version']),
         'company_binding_version': int(body['company_binding_version']),
-        'mcp_capabilities': [],
-        'delegation_capabilities': [],
     }
 
 

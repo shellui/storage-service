@@ -32,6 +32,7 @@ class ParseTrustedAgentClaimsTests(SimpleTestCase):
         ok, _, norm = parse_trusted_agent_claims(
             _base(
                 global_company_id=_GLOBAL,
+                global_agent_id=_GAGENT,
                 company_binding_version=0,
                 grant_version=0,
                 mcp_authority='delegated',
@@ -67,7 +68,7 @@ class ParseTrustedAgentClaimsTests(SimpleTestCase):
     def test_partial_global_only_binding_rejected(self):
         ok, reason, _ = parse_trusted_agent_claims(_base(global_company_id=_GLOBAL))
         self.assertFalse(ok)
-        self.assertEqual(reason, 'missing_company_binding_version')
+        self.assertEqual(reason, 'missing_global_agent_id')
 
     def test_partial_binding_without_global_rejected(self):
         ok, reason, _ = parse_trusted_agent_claims(_base(company_binding_version=0))

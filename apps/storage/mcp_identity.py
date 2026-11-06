@@ -23,7 +23,11 @@ from shellui_django.mcp.internal import (
     verify_mcp_revocation_list_response,
 )
 
-from apps.authapi.mcp_authority import DelegatedAuthorityUnavailable, delegated_regional_authority_live_ok
+from apps.authapi.mcp_authority import (
+    DelegatedAuthorityDenied,
+    DelegatedAuthorityUnavailable,
+    delegated_regional_authority_live_ok,
+)
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
     parse_global_agent_id,
@@ -518,9 +522,12 @@ def delegated_live_authority_gate(
     if not isinstance(expected, str) or not expected.strip():
         return False, False
     try:
-        return delegated_regional_authority_live_ok(agent_claims, expected_resource=expected), False
+        delegated_regional_authority_live_ok(agent_claims, expected_resource=expected)
+        return True, False
     except DelegatedAuthorityUnavailable:
         return False, True
+    except DelegatedAuthorityDenied:
+        return False, False
 
 
 def identity_token_ok(agent_claims: dict[str, Any]) -> tuple[bool, str]:
@@ -536,7 +543,7 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
     args_hash = str(payload.get('arguments_hash') or '')
     if not origin or not agent_id or company_id is None or not args_hash:
         return None
-    if not isinstance(company_id, int) or isinstance(company_id, bool) or company_id < 0:
+    if not isinstance(company_id, int) or isinstance(company_id, bool) or company_id < 1:
         return None
     company_int = company_id
 
@@ -570,11 +577,14 @@ def _approval_assertion_from_payload(payload: dict[str, Any], agent_claims: dict
 
 
 def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any]) -> dict | None:
-    allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
+    try:
+        allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
+    except DelegatedAuthorityDenied:
+        allow, unavailable = False, False
     if unavailable:
         return {'_approval_error': True, 'error_code': 'identity_unavailable', 'message': 'Approval unavailable.'}
     if not allow:
-        return {'_approval_error': True, 'error_code': 'approval_unavailable', 'message': 'Approval unavailable.'}
+        return {'_approval_error': True, 'error_code': 'forbidden', 'message': 'Forbidden.'}
     origin = _identity_origin()
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not assertion:
@@ -760,7 +770,7 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
         elif key in ('duration_ms', 'status', 'grant_version', 'company_binding_version'):
             if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
                 out[key] = val
-        elif key == 'company_id' and isinstance(val, int) and not isinstance(val, bool) and val >= 0:
+        elif key == 'company_id' and isinstance(val, int) and not isinstance(val, bool) and val >= 1:
             out[key] = val
         elif key == 'global_company_id' and isinstance(val, str) and parse_global_company_id(val):
             out[key] = parse_global_company_id(val)
