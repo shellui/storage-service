@@ -763,7 +763,16 @@ def consume_approval(
         )
     except requests.RequestException:
         return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
-    if response.status_code == 404 or response.status_code >= 400:
+    if response.status_code >= 400:
+        if response.status_code == 409:
+            return False, {
+                **meta,
+                'outcome': 'denied',
+                'status': 409,
+                'error_code': 'expired',
+            }
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
+    if response.status_code == 404:
         return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
     try:
         data = response.json()
@@ -773,19 +782,11 @@ def consume_approval(
         return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
     if data.get('consumed') is True:
         return True, meta
-    # Identity #136: trust structured consume failures (exact codes from Identity).
-    ec_any = data.get('error_code') if data.get('error_code') is not None else data.get('code')
-    ec = str(ec_any).strip().lower() if ec_any is not None else ''
-    status_raw = data.get('http_status') if data.get('http_status') is not None else data.get('status')
-    try:
-        st_body = int(status_raw) if status_raw is not None else 200
-    except (TypeError, ValueError):
-        st_body = 200
-    if not ec:
-        return False, {**meta, 'outcome': 'failed', 'status': st_body, 'error_code': 'upstream_error'}
-    if ec in ('already_consumed', 'approval_already_consumed', 'session_used'):
-        return False, {**meta, 'outcome': 'session_used', 'status': 409, 'error_code': 'expired'}
-    return False, {**meta, 'outcome': 'failed', 'status': st_body, 'error_code': ec[:128]}
+    # Body is informational only; do not infer machine codes from guessed JSON fields (Identity #136).
+    detail = str(data.get('detail') or data.get('message') or data.get('error') or '').lower()
+    if 'already consumed' in detail or 'already been consumed' in detail:
+        return False, {**meta, 'outcome': 'denied', 'status': 409, 'error_code': 'expired'}
+    return False, {**meta, 'outcome': 'failed', 'status': 200, 'error_code': 'upstream_error'}
 
 
 def _canonical_call_log_outcome(raw: Any) -> str | None:
@@ -814,10 +815,22 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if method_u not in _APPROVAL_HTTP_METHODS:
         return {}
     path_for_registry = resource_path.strip().split('#', 1)[0].split('?', 1)[0].strip()
-    reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
-    if reg is None:
-        return {}
-    _operation_title, _path_template = reg
+    registry_ok = entry.get('tool_registry_valid')
+    if registry_ok is True:
+        reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
+        if reg is None:
+            logger.warning(
+                'MCP call log OpenAPI registry mismatch for tool=%s path=%s method=%s; forwarding with trusted tool name',
+                tool.strip()[:255],
+                path_for_registry[:200],
+                method_u,
+            )
+    elif registry_ok is False:
+        pass
+    else:
+        reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
+        if reg is None:
+            return {}
 
     agent_raw = entry.get('agent_id')
     aid = parse_regional_agent_id(agent_raw)

@@ -25,6 +25,7 @@ from apps.storage.mcp_assertions import (
 )
 from apps.storage.mcp_identity import (
     _UUID_RE,
+    _registry_operation_for_call_log,
     delegated_live_authority_gate,
     grant_versions_compatible,
     identity_revocation_unavailable,
@@ -186,6 +187,10 @@ class StrictMcpServer:
         token_ok, _reason = identity_token_ok(agent_claims)
         if not token_ok:
             return JsonResponse({'error': 'identity_invalid'}, status=401)
+        if parse_grant_version(agent_claims.get('grant_version')) is None:
+            return JsonResponse({'error': 'identity_invalid'}, status=401)
+        if not str(agent_claims.get('scope') or '').strip():
+            return JsonResponse({'error': 'identity_invalid'}, status=401)
 
         company_id = agent_claims.get('company_id')
         if not isinstance(company_id, int) or isinstance(company_id, bool):
@@ -205,6 +210,20 @@ class StrictMcpServer:
 
         if not self._service_allowed(agent_claims, self.service_name):
             return JsonResponse({'error': 'forbidden'}, status=403)
+
+        expected_res = (mcp_resource_audience if isinstance(mcp_resource_audience, str) else '') or ''
+        gate_payload: dict[str, Any] = {
+            'mcp_expected_resource': expected_res.strip() or None,
+            'agent_id': agent_claims.get('agent_id'),
+            'company_id': agent_claims.get('company_id'),
+            'service': self.service_name,
+        }
+        allow_dg, unavail_dg = self.delegated_authority_gate(gate_payload, agent_claims)
+        if unavail_dg:
+            return JsonResponse({'error': 'identity_unavailable'}, status=503)
+        if not allow_dg:
+            return JsonResponse({'error': 'forbidden'}, status=403)
+
         try:
             payload = json.loads(request.body.decode('utf-8') or '{}')
         except json.JSONDecodeError:
@@ -245,6 +264,10 @@ class StrictMcpServer:
         method = str(arguments.get('method') or meta.get('method') or 'GET').upper()
         if path != path_template or method != meta.get('method'):
             return JsonResponse(self._error(req_id, -32602, 'Tool path mismatch'))
+        registry_op_id = str(meta.get('operationId') or tool_name).strip()
+        registry_valid = _registry_operation_for_call_log(registry_op_id, path_template, method) is not None
+        if not registry_valid:
+            return JsonResponse(self._error(req_id, -32602, 'Tool registry mismatch'))
         try:
             validate_mcp_tool_arguments(arguments if isinstance(arguments, dict) else {}, meta)
             path_params = arguments.get('path_params') if isinstance(arguments.get('path_params'), dict) else {}
@@ -280,7 +303,7 @@ class StrictMcpServer:
         approval_flow_state: str | None = None
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
-            expected_res = mcp_resource_audience if isinstance(mcp_resource_audience, str) else ''
+            expected_res = (mcp_resource_audience if isinstance(mcp_resource_audience, str) else '') or ''
             approval_payload = {
                 'agent_id': agent_claims.get('agent_id'),
                 'company_id': agent_claims.get('company_id'),
@@ -307,6 +330,8 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
+                        inner_http_method=method,
+                        tool_registry_valid=registry_valid,
                         status_code=503,
                         outcome='failed',
                         error_code='upstream_error',
@@ -319,7 +344,7 @@ class StrictMcpServer:
                             {'content': [{'type': 'text', 'text': 'Identity approval check failed.'}], 'isError': True},
                         )
                     )
-                if state in ('executed', 'expired'):
+                if state == 'expired':
                     self._emit_audit(
                         request=request,
                         agent_claims=agent_claims,
@@ -331,8 +356,10 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
+                        inner_http_method=method,
+                        tool_registry_valid=registry_valid,
                         status_code=409,
-                        outcome='session_used',
+                        outcome='denied',
                         error_code='expired',
                         approval_id=None,
                         started=started,
@@ -340,7 +367,7 @@ class StrictMcpServer:
                     return JsonResponse(
                         self._result(
                             req_id,
-                            {'content': [{'type': 'text', 'text': 'Approval already used.'}], 'isError': True},
+                            {'content': [{'type': 'text', 'text': 'Approval not reusable.'}], 'isError': True},
                         )
                     )
                 if state == 'denied':
@@ -355,6 +382,8 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
+                        inner_http_method=method,
+                        tool_registry_valid=registry_valid,
                         status_code=403,
                         outcome='denied',
                         error_code='denied',
@@ -409,17 +438,19 @@ class StrictMcpServer:
                                 destructive=destructive,
                                 read_level=read_level,
                                 arguments=arguments,
+                                inner_http_method=method,
+                                tool_registry_valid=registry_valid,
                                 status_code=sc,
-                                outcome=oc if oc in ('failed', 'session_used', 'waiting_approval') else 'failed',
+                                outcome=oc if oc in ('failed', 'denied', 'waiting_approval') else 'failed',
                                 error_code=ec_audit,
                                 approval_id=aid_final,
                                 started=started,
                             )
-                            if oc == 'session_used':
+                            if oc == 'denied' and sc == 409:
                                 return JsonResponse(
                                     self._result(
                                         req_id,
-                                        {'content': [{'type': 'text', 'text': 'Approval already used.'}], 'isError': True},
+                                        {'content': [{'type': 'text', 'text': 'Approval not reusable.'}], 'isError': True},
                                     )
                                 )
                             return JsonResponse(
@@ -440,6 +471,8 @@ class StrictMcpServer:
                             destructive=destructive,
                             read_level=read_level,
                             arguments=arguments,
+                            inner_http_method=method,
+                            tool_registry_valid=registry_valid,
                             status_code=503,
                             outcome='failed',
                             error_code='upstream_error',
@@ -452,7 +485,7 @@ class StrictMcpServer:
                                 {'content': [{'type': 'text', 'text': 'Approval unavailable.'}], 'isError': True},
                             )
                         )
-                elif state == 'pending':
+                if state == 'pending':
                     self._emit_audit(
                         request=request,
                         agent_claims=agent_claims,
@@ -464,6 +497,8 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
+                        inner_http_method=method,
+                        tool_registry_valid=registry_valid,
                         status_code=202,
                         outcome='waiting_approval',
                         error_code=None,
@@ -497,6 +532,8 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
+                        inner_http_method=method,
+                        tool_registry_valid=registry_valid,
                         status_code=503,
                         outcome='failed',
                         error_code=ec if ec in AUDIT_ERROR_CODES else 'upstream_error',
@@ -523,6 +560,8 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
+                        inner_http_method=method,
+                        tool_registry_valid=registry_valid,
                         status_code=202,
                         outcome='waiting_approval',
                         error_code=None,
@@ -552,6 +591,8 @@ class StrictMcpServer:
                     destructive=destructive,
                     read_level=read_level,
                     arguments=arguments,
+                    inner_http_method=method,
+                    tool_registry_valid=registry_valid,
                     status_code=403,
                     outcome=oc,
                     error_code='denied',
@@ -577,6 +618,8 @@ class StrictMcpServer:
                 destructive=destructive,
                 read_level=read_level,
                 arguments=arguments,
+                inner_http_method=method,
+                tool_registry_valid=registry_valid,
                 status_code=403,
                 outcome=oc,
                 error_code='denied',
@@ -631,6 +674,8 @@ class StrictMcpServer:
             destructive=destructive,
             read_level=read_level,
             arguments=arguments,
+            inner_http_method=method,
+            tool_registry_valid=registry_valid,
             status_code=eff_status,
             outcome=http_outcome,
             error_code=_inner_http_error_code(eff_status),
@@ -665,6 +710,8 @@ class StrictMcpServer:
         error_code: str | None,
         approval_id: str | None,
         started: float,
+        inner_http_method: str | None = None,
+        tool_registry_valid: bool | None = None,
     ) -> None:
         if not self.on_call:
             return
@@ -686,7 +733,7 @@ class StrictMcpServer:
             'service': self.service_name,
             'tool': tool_name,
             'operation_title': operation_title,
-            'http_method': method,
+            'http_method': inner_http_method if isinstance(inner_http_method, str) and inner_http_method.strip() else method,
             'resource_path': audit_path,
             'access_kind': access_kind,
             'outcome': outcome,
@@ -694,6 +741,8 @@ class StrictMcpServer:
             'duration_ms': duration_ms,
             'approval_id': approval_id,
         }
+        if tool_registry_valid is not None:
+            entry['tool_registry_valid'] = bool(tool_registry_valid)
         if gcid is not None:
             entry['global_company_id'] = gcid
             if cbv is not None:

@@ -590,5 +590,5 @@ class McpEndpointTests(TestCase):
         self.assertIn('pending', r2.json()['result']['content'][0]['text'].lower())
         self.assertFalse(r3.json()['result'].get('isError'))
         self.assertTrue(r4.json()['result'].get('isError'))
-        self.assertIn('used', r4.json()['result']['content'][0]['text'].lower())
+        self.assertIn('not reusable', r4.json()['result']['content'][0]['text'].lower())
         self.assertEqual(r5.json().get('error'), 'agent_revoked')

@@ -527,7 +527,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertEqual(consume_calls[-1].kwargs['json'], {'approval_id': aid})
         self.assertTrue(consume_calls[-1].kwargs['headers']['Authorization'].startswith('Bearer '))
 
-    def test_consume_approval_identity136_already_consumed_maps_session_used(self):
+    def test_consume_approval_identity136_already_consumed_http200_message(self):
         payload = {
             'agent_id': _AGENT_A,
             'company_id': 1,
@@ -539,12 +539,12 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         with _patch_identity_posts(
             lambda: MagicMock(
                 status_code=200,
-                json=lambda: {'consumed': False, 'error_code': 'already_consumed', 'http_status': 200},
+                json=lambda: {'consumed': False, 'detail': 'Approval already consumed.'},
             )
         ):
             ok, meta = consume_approval(str(uuid.uuid4()), payload, _claims_write())
         self.assertFalse(ok)
-        self.assertEqual(meta.get('outcome'), 'session_used')
+        self.assertEqual(meta.get('outcome'), 'denied')
         self.assertEqual(meta.get('status'), 409)
         self.assertEqual(meta.get('error_code'), 'expired')
 

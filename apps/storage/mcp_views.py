@@ -29,11 +29,8 @@ def _schema() -> dict:
 
 
 def _approval_state_for_mcp(payload: dict, agent_claims: dict) -> str | None:
-    """Map identity ``expired`` (consumed approval) to ``executed`` for the MCP server."""
-    state = approval_state(payload, agent_claims)
-    if state == 'expired':
-        return 'executed'
-    return state
+    """Pass through Identity approval status (``expired`` means row already consumed / not reusable)."""
+    return approval_state(payload, agent_claims)
 
 
 def _get_server() -> StrictMcpServer:
