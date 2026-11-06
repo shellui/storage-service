@@ -7,6 +7,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import jwt
+from django.http import JsonResponse
 from django.test import Client, TestCase, override_settings
 from drf_spectacular.generators import SchemaGenerator
 
@@ -37,9 +38,11 @@ def _agent_token(
     mcp_access: str = 'read_only',
     scope: str = 'storage',
     aud: str | None = None,
-    grant_version: int = 0,
+    grant_version: int | None = 0,
+    omit_grant_version: bool = False,
     global_company_id: str | None = None,
     company_binding_version: int | None = None,
+    global_agent_id: str | None = None,
     secret: str = 'test-secret',
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
@@ -47,7 +50,6 @@ def _agent_token(
         'sub': f'agent:{agent_id}',
         'agent_id': agent_id,
         'company_id': company_id,
-        'grant_version': grant_version,
         'scope': scope,
         'mcp_access': mcp_access,
         'mcp_read': 'safe',
@@ -56,10 +58,14 @@ def _agent_token(
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
     }
+    if not omit_grant_version and grant_version is not None:
+        payload['grant_version'] = grant_version
     if global_company_id is not None:
         payload['global_company_id'] = global_company_id
     if company_binding_version is not None:
         payload['company_binding_version'] = company_binding_version
+    if global_agent_id is not None:
+        payload['global_agent_id'] = global_agent_id
     return jwt.encode(payload, secret, algorithm='HS256')
 
 
@@ -159,18 +165,7 @@ class McpEndpointTests(TestCase):
         self.assertEqual(self._initialize(_agent_token()).status_code, 401)
 
     def test_personal_token_may_omit_grant_version(self):
-        agent_id = str(uuid.uuid4())
-        payload = {
-            'sub': f'agent:{agent_id}',
-            'agent_id': agent_id,
-            'company_id': 10,
-            'scope': 'storage',
-            'mcp_access': 'read_only',
-            'aud': _mcp_audience(),
-            'iss': 'https://identity.test',
-            'exp': 2**31 - 1,
-        }
-        token = jwt.encode(payload, 'test-secret', algorithm='HS256')
+        token = _agent_token(omit_grant_version=True)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: _signed_revocation_for_tests())
             response = self.client.post(
@@ -347,7 +342,15 @@ class McpEndpointTests(TestCase):
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: _signed_revocation_for_tests(
-                    agents=[{'agent_id': aid, 'company_id': cid, 'grant_version': 0}],
+                    agents=[
+                        {
+                            'agent_id': aid,
+                            'company_id': cid,
+                            'global_company_id': '18e20f88-286e-46ea-858e-1d75bca615ff',
+                            'company_binding_version': 0,
+                            'grant_version': 0,
+                        }
+                    ],
                 ),
             )
             with (
@@ -385,3 +388,137 @@ class McpEndpointTests(TestCase):
 
         redacted = redact_mapping({'token': 'secret-link-token', 'path': 'a/b'}, read_sensitive=False)
         self.assertEqual(redacted['token'], '[redacted]')
+
+    def test_ask_approval_create_pending_approve_consume_reuse_revoke(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = tools_from_schema(schema)
+        tool = next(t for t in tools if t['name'] == 'storage_v1_access_grant_create')
+        agent_id = str(uuid.uuid4())
+        company_id = 10
+        appr_id = str(uuid.uuid4())
+        req_id = str(uuid.uuid4())
+        token = _agent_token(
+            agent_id=agent_id,
+            company_id=company_id,
+            mcp_access=ACCESS_ASK,
+            grant_version=0,
+            global_company_id='18e20f88-286e-46ea-858e-1d75bca615ff',
+            company_binding_version=0,
+        )
+        body = {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'tools/call',
+            'params': {
+                'name': tool['name'],
+                'arguments': {
+                    'path': tool['_meta']['path'],
+                    'method': tool['_meta']['method'],
+                    'query': {},
+                    'body': {},
+                },
+            },
+        }
+        row = {
+            'agent_id': agent_id,
+            'company_id': company_id,
+            'global_company_id': '18e20f88-286e-46ea-858e-1d75bca615ff',
+            'company_binding_version': 0,
+            'grant_version': 0,
+        }
+        state_calls = {'n': 0}
+
+        def fake_state(payload, claims):
+            state_calls['n'] += 1
+            if state_calls['n'] == 1:
+                return None
+            if state_calls['n'] == 2:
+                return 'pending'
+            if state_calls['n'] == 3:
+                payload['approval_id'] = appr_id
+                return 'approved'
+            if state_calls['n'] == 4:
+                payload['approval_id'] = appr_id
+                return 'expired'
+            return 'error'
+
+        def fake_consume(approval_id, payload, claims):
+            return str(approval_id) == appr_id and state_calls['n'] == 3
+
+        create_calls = {'n': 0}
+
+        def fake_create(payload, claims):
+            create_calls['n'] += 1
+            return {'id': req_id}
+
+        op_calls = {'n': 0}
+
+        def fake_resolve(path, urlconf):
+            op_calls['n'] += 1
+            return MagicMock(func=lambda request, *a, **kw: JsonResponse({'ok': True}, status=200), args=(), kwargs={})
+
+        rev_calls = {'n': 0}
+
+        def fake_revoked(aid, cid, claims=None):
+            rev_calls['n'] += 1
+            return rev_calls['n'] >= 5
+
+        with (
+            patch('apps.storage.mcp_identity.requests.get') as mock_get,
+            patch('apps.storage.mcp_views._approval_state_for_mcp', side_effect=fake_state),
+            patch('apps.storage.mcp_views.create_approval_request', side_effect=fake_create),
+            patch('apps.storage.mcp_views.consume_approval', side_effect=fake_consume),
+            patch('apps.storage.mcp_views.agent_is_revoked', side_effect=fake_revoked),
+            patch('django.urls.resolve', side_effect=fake_resolve),
+        ):
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(agents=[row]),
+            )
+            r1 = self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+            r2 = self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+            r3 = self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+            r4 = self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+            r5 = self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+
+        self.assertEqual(create_calls['n'], 1)
+        self.assertEqual(op_calls['n'], 1)
+        m1 = r1.json()['result'].get('meta') or {}
+        self.assertEqual(m1.get('status'), 'pending')
+        self.assertEqual(m1.get('approval_id'), req_id)
+        self.assertTrue(r2.json()['result'].get('isError'))
+        self.assertIn('pending', r2.json()['result']['content'][0]['text'].lower())
+        self.assertFalse(r3.json()['result'].get('isError'))
+        self.assertTrue(r4.json()['result'].get('isError'))
+        self.assertIn('used', r4.json()['result']['content'][0]['text'].lower())
+        self.assertEqual(r5.json().get('error'), 'agent_revoked')

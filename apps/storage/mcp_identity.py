@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import uuid
+from functools import lru_cache
 from typing import Any
 
 import requests
@@ -24,6 +25,7 @@ from shellui_django.mcp.internal import (
 
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
+    parse_global_agent_id,
     parse_global_company_id,
     parse_grant_version,
     parse_trusted_agent_claims,
@@ -48,20 +50,31 @@ _CALL_LOG_APPROVED_KEYS = frozenset(
         'service',
         'tool',
         'operation_title',
-        'method',
-        'path',
+        'http_method',
+        'resource_path',
         'access_kind',
-        'destructive',
-        'read_level',
         'outcome',
         'status',
         'duration_ms',
         'approval_request_id',
         'approval_id',
-        'error',
-        'result_shape',
+        'error_code',
     }
 )
+
+_CALL_LOG_OUTCOMES = frozenset(
+    {
+        'pending_approval',
+        'allowed',
+        'denied',
+        'failed',
+        'session_used',
+    }
+)
+
+_CALL_LOG_ACCESS_KINDS = frozenset({'read', 'write'})
+
+_APPROVAL_HTTP_METHODS = frozenset({'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'})
 
 _APPROVAL_STATUS_OK = frozenset({'approved', 'pending', 'denied', 'expired'})
 _UUID_RE = re.compile(
@@ -175,7 +188,7 @@ def _refresh_revocations() -> bool:
     try:
         response = requests.get(url, headers=headers, timeout=5)
     except requests.RequestException as exc:
-        logger.warning('MCP revocation poll failed: %s', exc)
+        logger.warning('MCP revocation poll failed: %s', type(exc).__name__)
         _mark_revocation_untrusted()
         return False
     if response.status_code == 404 or response.status_code >= 400:
@@ -201,12 +214,14 @@ def _refresh_revocations() -> bool:
     agents = list(trusted.get('agents') or [])
     rp = trusted.get('revocation_policy_version')
     mv = trusted.get('max_active_grant_version')
-    if rp is None or parse_grant_version(rp) is None:
-        logger.warning('MCP revocation list missing revocation_policy_version')
+    rp_int = parse_grant_version(rp) if rp is not None else None
+    if rp is not None and rp_int is None:
+        logger.warning('MCP revocation list has invalid revocation_policy_version')
         _mark_revocation_untrusted()
         return False
-    if mv is None or parse_grant_version(mv) is None:
-        logger.warning('MCP revocation list missing max_active_grant_version')
+    mv_int = parse_grant_version(mv) if mv is not None else None
+    if mv is not None and mv_int is None:
+        logger.warning('MCP revocation list has invalid max_active_grant_version')
         _mark_revocation_untrusted()
         return False
     _store_trusted_revocation(
@@ -214,8 +229,8 @@ def _refresh_revocations() -> bool:
         agents=agents,
         cache_seconds=cache_seconds,
         verified_signed_claims={
-            'revocation_policy_version': parse_grant_version(rp),
-            'max_active_grant_version': parse_grant_version(mv),
+            'revocation_policy_version': rp_int,
+            'max_active_grant_version': mv_int,
         },
     )
     return True
@@ -239,6 +254,26 @@ def _regional_company_id(claims: dict[str, Any]) -> int | None:
     return raw
 
 
+def _snapshot_row_grant_version(row: dict[str, Any]) -> int | None:
+    """Snapshot ``grant_version``: non-negative int only (no string coercion)."""
+    if 'grant_version' not in row:
+        return None
+    v = row.get('grant_version')
+    if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+        return None
+    return v
+
+
+def _snapshot_row_company_binding_version(row: dict[str, Any]) -> int | None:
+    """Snapshot ``company_binding_version``: non-negative int only (no string coercion)."""
+    if 'company_binding_version' not in row:
+        return None
+    v = row.get('company_binding_version')
+    if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+        return None
+    return v
+
+
 def _grant_row_snapshot_fields(row: dict[str, Any]) -> tuple[int | None, str | None, int | None]:
     """Regional company id, global company UUID, grant version from Identity snapshot row."""
     rc: int | None = None
@@ -249,65 +284,124 @@ def _grant_row_snapshot_fields(row: dict[str, Any]) -> tuple[int | None, str | N
         else:
             rc = raw_c
     gg = parse_global_company_id(row.get('global_company_id'))
-    if row.get('global_company_id') is not None and gg is None:
-        gg = None
-    gv = parse_grant_version(row.get('grant_version')) if 'grant_version' in row else None
+    gv = _snapshot_row_grant_version(row)
     return rc, gg, gv
 
 
-def _agent_grant_row(agent_id: str, agent_claims: dict[str, Any]) -> dict[str, Any] | None:
+def _row_global_pair_consistent(row: dict[str, Any]) -> bool:
+    g_pres = row.get('global_company_id') is not None
+    raw_b = row.get('company_binding_version')
+    # Reject non-integer snapshot fields so string digits do not match token ints.
+    b_pres = raw_b is not None and isinstance(raw_b, int) and not isinstance(raw_b, bool) and raw_b >= 0
+    return g_pres == b_pres
+
+
+def _authority_row_status(
+    agent_id: str, agent_claims: dict[str, Any]
+) -> tuple[str, dict[str, Any] | None]:
+    """
+    Select at most one revocation snapshot row for this agent and token.
+
+    Returns (status, row) where status is:
+    - ``exact``: exactly one row matches (delegated: regional + global triple; personal: regional only)
+    - ``absent``: no rows list this ``agent_id`` (authority proof deferred to caps and revoked ids)
+    - ``missing``: rows exist for this agent but none match this token (fail closed for delegated;
+      personal treat as stale or wrong tenant)
+    - ``ambiguous``: more than one row would match (never pick ``candidates[0]``)
+    """
     payload = _cached_revocation()
     if not payload:
-        return None
+        return 'missing', None
     agents = payload.get('agents') or []
+    if not isinstance(agents, list):
+        return 'missing', None
+
+    entries = [
+        e
+        for e in agents
+        if isinstance(e, dict) and str(e.get('agent_id') or '') == str(agent_id)
+    ]
+    if not entries:
+        return 'absent', None
+
     token_rc = _regional_company_id(agent_claims)
     token_gg = parse_global_company_id(agent_claims.get('global_company_id'))
-    candidates: list[dict[str, Any]] = []
-    for entry in agents:
-        if not isinstance(entry, dict):
+    token_gai = parse_global_agent_id(agent_claims.get('global_agent_id'))
+    delegated = token_gg is not None or token_gai is not None
+
+    if delegated:
+        if token_rc is None or token_gg is None:
+            return 'missing', None
+        matches: list[dict[str, Any]] = []
+        for entry in entries:
+            if not _row_global_pair_consistent(entry):
+                continue
+            rc, gg, _gv = _grant_row_snapshot_fields(entry)
+            if entry.get('global_company_id') is None:
+                continue
+            if gg is None or gg != token_gg:
+                continue
+            if rc is None or rc != token_rc:
+                continue
+            matches.append(entry)
+        if len(matches) == 1:
+            return 'exact', matches[0]
+        if len(matches) == 0:
+            return 'missing', None
+        return 'ambiguous', None
+
+    matches = []
+    for entry in entries:
+        if not _row_global_pair_consistent(entry):
             continue
-        if str(entry.get('agent_id') or '') != str(agent_id):
+        if entry.get('global_company_id') is not None:
             continue
-        rc, gg, _gv = _grant_row_snapshot_fields(entry)
-        if token_rc is not None and rc is not None and rc == token_rc:
-            candidates.append(entry)
-        elif token_gg is not None and gg is not None and gg == token_gg:
-            candidates.append(entry)
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0]
-    if token_rc is not None:
-        for c in candidates:
-            rc, _gg, _gv = _grant_row_snapshot_fields(c)
-            if rc == token_rc:
-                return c
-    if token_gg is not None:
-        for c in candidates:
-            _rc, gg, _gv = _grant_row_snapshot_fields(c)
-            if gg == token_gg:
-                return c
-    return candidates[0]
+        rc, _gg, _gv = _grant_row_snapshot_fields(entry)
+        if token_rc is None or rc is None or rc != token_rc:
+            continue
+        matches.append(entry)
+    if len(matches) == 1:
+        return 'exact', matches[0]
+    if len(matches) == 0:
+        return 'missing', None
+    return 'ambiguous', None
 
 
 def _grant_row_matches_agent(agent_claims: dict[str, Any], row: dict[str, Any]) -> bool:
+    if not _row_global_pair_consistent(row):
+        return False
     rc_row, gg_row, gv_row = _grant_row_snapshot_fields(row)
     rc_tok = _regional_company_id(agent_claims)
     gg_tok = parse_global_company_id(agent_claims.get('global_company_id'))
+    token_gai = parse_global_agent_id(agent_claims.get('global_agent_id'))
+    delegated = gg_tok is not None or token_gai is not None
     gv_tok = (
         parse_grant_version(agent_claims.get('grant_version'))
         if 'grant_version' in agent_claims
         else None
     )
+    cb_tok = (
+        parse_company_binding_version(agent_claims.get('company_binding_version'))
+        if 'company_binding_version' in agent_claims
+        else None
+    )
 
-    if rc_tok is not None and rc_row is not None and rc_tok != rc_row:
-        return False
-    if gg_tok is not None and gg_row is not None and gg_tok != gg_row:
-        return False
-    if gg_tok is not None or gg_row is not None:
+    if delegated:
+        if gg_row is None or gg_tok is None or gg_row != gg_tok:
+            return False
+        if rc_tok is None or rc_row is None or rc_tok != rc_row:
+            return False
+        cb_row = _snapshot_row_company_binding_version(row)
+        if cb_tok is None or cb_row is None:
+            return False
         if gv_tok is None or gv_row is None:
             return False
-        return gv_tok == gv_row
+        return cb_tok == cb_row and gv_tok == gv_row
+
+    if rc_row is None or rc_tok is None or rc_row != rc_tok:
+        return False
+    if row.get('global_company_id') is not None:
+        return False
     if gv_tok is None and gv_row is None:
         return True
     if gv_tok is None or gv_row is None:
@@ -325,8 +419,17 @@ def agent_is_revoked(agent_id: str, company_id: int | None = None, agent_claims:
     if _agent_blocked_for_tenant(str(agent_id), company_id=company_id, payload=payload):
         return True
     if agent_claims:
-        row = _agent_grant_row(str(agent_id), agent_claims)
-        if row is not None and not _grant_row_matches_agent(agent_claims, row):
+        delegated_tok = (
+            parse_global_company_id(agent_claims.get('global_company_id')) is not None
+            or parse_global_agent_id(agent_claims.get('global_agent_id')) is not None
+        )
+        status, row = _authority_row_status(str(agent_id), agent_claims)
+        if status in ('missing', 'ambiguous'):
+            return True
+        if delegated_tok:
+            if status == 'absent' or row is None or not _grant_row_matches_agent(agent_claims, row):
+                return True
+        elif row is not None and not _grant_row_matches_agent(agent_claims, row):
             return True
     return False
 
@@ -348,12 +451,34 @@ def revocation_policy_version() -> int | None:
 def grant_versions_compatible(agent_claims: dict[str, Any]) -> bool | None:
     """None when signed policy is unusable; False when token is stale; True when ok."""
     mv = max_active_grant_version()
-    if mv is None:
-        return None
     gv = parse_grant_version(agent_claims.get('grant_version')) if 'grant_version' in agent_claims else None
+    delegated = (
+        parse_global_company_id(agent_claims.get('global_company_id')) is not None
+        or parse_global_agent_id(agent_claims.get('global_agent_id')) is not None
+    )
+    if delegated:
+        agent_id = str(agent_claims.get('agent_id') or '')
+        if not agent_id:
+            return None
+        status, row = _authority_row_status(agent_id, agent_claims)
+        if status == 'absent':
+            return False
+        if status != 'exact' or row is None or not _grant_row_matches_agent(agent_claims, row):
+            return False
+        if mv is None:
+            return None
+        if gv is None:
+            return False
+        return gv >= mv
+    agent_id = str(agent_claims.get('agent_id') or '')
+    if agent_id:
+        st, _row = _authority_row_status(agent_id, agent_claims)
+        if st == 'absent':
+            return True
+    if mv is None:
+        return True
     if gv is None:
-        gcid = parse_global_company_id(agent_claims.get('global_company_id'))
-        return gcid is None
+        return True
     return gv >= mv
 
 
@@ -408,30 +533,29 @@ def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any
     origin = _identity_origin()
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not assertion:
-        return None
-    body = {'arguments': payload.get('arguments') or {}}
+        return {'_approval_error': True, 'error_code': 'approval_unavailable', 'message': 'Approval unavailable.'}
     try:
         response = requests.post(
             f'{origin}/api/v1/mcp/internal/mcp-approval-requests',
-            json=body,
+            json={},
             headers={'Authorization': f'Bearer {assertion}'},
             timeout=10,
         )
     except requests.RequestException as exc:
-        logger.warning('MCP approval request unreachable: %s', exc)
-        return None
+        logger.warning('MCP approval request unreachable: %s', type(exc).__name__)
+        return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
     if response.status_code == 404 or response.status_code >= 400:
         logger.warning('MCP approval request failed: %s', response.status_code)
-        return None
+        return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
     try:
         data = response.json()
     except ValueError:
-        return None
+        return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
     if not isinstance(data, dict):
-        return None
+        return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
     rid = data.get('id')
     if rid is None or not _UUID_RE.match(str(rid)):
-        return None
+        return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
     return data
 
 
@@ -472,10 +596,51 @@ def approval_state(payload: dict[str, Any], agent_claims: dict[str, Any]) -> str
     if state == 'pending':
         return 'pending'
     if state == 'denied':
-        return None
+        return 'denied'
     if state == 'expired':
         return 'expired'
     return 'error'
+
+
+@lru_cache(maxsize=1)
+def _cached_openapi_schema_public() -> dict[str, Any]:
+    """OpenAPI schema for MCP tools (same as ``POST /mcp``); cached per process."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    return SchemaGenerator().get_schema(request=None, public=True)
+
+
+def clear_mcp_call_log_schema_cache() -> None:
+    """Drop the OpenAPI cache (for tests or after schema-changing reloads)."""
+    _cached_openapi_schema_public.cache_clear()
+
+
+def _registry_operation_for_call_log(
+    tool_name: str, resource_path: str, http_method: str
+) -> tuple[str, str] | None:
+    """
+    Resolve OpenAPI ``summary`` and path template for a tool when the triple matches.
+
+    Rejects caller-supplied titles or paths that do not match the published operationId and template.
+    """
+    schema = _cached_openapi_schema_public()
+    paths = schema.get('paths') or {}
+    if not isinstance(paths, dict):
+        return None
+    p_item = paths.get(resource_path)
+    if not isinstance(p_item, dict):
+        return None
+    op = p_item.get(str(http_method).lower())
+    if not isinstance(op, dict):
+        return None
+    if str(op.get('operationId') or '') != str(tool_name):
+        return None
+    summary = (op.get('summary') or '').strip()
+    title = (summary[:256] if summary else str(tool_name))[:256]
+    p = resource_path.split('?', 1)[0].strip()
+    if not p.startswith('/') or '\n' in p:
+        return None
+    return title, p[:2048]
 
 
 def consume_approval(
@@ -511,21 +676,35 @@ def consume_approval(
 
 
 def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
+    tool = entry.get('tool')
+    resource_path = entry.get('resource_path')
+    http_method = entry.get('http_method')
+    if not isinstance(tool, str) or not tool.strip():
+        return {}
+    if not isinstance(resource_path, str) or not isinstance(http_method, str):
+        return {}
+    method_u = http_method.strip().upper()
+    if method_u not in _APPROVAL_HTTP_METHODS:
+        return {}
+    reg = _registry_operation_for_call_log(tool.strip(), resource_path, method_u)
+    if reg is None:
+        return {}
+    operation_title, path_template = reg
+
+    out: dict[str, Any] = {
+        'tool': tool.strip()[:500],
+        'operation_title': operation_title,
+        'resource_path': path_template,
+        'http_method': method_u,
+    }
     for key in _CALL_LOG_APPROVED_KEYS:
+        if key in ('tool', 'operation_title', 'resource_path', 'http_method'):
+            continue
         if key not in entry:
             continue
         val = entry[key]
-        if key == 'error' and isinstance(val, dict):
-            code = val.get('code')
-            if isinstance(code, str) and code:
-                out[key] = {'code': code[:128]}
-        elif key == 'result_shape' and val in ('dict', 'list', 'scalar', 'empty'):
-            out[key] = val
-        elif key == 'operation_title' and isinstance(val, str):
-            out[key] = val[:256]
-        elif key == 'path' and isinstance(val, str):
-            out[key] = val[:2048]
+        if key == 'error_code' and isinstance(val, str) and val:
+            out[key] = val[:128]
         elif key in ('duration_ms', 'status', 'grant_version', 'company_binding_version'):
             if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
                 out[key] = val
@@ -533,25 +712,20 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
             out[key] = val
         elif key == 'global_company_id' and isinstance(val, str) and parse_global_company_id(val):
             out[key] = parse_global_company_id(val)
-        elif key in (
-            'agent_id',
-            'service',
-            'tool',
-            'method',
-            'access_kind',
-            'read_level',
-            'outcome',
-            'approval_request_id',
-            'approval_id',
-        ):
-            if key in ('approval_request_id', 'approval_id'):
-                if not isinstance(val, str) or not val or not _UUID_RE.match(val):
-                    continue
-                out[key] = val
-            elif isinstance(val, str) and val:
-                out[key] = val[:500]
-        elif key == 'destructive' and isinstance(val, bool):
+        elif key == 'outcome' and isinstance(val, str) and val in _CALL_LOG_OUTCOMES:
             out[key] = val
+        elif key == 'access_kind' and isinstance(val, str) and val in _CALL_LOG_ACCESS_KINDS:
+            out[key] = val
+        elif key in ('agent_id', 'service'):
+            if isinstance(val, str) and val:
+                out[key] = val[:500]
+        elif key in ('approval_request_id', 'approval_id'):
+            if isinstance(val, str) and val and _UUID_RE.match(val):
+                out[key] = val
+    if 'outcome' not in out or out.get('outcome') not in _CALL_LOG_OUTCOMES:
+        return {}
+    if 'access_kind' not in out or out.get('access_kind') not in _CALL_LOG_ACCESS_KINDS:
+        return {}
     return out
 
 
@@ -575,7 +749,7 @@ def forward_call_log(entry: dict[str, Any]) -> None:
             timeout=10,
         )
     except requests.RequestException as exc:
-        logger.debug('MCP call log forward failed: %s', exc)
+        logger.debug('MCP call log forward failed: %s', type(exc).__name__)
 
 
 def warm_revocation_cache() -> None:

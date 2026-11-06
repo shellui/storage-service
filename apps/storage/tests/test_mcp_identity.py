@@ -19,7 +19,9 @@ from apps.storage.tests.rs256_helpers import (
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
+    clear_mcp_call_log_schema_cache,
     consume_approval,
+    grant_versions_compatible,
     identity_revocation_unavailable,
 )
 
@@ -41,6 +43,14 @@ def _claims_write(
         'grant_version': grant_version,
         'global_company_id': global_company_id,
         'company_binding_version': company_binding_version,
+    }
+
+
+def _claims_personal(*, company_id: int = 1, grant_version: int = 0) -> dict:
+    return {
+        'mcp_access': 'ask',
+        'company_id': company_id,
+        'grant_version': grant_version,
     }
 
 
@@ -69,6 +79,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
         cache.delete('mcp:revoked_verified_claims')
+        clear_mcp_call_log_schema_cache()
 
     def test_identity_unavailable_when_revocation_returns_404(self):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
@@ -118,7 +129,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             agents=[{'agent_id': 'a1', 'company_id': 1, 'grant_version': 1}],
             max_gv=1,
         )
-        claims = _claims_write(company_id=1, grant_version=0)
+        claims = _claims_personal(company_id=1, grant_version=0)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
             self.assertTrue(agent_is_revoked('a1', 1, claims))
@@ -129,7 +140,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             agents=[{'agent_id': 'a1', 'company_id': 1, 'grant_version': 0}],
             max_gv=0,
         )
-        claims = _claims_write(company_id=1, grant_version=0)
+        claims = _claims_personal(company_id=1, grant_version=0)
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
             self.assertFalse(agent_is_revoked('a1', 1, claims))
@@ -140,6 +151,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             agents=[
                 {
                     'agent_id': 'a1',
+                    'company_id': 1,
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
                     'grant_version': 0,
@@ -151,6 +163,86 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
             mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
             self.assertFalse(agent_is_revoked('a1', 1, claims))
+
+    def test_delegated_no_authoritative_row_revokes(self):
+        body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=0)
+        claims = _claims_write()
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertTrue(agent_is_revoked('a1', 1, claims))
+
+    def test_delegated_does_not_match_across_regional_company(self):
+        body = _signed_revocation_body(
+            revoked_ids=[],
+            agents=[
+                {
+                    'agent_id': 'a1',
+                    'company_id': 2,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 0,
+                    'grant_version': 0,
+                }
+            ],
+            max_gv=0,
+        )
+        claims = _claims_write(company_id=1, grant_version=0, global_company_id=_SAMPLE_GLOBAL)
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertTrue(agent_is_revoked('a1', 1, claims))
+
+    def test_delegated_ambiguous_rows_revokes(self):
+        row = {
+            'agent_id': 'a1',
+            'company_id': 1,
+            'global_company_id': _SAMPLE_GLOBAL,
+            'company_binding_version': 0,
+            'grant_version': 0,
+        }
+        body = _signed_revocation_body(revoked_ids=[], agents=[row, dict(row)], max_gv=0)
+        claims = _claims_write()
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertTrue(agent_is_revoked('a1', 1, claims))
+
+    def test_delegated_absent_snapshot_revokes(self):
+        body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=0)
+        claims = _claims_write()
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertTrue(agent_is_revoked('a1', 1, claims))
+
+    def test_personal_absent_snapshot_not_revoked(self):
+        body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=0)
+        claims = _claims_personal()
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertFalse(agent_is_revoked('a1', 1, claims))
+
+    def test_grant_versions_personal_ok_when_no_snapshot_row(self):
+        body = _signed_revocation_body(revoked_ids=[], agents=[], max_gv=1)
+        claims = _claims_personal(company_id=1, grant_version=0)
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertTrue(grant_versions_compatible(claims))
+
+    def test_delegated_company_binding_mismatch_revokes(self):
+        body = _signed_revocation_body(
+            revoked_ids=[],
+            agents=[
+                {
+                    'agent_id': 'a1',
+                    'company_id': 1,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 1,
+                    'grant_version': 0,
+                }
+            ],
+            max_gv=0,
+        )
+        claims = _claims_write(company_binding_version=0)
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: body)
+            self.assertTrue(agent_is_revoked('a1', 1, claims))
 
     def test_approval_state_none_on_404(self):
         payload = {
@@ -187,6 +279,18 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         with patch('apps.storage.mcp_identity.requests.post') as mock_post:
             mock_post.return_value = MagicMock(status_code=200, json=lambda: {'status': 'weird'})
             self.assertEqual(approval_state(payload, _claims_write()), 'error')
+
+    def test_approval_state_returns_denied(self):
+        payload = {
+            'agent_id': 'a1',
+            'company_id': 1,
+            'service': 'storage',
+            'action': 'write',
+            'arguments_hash': 'hash',
+        }
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: {'status': 'denied'})
+            self.assertEqual(approval_state(payload, _claims_write()), 'denied')
 
     def test_approval_state_error_when_approved_missing_id(self):
         payload = {
@@ -303,7 +407,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         with patch('apps.storage.mcp_identity.requests.post') as mock_post:
             forward_call_log(
                 {
-                    'tool': 'x',
+                    'tool': 'api_v1_actions_deliveries_list',
                     'evil': 'payload',
                     'arguments': {'secret': 'no'},
                     'agent_id': 'a1',
@@ -312,18 +416,59 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
                     'service': 'storage',
-                    'operation_title': 't',
-                    'method': 'GET',
-                    'path': '/p',
+                    'operation_title': 'Evil title must be ignored',
+                    'http_method': 'GET',
+                    'resource_path': '/api/v1/actions/deliveries',
                     'access_kind': 'read',
-                    'destructive': False,
-                    'read_level': 'safe',
                     'outcome': 'allowed',
                     'status': 200,
                     'duration_ms': 1,
-                    'result_shape': 'dict',
+                    'error_code': 'upstream_error',
                 }
             )
         body = mock_post.call_args.kwargs['json']
         self.assertNotIn('evil', body)
         self.assertNotIn('arguments', body)
+        self.assertEqual(body.get('error_code'), 'upstream_error')
+        self.assertEqual(body.get('resource_path'), '/api/v1/actions/deliveries')
+        self.assertNotEqual(body.get('operation_title'), 'Evil title must be ignored')
+
+    def test_forward_call_log_drops_invalid_outcome(self):
+        from apps.storage.mcp_identity import forward_call_log
+
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            forward_call_log(
+                {
+                    'tool': 'api_v1_actions_deliveries_list',
+                    'agent_id': 'a1',
+                    'company_id': 1,
+                    'grant_version': 0,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 0,
+                    'service': 'storage',
+                    'http_method': 'GET',
+                    'resource_path': '/api/v1/actions/deliveries',
+                    'access_kind': 'read',
+                    'outcome': 'not_a_valid_outcome',
+                    'status': 200,
+                    'duration_ms': 1,
+                }
+            )
+        mock_post.assert_not_called()
+
+    def test_forward_call_log_rejects_path_mismatch(self):
+        from apps.storage.mcp_identity import forward_call_log
+
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            forward_call_log(
+                {
+                    'tool': 'api_v1_actions_deliveries_list',
+                    'http_method': 'GET',
+                    'resource_path': '/wrong/path',
+                    'access_kind': 'read',
+                    'outcome': 'allowed',
+                    'status': 200,
+                    'duration_ms': 1,
+                }
+            )
+        mock_post.assert_not_called()

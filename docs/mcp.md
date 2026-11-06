@@ -10,29 +10,34 @@ Shellui MCP exposes company-scoped storage HTTP APIs as tools. storage-service i
 
 Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions.
 
+Do not point a global Shellui access JWT from the SaaS product directly at storage-service. Personal MCP uses a regional resource audience from Identity. Global agents reach storage through the AI gateway, which mints a regional MCP credential with the correct `aud` (see Shellui SaaS documentation on `develop` once the handbook merges).
+
 ## Required agent token claims
 
-Claims must use the types below. There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
+Claims must use the types below. Types match Identity’s regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
 
-- **`company_id`** (integer, regional tenant id)
-
-- **`grant_version`** (integer, 0 or higher): optional for personal regional tokens (no `global_company_id`). Required when `global_company_id` is present (delegated global authority); do not omit it and rely on a default.
-
-- **`global_company_id`** (optional): when present, a lowercase UUID string for the global org. Omit for personal regional tokens.
-
-- **`company_binding_version`** (integer, 0 or higher): required when `global_company_id` is present (explicit `0` is valid); must be absent when `global_company_id` is absent.
+| Claim | Personal regional | Delegated (SaaS or global exchange) |
+| --- | --- | --- |
+| `company_id` | integer (regional) | integer (must match the snapshot row) |
+| `grant_version` | optional (omit allowed) | required, integer 0 or higher |
+| `global_company_id` | omit | required UUID string |
+| `company_binding_version` | omit | required integer, explicit 0 allowed |
+| `global_agent_id` | omit | optional; when present, `global_company_id` and the full triple are required (no partial global) |
+| `personal_token_id` | optional UUID | omit for delegated |
 
 If any rule fails, `POST /mcp` returns `401` with `identity_invalid`.
 
+Connectors: at most five connector mounts are documented for agents; service-scoped tools outside `storage` are not advertised here (`scope` must still include `storage` for this service).
+
 ## Revocation and staleness
 
-Identity returns a signed `revocation_assertion` with `revocation_policy_version`, `max_active_grant_version`, and optional agent rows. storage rejects the poll when those signed fields are missing or malformed.
+Identity returns a signed `revocation_assertion` with optional `revocation_policy_version`, `max_active_grant_version`, and agent rows. storage verifies the JWT with Identity’s JWKS (`verify_mcp_revocation_list_response` in django-commons). Values in the HTTP body must match the signed claims.
 
 When the list is unavailable, `POST /mcp` returns `503` with `identity_unavailable`.
 
-When the token carries `grant_version` and it is below `max_active_grant_version`, storage returns `409` with `out_of_sync`. Personal tokens without `grant_version` skip this check.
+When the signed list includes `max_active_grant_version` and the token carries `grant_version`, storage returns `409` with `out_of_sync` if `grant_version` is lower. Personal tokens may omit `grant_version`; in that case the cap is not applied. Delegated tokens must include `grant_version` for a full snapshot; if the cap is missing from the signed response, delegated requests fail closed (`503`). The cap never replaces a live snapshot: delegated tokens also need exactly one trusted snapshot row that matches regional `company_id`, canonical lowercase `global_company_id`, `company_binding_version`, and `grant_version`. Identity normalizes delegated numeric fields when verifying the signed list; storage matches the resulting ints to the token.
 
-Revocation rows use the same typing rules: regional `company_id` is an integer; `global_company_id` in a row is a UUID string. storage does not compare regional ids to global UUIDs.
+Revocation rows: personal snapshots use regional `company_id` only. Delegated snapshots use `global_company_id`, `company_binding_version`, and `grant_version` together, plus the same regional `company_id` as the token. storage does not match a delegated agent across companies and does not fall back to another row when a snapshot is malformed or incomplete. If the trusted list has no row for that agent, delegated access is denied. If it lists the agent but no row matches the token, or more than one row matches, access is denied. Personal tokens may proceed when there is no row for that agent as long as the agent is not in `revoked_ids` and other checks pass.
 
 An HTTP operation becomes an MCP tool only when it is registered with `mcp_tool(operation_id=..., read_only=..., ...)` in code. There is no automatic opt-in from tags or paths.
 
@@ -91,16 +96,16 @@ Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity
 
 ## Internal assertions to Identity
 
-Revocation polling, approvals, and call logs send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json`. Identity trusts it only when `STORAGE_SERVICE_ISSUER` matches its registration.
+Revocation polling, approvals, and call logs send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json` (same origin as this service). Identity must register that issuer; dynamic values such as `GITHUB_SHA` are not a substitute for the stable issuer string.
 
-Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same optional delegated fields as the agent token (default assertion lifetime is the ordinary internal limit, 60 seconds).
+Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same optional delegated fields as the agent token (default assertion lifetime is the ordinary internal limit, 60 seconds). Personal tokens may omit `grant_version` in the assertion; delegated tokens pass the full triple. Internal approval HTTP calls send an empty JSON body; authority is carried only in the signed assertion (including `arguments_hash`).
 
-This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`1f0754b421688ed26b7eb2e76b25b6fa3eea2a37`, merge of PR #14) until a matching release is published to PyPI. Local development needs Git available to install that source dependency; workflows use `uv lock` / `uv sync` accordingly.
+This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`1f0754b421688ed26b7eb2e76b25b6fa3eea2a37`). Install with `uv lock` and `uv sync`; Docker images install `git` so `uv` can fetch that git source dependency.
 
 Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STORAGE_SERVICE_SIGNING_KEY_FILE`).
 
 ### Call log payload to Identity
 
-Each tool attempt forwards a small JSON object. Allowed keys are fixed; values are type-checked and trimmed. There is no raw MCP `arguments` map and no response body: only a `result_shape` enum (`dict`, `list`, `scalar`, `empty`).
+Each tool attempt forwards a small JSON object. Allowed keys are fixed; values are type-checked and trimmed. `tool`, `resource_path`, and `http_method` are matched against the published OpenAPI registry (`operationId` plus path template and method). `operation_title` is taken from that operation's `summary` when present; arbitrary titles from the caller are not forwarded. Paths are OpenAPI templates only (no resolved ids, no query strings). There is no raw MCP `arguments` map and no response body in the log payload.
 
-Fields include `tool`, `operation_title` (from OpenAPI `summary`, truncated), `path` (no query string), `method`, `access_kind`, `outcome`, `status`, `duration_ms`, `error` (`code` only), `grant_version`, optional `global_company_id` and `company_binding_version`, and UUID `approval_request_id` / `approval_id` when applicable.
+Fields include `tool`, `operation_title`, `resource_path`, `http_method`, `access_kind` (`read` or `write`), `outcome`, `status`, `duration_ms`, optional `error_code`, `grant_version`, optional `global_company_id` and `company_binding_version`, and UUID `approval_request_id` / `approval_id` when applicable. Allowed `outcome` values are `pending_approval`, `allowed`, `denied`, `failed`, and `session_used`. Error taxonomy for failures uses `error_code`, not nested objects.

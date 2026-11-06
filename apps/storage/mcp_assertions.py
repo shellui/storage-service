@@ -28,13 +28,18 @@ def parse_global_company_id(raw: Any) -> str | None:
 
 
 def parse_grant_version(raw: Any) -> int | None:
-    """Non-negative int only. No string coercion, no aliases."""
+    """Non-negative int only; legacy JWT may use decimal digit strings (no bool, no float)."""
     if raw is None:
         return None
     if isinstance(raw, bool):
         return None
     if isinstance(raw, int):
         return raw if raw >= 0 else None
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.isdigit():
+            v = int(s)
+            return v if v >= 0 else None
     return None
 
 
@@ -43,13 +48,27 @@ def parse_company_binding_version(raw: Any) -> int | None:
     return parse_grant_version(raw)
 
 
+def parse_global_agent_id(raw: Any) -> str | None:
+    """SaaS global agent subject id (UUID string). Same lexical rules as ``global_company_id``."""
+    return parse_global_company_id(raw)
+
+
+def parse_personal_token_id(raw: Any) -> str | None:
+    """Optional personal agent token id (UUID string)."""
+    return parse_global_company_id(raw)
+
+
 def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
     """
     Validate verified agent access token claims for MCP. No legacy aliases.
 
-    Personal regional tokens may omit ``grant_version``; delegated global tokens require the
-    canonical triple (``global_company_id``, ``company_binding_version``, ``grant_version``),
-    with explicit ``0`` allowed where applicable.
+    Personal regional tokens omit the global org triple and may omit ``grant_version`` (regional
+    staleness uses other signals). When ``global_company_id`` is set, Identity issues the full
+    delegated triple including explicit ``0`` for ``company_binding_version`` and ``grant_version``.
+
+    If ``global_agent_id`` is present (SaaS-exchanged subject), the token is not personal: the
+    same triple is required. A partial triple with ``global_agent_id`` must not fall back to
+    personal rules.
 
     Returns (ok, reason, normalized) where normalized is set only when ok.
     """
@@ -66,6 +85,16 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     if raw_glob is not None and gcid is None:
         return False, 'invalid_global_company_id', None
 
+    raw_global_agent = claims.get('global_agent_id')
+    global_agent_id = parse_global_agent_id(raw_global_agent)
+    if raw_global_agent is not None and global_agent_id is None:
+        return False, 'invalid_global_agent_id', None
+
+    raw_personal_tid = claims.get('personal_token_id')
+    personal_token_id = parse_personal_token_id(raw_personal_tid)
+    if raw_personal_tid is not None and personal_token_id is None:
+        return False, 'invalid_personal_token_id', None
+
     cbv_raw = claims.get('company_binding_version')
     cbv = parse_company_binding_version(cbv_raw) if cbv_raw is not None else None
     if cbv_raw is not None and cbv is None:
@@ -75,7 +104,10 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
     if 'grant_version' in claims and gv is None:
         return False, 'invalid_grant_version', None
 
-    if gcid is not None:
+    delegated = gcid is not None or global_agent_id is not None
+    if delegated:
+        if gcid is None:
+            return False, 'missing_global_company_id', None
         if cbv is None:
             return False, 'missing_company_binding_version', None
         if gv is None:
@@ -90,5 +122,7 @@ def parse_trusted_agent_claims(claims: dict[str, Any]) -> tuple[bool, str, dict[
         'grant_version': gv,
         'global_company_id': gcid,
         'company_binding_version': cbv,
+        'global_agent_id': global_agent_id,
+        'personal_token_id': personal_token_id,
     }
     return True, '', normalized

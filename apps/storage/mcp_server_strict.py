@@ -8,13 +8,11 @@ import logging
 import time
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit
-
 from django.http import HttpRequest, JsonResponse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from shellui_django.mcp.masking import redact_mapping
-from shellui_django.mcp.openapi_mcp import marker_tree_for_operation_request, marker_tree_for_operation_response
+from shellui_django.mcp.openapi_mcp import marker_tree_for_operation_response
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.rate_limit import check_agent_rate_limit
 from shellui_django.mcp.routing import McpToolArgumentError, materialize_openapi_path, validate_mcp_tool_arguments
@@ -25,12 +23,7 @@ from apps.storage.mcp_assertions import (
     parse_grant_version,
     parse_global_company_id,
 )
-from apps.storage.mcp_identity import (
-    grant_versions_compatible,
-    identity_revocation_unavailable,
-    identity_token_ok,
-    revocation_policy_version,
-)
+from apps.storage.mcp_identity import grant_versions_compatible, identity_revocation_unavailable, identity_token_ok
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +50,7 @@ AUDIT_ERROR_CODES = frozenset(
         'invalid_json',
         'method_not_allowed',
         'agent_revoked',
+        'approval_unavailable',
     }
 )
 
@@ -85,11 +79,6 @@ def _http_status_bucket(status_code: int) -> str:
     return 'unknown'
 
 
-def _audit_path(url: str) -> str:
-    parts = urlsplit(url)
-    return parts.path or '/'
-
-
 def _tool_operation_summary(tool: dict[str, Any], schema: dict[str, Any]) -> str:
     meta = tool.get('_meta') or {}
     op_id = meta.get('operationId')
@@ -113,29 +102,7 @@ def _map_write_gate_outcome(decision: Any, *, granted: bool) -> str:
         return 'pending_approval'
     if not getattr(decision, 'allowed', False):
         return 'denied'
-    return 'unknown'
-
-
-def _map_http_outcome(status_code: int) -> str:
-    if status_code < 400:
-        return 'allowed'
-    if status_code in (401, 403):
-        return 'denied'
-    if status_code == 404:
-        return 'not_found'
-    if status_code == 409:
-        return 'conflict'
-    if status_code == 429:
-        return 'rate_limited'
-    if status_code in (408, 504):
-        return 'timeout'
-    if status_code == 503:
-        return 'upstream_error'
-    if status_code >= 500:
-        return 'internal_error'
-    if status_code >= 400:
-        return 'denied'
-    return 'unknown'
+    return 'failed'
 
 
 class StrictMcpServer:
@@ -183,8 +150,6 @@ class StrictMcpServer:
         company_id_int = company_id
 
         if identity_revocation_unavailable():
-            return JsonResponse({'error': 'identity_unavailable'}, status=503)
-        if revocation_policy_version() is None:
             return JsonResponse({'error': 'identity_unavailable'}, status=503)
         if self.identity_revocation_check(agent_id, company_id_int, agent_claims):
             return JsonResponse({'error': 'agent_revoked'}, status=403)
@@ -247,7 +212,6 @@ class StrictMcpServer:
         operation = self._operation(schema, path_template, method)
         destructive = bool(meta.get('destructive')) or is_destructive_operation(operation)
         tool_read_only = bool(meta.get('read_only'))
-        request_markers = marker_tree_for_operation_request(operation, schema)
         response_markers = marker_tree_for_operation_response(operation, schema)
         decision = decide_write(
             method=method,
@@ -257,10 +221,12 @@ class StrictMcpServer:
             tool_read_only=tool_read_only,
         )
         operation_title = _tool_operation_summary(tool, schema)
-        audit_path = _audit_path(resolved_path)
+        audit_path = path_template
         access_kind = 'read' if tool_read_only else 'write'
         approval_payload: dict[str, Any] = {}
 
+        approval_granted = False
+        approval_flow_state: str | None = None
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
             approval_payload = {
@@ -268,14 +234,14 @@ class StrictMcpServer:
                 'company_id': agent_claims.get('company_id'),
                 'service': self.service_name,
                 'action': tool_name,
-                'arguments': arguments,
                 'arguments_hash': args_hash,
-                'path': resolved_path,
-                'method': method,
+                'resource_path': audit_path,
+                'http_method': method,
             }
             granted = False
             if self.approval_state:
-                state = self.approval_state(approval_payload, agent_claims)
+                approval_flow_state = self.approval_state(approval_payload, agent_claims)
+                state = approval_flow_state
                 if state == 'error':
                     self._emit_audit(
                         request=request,
@@ -288,7 +254,6 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
-                        request_markers=request_markers,
                         status_code=503,
                         outcome='failed',
                         error_code='upstream_error',
@@ -302,7 +267,7 @@ class StrictMcpServer:
                             {'content': [{'type': 'text', 'text': 'Identity approval check failed.'}], 'isError': True},
                         )
                     )
-                if state == 'executed':
+                if state in ('executed', 'expired'):
                     self._emit_audit(
                         request=request,
                         agent_claims=agent_claims,
@@ -314,7 +279,6 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
-                        request_markers=request_markers,
                         status_code=409,
                         outcome='session_used',
                         error_code='expired',
@@ -328,12 +292,63 @@ class StrictMcpServer:
                             {'content': [{'type': 'text', 'text': 'Approval already used.'}], 'isError': True},
                         )
                     )
+                if state == 'denied':
+                    self._emit_audit(
+                        request=request,
+                        agent_claims=agent_claims,
+                        tool_name=tool_name,
+                        method=method,
+                        audit_path=audit_path,
+                        operation_title=operation_title,
+                        access_kind=access_kind,
+                        destructive=destructive,
+                        read_level=read_level,
+                        arguments=arguments,
+                        status_code=403,
+                        outcome='denied',
+                        error_code='denied',
+                        approval_request_id=None,
+                        approval_id=None,
+                        started=started,
+                    )
+                    return JsonResponse(
+                        self._result(
+                            req_id,
+                            {'content': [{'type': 'text', 'text': 'Approval denied.'}], 'isError': True},
+                        )
+                    )
                 if state == 'approved':
                     approval_id = approval_payload.get('approval_id')
                     if approval_id and self.approval_consume:
                         consumed = self.approval_consume(str(approval_id), approval_payload, agent_claims)
                         if consumed:
                             granted = True
+                            approval_granted = True
+                        else:
+                            self._emit_audit(
+                                request=request,
+                                agent_claims=agent_claims,
+                                tool_name=tool_name,
+                                method=method,
+                                audit_path=audit_path,
+                                operation_title=operation_title,
+                                access_kind=access_kind,
+                                destructive=destructive,
+                                read_level=read_level,
+                                arguments=arguments,
+                                status_code=503,
+                                outcome='failed',
+                                error_code='upstream_error',
+                                approval_request_id=None,
+                                approval_id=str(approval_id),
+                                started=started,
+                            )
+                            return JsonResponse(
+                                self._result(
+                                    req_id,
+                                    {'content': [{'type': 'text', 'text': 'Approval unavailable.'}], 'isError': True},
+                                )
+                            )
                     else:
                         self._emit_audit(
                             request=request,
@@ -346,7 +361,6 @@ class StrictMcpServer:
                             destructive=destructive,
                             read_level=read_level,
                             arguments=arguments,
-                            request_markers=request_markers,
                             status_code=503,
                             outcome='failed',
                             error_code='upstream_error',
@@ -372,7 +386,6 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
-                        request_markers=request_markers,
                         status_code=202,
                         outcome='pending_approval',
                         error_code=None,
@@ -390,8 +403,35 @@ class StrictMcpServer:
                             },
                         )
                     )
-            if not granted and self.approval_handler:
+            if not granted and self.approval_handler and approval_flow_state is None:
                 pending = self.approval_handler(approval_payload, agent_claims)
+                if pending and pending.get('_approval_error'):
+                    ec = str(pending.get('error_code') or 'upstream_error')
+                    self._emit_audit(
+                        request=request,
+                        agent_claims=agent_claims,
+                        tool_name=tool_name,
+                        method=method,
+                        audit_path=audit_path,
+                        operation_title=operation_title,
+                        access_kind=access_kind,
+                        destructive=destructive,
+                        read_level=read_level,
+                        arguments=arguments,
+                        status_code=503,
+                        outcome='failed',
+                        error_code=ec if ec in AUDIT_ERROR_CODES else 'upstream_error',
+                        approval_request_id=None,
+                        approval_id=None,
+                        started=started,
+                    )
+                    msg = str(pending.get('message') or 'Approval unavailable.')
+                    return JsonResponse(
+                        self._result(
+                            req_id,
+                            {'content': [{'type': 'text', 'text': msg}], 'isError': True},
+                        )
+                    )
                 if pending:
                     rid = pending.get('id')
                     self._emit_audit(
@@ -405,7 +445,6 @@ class StrictMcpServer:
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
-                        request_markers=request_markers,
                         status_code=202,
                         outcome='pending_approval',
                         error_code=None,
@@ -423,7 +462,7 @@ class StrictMcpServer:
                             },
                         )
                     )
-            if not granted:
+            if not granted and not approval_granted:
                 oc = _map_write_gate_outcome(decision, granted=False)
                 self._emit_audit(
                     request=request,
@@ -436,7 +475,6 @@ class StrictMcpServer:
                     destructive=destructive,
                     read_level=read_level,
                     arguments=arguments,
-                    request_markers=request_markers,
                     status_code=403,
                     outcome=oc,
                     error_code='denied',
@@ -450,7 +488,7 @@ class StrictMcpServer:
                         {'content': [{'type': 'text', 'text': decision.reason or 'Forbidden'}], 'isError': True},
                     )
                 )
-        if not decision.allowed:
+        if not approval_granted and not decision.allowed:
             oc = _map_write_gate_outcome(decision, granted=False)
             self._emit_audit(
                 request=request,
@@ -463,7 +501,6 @@ class StrictMcpServer:
                 destructive=destructive,
                 read_level=read_level,
                 arguments=arguments,
-                request_markers=request_markers,
                 status_code=403,
                 outcome=oc,
                 error_code='denied',
@@ -502,7 +539,7 @@ class StrictMcpServer:
             read_sensitive=read_sensitive,
             markers=response_markers,
         )
-        http_outcome = _map_http_outcome(status_code)
+        http_outcome = 'allowed' if status_code < 400 else 'failed'
         cons_approval_id = str(approval_payload['approval_id']) if approval_payload.get('approval_id') else None
         self._emit_audit(
             request=request,
@@ -515,7 +552,6 @@ class StrictMcpServer:
             destructive=destructive,
             read_level=read_level,
             arguments=arguments,
-            request_markers=request_markers,
             status_code=status_code,
             outcome=http_outcome,
             error_code=None if status_code < 400 else _http_status_bucket(status_code),
@@ -547,7 +583,6 @@ class StrictMcpServer:
         destructive: bool,
         read_level: str,
         arguments: dict[str, Any],
-        request_markers: dict[str, Any],
         status_code: int,
         outcome: str,
         error_code: str | None,
@@ -572,29 +607,20 @@ class StrictMcpServer:
             'service': self.service_name,
             'tool': tool_name,
             'operation_title': operation_title,
-            'method': method,
-            'path': audit_path,
+            'http_method': method,
+            'resource_path': audit_path,
             'access_kind': access_kind,
-            'destructive': destructive,
-            'read_level': read_level,
             'outcome': outcome,
             'status': status_code,
             'duration_ms': duration_ms,
             'approval_request_id': approval_request_id,
             'approval_id': approval_id,
         }
-        if result_for_audit is not None:
-            if isinstance(result_for_audit, dict):
-                entry['result_shape'] = 'empty' if len(result_for_audit) == 0 else 'dict'
-            elif isinstance(result_for_audit, list):
-                entry['result_shape'] = 'empty' if len(result_for_audit) == 0 else 'list'
-            else:
-                entry['result_shape'] = 'scalar'
         if error_code:
             if error_code in AUDIT_ERROR_CODES or error_code in _IDENTITY_RPC_ERRORS:
-                entry['error'] = {'code': error_code}
+                entry['error_code'] = error_code
             else:
-                entry['error'] = {'code': 'unknown'}
+                entry['error_code'] = 'unknown'
         try:
             self.on_call(entry)
         except Exception:
