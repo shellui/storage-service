@@ -313,6 +313,7 @@ class StrictMcpServer:
                 'resource_path': audit_inner_path,
                 'http_method': method,
                 'mcp_expected_resource': expected_res.strip() or None,
+                'is_destructive': destructive,
             }
             granted = False
             if self.approval_state:

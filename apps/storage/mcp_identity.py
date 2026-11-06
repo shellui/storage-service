@@ -609,10 +609,16 @@ def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not assertion:
         return {'_approval_error': True, 'error_code': 'approval_unavailable', 'message': 'Approval unavailable.'}
+    # Identity stores is_destructive from this JSON body (the approval assertion has no such claim).
+    # Omit the key unless it is a real boolean so non-destructive opens stay an empty body.
+    request_body: dict[str, Any] = {}
+    destructive_flag = payload.get('is_destructive')
+    if destructive_flag is True or destructive_flag is False:
+        request_body['is_destructive'] = destructive_flag
     try:
         response = requests.post(
             f'{origin}/api/v1/mcp/internal/mcp-approval-requests',
-            json={},
+            json=request_body,
             headers={'Authorization': f'Bearer {assertion}'},
             timeout=10,
         )
