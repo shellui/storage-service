@@ -12,6 +12,10 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 - MCP: a destructive approval open sends `is_destructive: true`, so Identity can store the call log for that approval after it is consumed.
 
+### 🏗 Chore
+
+- Bump `shellui-django[mcp]` to the PyPI release 0.5.0.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 

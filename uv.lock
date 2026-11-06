@@ -750,11 +750,15 @@ wheels = [
 
 [[package]]
 name = "shellui-django"
-version = "0.4.1"
-source = { git = "https://github.com/shellui/django-commons.git?rev=1f0754b421688ed26b7eb2e76b25b6fa3eea2a37#1f0754b421688ed26b7eb2e76b25b6fa3eea2a37" }
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/24/b57fc372e839b6305d0e4ca5c2e1c1effc3ea1392f71390f811adecafecf/shellui_django-0.5.0.tar.gz", hash = "sha256:80b66ec455012b893f979a9730b6a0b90e12da96740a1445680ac84588433e44", size = 36789, upload-time = "2026-11-06T18:40:31.228Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/36/87755a0869fd466d8b578f73d3eb58a01eca58b95378fb2fb10b12199d6c/shellui_django-0.5.0-py3-none-any.whl", hash = "sha256:63d4c16c3f3b2cbf7087b01578f18ccc3db492ed8a10639c38a02129c40f920d", size = 29398, upload-time = "2026-11-06T18:40:29.922Z" },
 ]
 
 [package.optional-dependencies]
@@ -833,7 +837,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "sentry-sdk", specifier = "==2.63.0" },
-    { name = "shellui-django", extras = ["mcp"], git = "https://github.com/shellui/django-commons.git?rev=1f0754b421688ed26b7eb2e76b25b6fa3eea2a37" },
+    { name = "shellui-django", extras = ["mcp"], specifier = "==0.5.0" },
     { name = "sqlparse", specifier = "==0.6.0" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]
