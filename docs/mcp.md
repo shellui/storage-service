@@ -235,8 +235,6 @@ Revocation polling, approvals, and call logs send short-lived RS256 assertions s
 
 Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same delegated fields as the agent token when the exchange triple is present (default assertion lifetime is the ordinary internal limit, 60 seconds). Personal tokens still pass `grant_version` when present on the JWT. Internal approval HTTP calls send an empty JSON body; authority is carried only in the signed assertion (including `arguments_hash`). Storage does not call Identity to create an approval for exchange-delegated agents (`global_company_id` with `mcp_authority: delegated`); those flows must use the AI gateway (MCP surfaces `out_of_sync` instead of probing Identity with `{}`).
 
-This repo pins `shellui-django[mcp]` to an exact commit on [django-commons](https://github.com/shellui/django-commons) (`1f0754b421688ed26b7eb2e76b25b6fa3eea2a37`). Install with `uv lock` and `uv sync`; Docker images install `git` so `uv` can fetch that git source dependency.
-
 Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STORAGE_SERVICE_SIGNING_KEY_FILE`).
 
 ### Call log payload to Identity
