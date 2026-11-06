@@ -12,8 +12,8 @@ from drf_spectacular.generators import SchemaGenerator
 from apps.actions.models import ActionRule, EventLog
 from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.models import ObjectShareLink, StorageAccessGrant, StorageObject
-from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS, generate_test_rsa_jwks
-from apps.storage.tests.test_mcp import _agent_token, _mcp_host_kwargs, _signed_revocation_for_tests
+from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
+from apps.storage.tests.test_mcp import _TEST_JWKS, _agent_token, _mcp_host_kwargs, _signed_revocation_for_tests
 from shellui_django.mcp.openapi_tools import tools_from_schema
 
 COMPANY_A = 10
@@ -28,6 +28,7 @@ def _owner_token(*, company_id: int, user_id: int) -> str:
             'user_id': user_id,
             'company_id': company_id,
             'email': f'owner-{company_id}@example.com',
+            'aud': 'shellui',
             'user_metadata': {'is_staff': False, 'is_company_owner': True},
             'iss': 'https://identity.test',
             'exp': 2**31 - 1,
@@ -37,15 +38,13 @@ def _owner_token(*, company_id: int, user_id: int) -> str:
     )
 
 
-_TEST_JWKS, _, _ = generate_test_rsa_jwks()
-
-
 @override_settings(
     **MCP_SIGNING_TEST_SETTINGS,
     STORAGE_BACKEND='filesystem',
     JWT_HS256_FALLBACK_SECRET='test-secret',
     ALLOW_JWT_HS256_FALLBACK=True,
     IDENTITY_ISSUER='https://identity.test',
+    IDENTITY_AUDIENCE='shellui',
     IDENTITY_SERVICE_URL='https://identity.test',
     IDENTITY_JWKS_DOCUMENT=_TEST_JWKS,
     DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
@@ -60,7 +59,7 @@ class McpTenantIsolationTests(TestCase):
 
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
-        cache.delete('mcp:revoked_signed_context')
+        cache.delete('mcp:revoked_verified_claims')
         self.agent_token = _agent_token(company_id=COMPANY_A)
         claims = jwt.decode(self.agent_token, options={'verify_signature': False})
         self._agent_id = str(claims['agent_id'])

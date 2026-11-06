@@ -37,8 +37,8 @@ def _agent_token(
     mcp_access: str = 'read_only',
     scope: str = 'storage',
     aud: str | None = None,
-    grant_version: int | None = None,
-    global_company_id: int | None = None,
+    grant_version: int = 0,
+    global_company_id: str | None = None,
     company_binding_version: int | None = None,
     secret: str = 'test-secret',
 ) -> str:
@@ -47,6 +47,7 @@ def _agent_token(
         'sub': f'agent:{agent_id}',
         'agent_id': agent_id,
         'company_id': company_id,
+        'grant_version': grant_version,
         'scope': scope,
         'mcp_access': mcp_access,
         'mcp_read': 'safe',
@@ -55,8 +56,6 @@ def _agent_token(
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
     }
-    if grant_version is not None:
-        payload['grant_version'] = grant_version
     if global_company_id is not None:
         payload['global_company_id'] = global_company_id
     if company_binding_version is not None:
@@ -104,7 +103,7 @@ class McpEndpointTests(TestCase):
 
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
-        cache.delete('mcp:revoked_signed_context')
+        cache.delete('mcp:revoked_verified_claims')
 
     def test_untagged_internal_path_not_in_openapi(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
@@ -128,6 +127,7 @@ class McpEndpointTests(TestCase):
             'sub': f'agent:{agent_id}',
             'agent_id': agent_id,
             'company_id': 10,
+            'grant_version': 0,
             'scope': 'storage',
             'mcp_access': 'read_only',
             'aud': _mcp_audience(),
@@ -163,6 +163,40 @@ class McpEndpointTests(TestCase):
     @override_settings(STORAGE_PUBLIC_URL='http://localhost:8002')
     def test_public_url_refuses_a_token_for_the_request_host(self):
         self.assertEqual(self._initialize(_agent_token()).status_code, 401)
+
+    def test_missing_grant_version_returns_401(self):
+        agent_id = str(uuid.uuid4())
+        payload = {
+            'sub': f'agent:{agent_id}',
+            'agent_id': agent_id,
+            'company_id': 10,
+            'scope': 'storage',
+            'mcp_access': 'read_only',
+            'aud': _mcp_audience(),
+            'iss': 'https://identity.test',
+            'exp': 2**31 - 1,
+        }
+        token = jwt.encode(payload, 'test-secret', algorithm='HS256')
+        response = self.client.post(
+            '/mcp',
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {token}',
+            **_mcp_host_kwargs(),
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['error'], 'identity_invalid')
+
+    def test_global_company_id_int_rejected(self):
+        response = self.client.post(
+            '/mcp',
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {_agent_token(global_company_id=10)}',
+            **_mcp_host_kwargs(),
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['error'], 'identity_invalid')
 
     def test_legacy_shared_audience_rejected(self):
         token = _agent_token(aud='shellui-mcp')
@@ -269,8 +303,8 @@ class McpEndpointTests(TestCase):
         token = _agent_token(
             mcp_access=ACCESS_ASK,
             grant_version=0,
-            global_company_id=10,
-            company_binding_version=1,
+            global_company_id='18e20f88-286e-46ea-858e-1d75bca615ff',
+            company_binding_version=0,
         )
         claims = jwt.decode(token, options={'verify_signature': False})
         aid = str(claims['agent_id'])
@@ -296,9 +330,12 @@ class McpEndpointTests(TestCase):
                     agents=[{'agent_id': aid, 'company_id': cid, 'grant_version': 0}],
                 ),
             )
-            with patch(
-                'apps.storage.mcp_views.create_approval_request',
-                return_value={'id': 'approval-1'},
+            with (
+                patch('apps.storage.mcp_views._approval_state_for_mcp', return_value=None),
+                patch(
+                    'apps.storage.mcp_views.create_approval_request',
+                    return_value={'id': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'},
+                ),
             ):
                 response = self.client.post(
                     '/mcp',

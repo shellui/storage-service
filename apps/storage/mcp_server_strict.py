@@ -21,11 +21,16 @@ from shellui_django.mcp.routing import McpToolArgumentError, materialize_openapi
 from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
 
 from apps.storage.mcp_assertions import (
-    company_binding_version_from_claims,
-    global_company_id_from_claims,
-    grant_version_from_claims,
+    parse_company_binding_version,
+    parse_grant_version,
+    parse_global_company_id,
 )
-from apps.storage.mcp_identity import grant_versions_compatible, identity_fields_for_approval, identity_revocation_unavailable
+from apps.storage.mcp_identity import (
+    grant_versions_compatible,
+    identity_revocation_unavailable,
+    identity_token_ok,
+    revocation_policy_version,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,19 +173,18 @@ class StrictMcpServer:
             return JsonResponse({'error': 'unauthorized'}, status=401)
         if check_agent_rate_limit(agent_id):
             return JsonResponse({'error': 'rate_limited'}, status=429)
-        company_id = agent_claims.get('company_id')
-        try:
-            company_id_int = int(company_id) if company_id is not None else None
-        except (TypeError, ValueError):
-            company_id_int = None
-        if company_id_int is None:
-            return JsonResponse({'error': 'forbidden'}, status=403)
+        token_ok, _reason = identity_token_ok(agent_claims)
+        if not token_ok:
+            return JsonResponse({'error': 'identity_invalid'}, status=401)
 
-        token_gv = grant_version_from_claims(agent_claims)
-        if token_gv is None:
-            token_gv = 0
+        company_id = agent_claims.get('company_id')
+        if not isinstance(company_id, int) or isinstance(company_id, bool):
+            return JsonResponse({'error': 'identity_invalid'}, status=401)
+        company_id_int = company_id
 
         if identity_revocation_unavailable():
+            return JsonResponse({'error': 'identity_unavailable'}, status=503)
+        if revocation_policy_version() is None:
             return JsonResponse({'error': 'identity_unavailable'}, status=503)
         if self.identity_revocation_check(agent_id, company_id_int, agent_claims):
             return JsonResponse({'error': 'agent_revoked'}, status=403)
@@ -190,10 +194,6 @@ class StrictMcpServer:
             return JsonResponse({'error': 'identity_unavailable'}, status=503)
         if gv_ok is False:
             return JsonResponse({'error': 'out_of_sync'}, status=409)
-
-        ok_identity, _reason = identity_fields_for_approval(agent_claims)
-        if not ok_identity:
-            return JsonResponse({'error': 'identity_invalid'}, status=401)
 
         if not self._service_allowed(agent_claims, self.service_name):
             return JsonResponse({'error': 'forbidden'}, status=403)
@@ -554,18 +554,21 @@ class StrictMcpServer:
         approval_request_id: str | None,
         approval_id: str | None,
         started: float,
-        result_for_audit: dict[str, Any] | None = None,
+        result_for_audit: Any | None = None,
     ) -> None:
         if not self.on_call:
             return
         duration_ms = int(round((time.perf_counter() - started) * 1000))
-        redacted_args = redact_mapping(arguments, read_sensitive=False, markers=request_markers)
+        gcid = parse_global_company_id(agent_claims.get('global_company_id'))
+        gv = parse_grant_version(agent_claims.get('grant_version'))
+        cb_raw = agent_claims.get('company_binding_version')
+        cbv = parse_company_binding_version(cb_raw) if cb_raw is not None else None
         entry: dict[str, Any] = {
             'agent_id': agent_claims.get('agent_id'),
             'company_id': agent_claims.get('company_id'),
-            'global_company_id': global_company_id_from_claims(agent_claims),
-            'grant_version': grant_version_from_claims(agent_claims),
-            'company_binding_version': company_binding_version_from_claims(agent_claims),
+            'global_company_id': gcid,
+            'grant_version': gv,
+            'company_binding_version': cbv,
             'service': self.service_name,
             'tool': tool_name,
             'operation_title': operation_title,
@@ -577,12 +580,16 @@ class StrictMcpServer:
             'outcome': outcome,
             'status': status_code,
             'duration_ms': duration_ms,
-            'arguments': redacted_args,
             'approval_request_id': approval_request_id,
             'approval_id': approval_id,
         }
         if result_for_audit is not None:
-            entry['result'] = result_for_audit
+            if isinstance(result_for_audit, dict):
+                entry['result_shape'] = 'empty' if len(result_for_audit) == 0 else 'dict'
+            elif isinstance(result_for_audit, list):
+                entry['result_shape'] = 'empty' if len(result_for_audit) == 0 else 'list'
+            else:
+                entry['result_shape'] = 'scalar'
         if error_code:
             if error_code in AUDIT_ERROR_CODES or error_code in _IDENTITY_RPC_ERRORS:
                 entry['error'] = {'code': error_code}
