@@ -27,12 +27,14 @@ def _identity_ok(
     grant_version: int = 0,
     company_binding_version: int = 0,
     authorized: bool = True,
+    active: bool = True,
     revoked: bool = False,
     paused: bool = False,
 ) -> dict:
-    """Identity ``mcp-agent-delegated-authority`` HTTP 200 body (PR #135 head, no extra keys)."""
+    """Identity ``mcp-agent-delegated-authority`` HTTP 200 body (identity-service 6a27176, no extra keys)."""
     return {
         'authorized': authorized,
+        'active': active if authorized else False,
         'revoked': revoked,
         'paused': paused,
         'agent_id': agent_id,
@@ -130,7 +132,7 @@ class DelegatedAuthorityTests(SimpleTestCase):
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
             mock_post.return_value = MagicMock(
                 status_code=200,
-                json=lambda: _identity_ok(authorized=False),
+                json=lambda: _identity_ok(authorized=False, active=False),
             )
             with self.assertRaises(DelegatedAuthorityDenied):
                 delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)
@@ -200,7 +202,7 @@ class DelegatedAuthorityTests(SimpleTestCase):
         with patch('apps.authapi.mcp_authority.requests.post') as mock_post:
             mock_post.return_value = MagicMock(
                 status_code=200,
-                json=lambda: _identity_ok(authorized=False),
+                json=lambda: _identity_ok(authorized=False, active=False),
             )
             with self.assertRaises(DelegatedAuthorityDenied):
                 delegated_regional_authority_live_ok(_CLAIMS_DELEGATED, expected_resource=_RES)

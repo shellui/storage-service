@@ -16,7 +16,7 @@ Exchange for regional tokens uses the Identity OAuth token endpoint for that reg
 
 ## Live delegated authority (regional tokens)
 
-Contract names and path match **identity-service** PR #135 head (for example git ref `d79d433278ac`; storage does not accept legacy alias routes).
+Contract names and path match **identity-service** PR #135 (for example git ref `6a27176`; storage does not accept legacy alias routes).
 
 If `global_company_id` is present and `mcp_authority` is `delegated` (regional exchange token), storage-service calls Identity on the delegated-sensitive path after JWT verification (for example authentication on `POST /mcp`, plus approval flows that rely on the same live row).
 
@@ -38,11 +38,17 @@ These keys only, same types as verified JWT claims (no string digit coercion int
 
 ### Response (strict)
 
-On **200**, the JSON object must have exactly these keys (no extras):
+On **200**, Identity returns one of two shapes (no other top-level keys).
 
-- `authorized`, `revoked`, `paused` (JSON booleans, not strings): `true`, `false`, `false`.
+**Authorized** (live row allowed): exactly
+
+- `authorized`, `active`, `revoked`, `paused` (JSON booleans, not strings): `true`, `true`, `false`, `false`.
 - `agent_id`, `company_id`, `global_company_id`, `global_agent_id`, `grant_version`, `company_binding_version` with native types.
-- Values for `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` must match the POST body. `global_agent_id` in the response must match the verified JWT (regional agent row is bound to one global subject id).
+- Optional `revoked_at` (JSON int, `>= 0`) when present.
+
+Values for `agent_id`, `company_id`, `global_company_id`, `grant_version`, and `company_binding_version` must match the POST body. `global_agent_id` in the response must match the verified JWT (regional agent row is bound to one global subject id).
+
+**Not authorized** (policy denial, still HTTP 200): exactly eight keys: `authorized` false, `active` false, `revoked` false, `paused` false, plus `agent_id`, `company_id`, `global_company_id`, `grant_version`, `company_binding_version` matching the POST body. No `global_agent_id` and no `revoked_at`.
 
 ### Errors and caching
 
@@ -235,6 +241,8 @@ Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STO
 
 ### Call log payload to Identity
 
-Each tool attempt forwards a small JSON object. Storage validates `tool`, `resource_path`, and `http_method` against the published OpenAPI registry (`operationId` plus path template and method), then sends Identity the wire field names **`path`** and **`method`** (Identity `McpInternalCallLogView` on PR #135 `develop`). **Identity re-derives** display metadata from the registry; storage does not forward `operation_title`, `resource_label`, or raw MCP arguments. Paths are OpenAPI templates only (no resolved ids, no query strings). There is no raw MCP `arguments` map and no response body in the log payload.
+Each tool attempt forwards a small JSON object. Storage validates `tool`, `resource_path`, and `http_method` against the published OpenAPI registry (`operationId` plus path template and method), then sends Identity the wire field names **`path`** and **`method`** (Identity `McpInternalCallLogView` on PR #135 `develop`). **Identity re-derives** display metadata from the registry; storage does not forward `operation_title`, `resource_label`, or raw MCP arguments. Paths are OpenAPI templates only (no resolved ids). Query strings and fragments are stripped before registry matching. There is no raw MCP `arguments` map and no response body in the log payload.
 
-Fields on the wire include `agent_id`, `company_id`, `service`, `tool`, `method`, `path`, `access_kind` (`read`, `write`, `destructive`, or `unknown`), required `outcome`, `status` (non-negative int), `duration_ms`, optional `error_code`, optional `result` (short fixed cap), optional `grant_version`, optional `global_company_id`, optional `global_agent_id`, optional `company_binding_version`, and UUID `approval_request_id` / `approval_id` when applicable. Allowed `outcome` values are `pending_approval`, `allowed`, `denied`, `failed`, and `session_used`. Error taxonomy for failures uses `error_code`, not nested objects.
+Fields on the wire include `agent_id`, `company_id`, `service`, `tool`, `method`, `path`, `access_kind` (`read`, `write`, `destructive`, or `unknown`), required `outcome`, `status` (non-negative int), `duration_ms`, `grant_version` (JSON int), optional `error_code`, optional `result` (short fixed cap). When `global_company_id` is present (delegated regional token), `company_binding_version` is required on the wire; when `global_agent_id` is present, `global_company_id` must also be present. For `access_kind` `destructive` with `outcome` `allowed` or `session_used`, `approval_id` (UUID) is required. Otherwise optional UUID `approval_request_id` / `approval_id` when applicable. Allowed `outcome` values are `pending_approval`, `allowed`, `denied`, `failed`, and `session_used`. Error taxonomy for failures uses `error_code`, not nested objects.
+
+Delegated agents must create approvals through the AI gateway: Identity may answer `409` with `error_code` `out_of_sync` when the caller is not allowed to open an approval directly; storage surfaces that code on MCP.

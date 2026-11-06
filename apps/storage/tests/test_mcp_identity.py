@@ -24,6 +24,7 @@ from apps.storage.mcp_identity import (
     approval_state,
     clear_mcp_call_log_schema_cache,
     consume_approval,
+    create_approval_request,
     grant_versions_compatible,
     identity_revocation_unavailable,
 )
@@ -39,6 +40,7 @@ _MCP_RESOURCE = 'http://127.0.0.1/mcp'
 def _identity_authority_response(*, agent_id: str, company_id: int, global_company_id: str, grant_version: int, company_binding_version: int):
     return {
         'authorized': True,
+        'active': True,
         'revoked': False,
         'paused': False,
         'agent_id': agent_id,
@@ -351,6 +353,24 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'status': 'weird'})):
             self.assertEqual(approval_state(payload, _claims_write()), 'error')
 
+    def test_create_approval_request_maps_409_out_of_sync(self):
+        payload = {
+            'agent_id': _AGENT_A,
+            'company_id': 1,
+            'service': 'storage',
+            'action': 'write',
+            'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
+        }
+        with _patch_identity_posts(
+            lambda: MagicMock(
+                status_code=409,
+                json=lambda: {'error_code': 'out_of_sync', 'message': 'Use the AI gateway.'},
+            )
+        ):
+            r = create_approval_request(payload, _claims_write())
+        self.assertEqual(r, {'_approval_error': True, 'error_code': 'out_of_sync', 'message': 'Use the AI gateway.'})
+
     def test_approval_state_returns_denied(self):
         payload = {
             'agent_id': _AGENT_A,
@@ -546,6 +566,99 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'http_method': 'GET',
                     'resource_path': '/wrong/path',
                     'access_kind': 'read',
+                    'outcome': 'allowed',
+                    'status': 200,
+                    'duration_ms': 1,
+                }
+            )
+        mock_post.assert_not_called()
+
+    def test_forward_call_log_strips_query_from_resource_path(self):
+        from apps.storage.mcp_identity import forward_call_log
+
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            forward_call_log(
+                {
+                    'tool': 'api_v1_actions_deliveries_list',
+                    'agent_id': _AGENT_A,
+                    'company_id': 1,
+                    'grant_version': 0,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 0,
+                    'global_agent_id': _SAMPLE_GLOBAL_AGENT,
+                    'service': 'storage',
+                    'http_method': 'GET',
+                    'resource_path': '/api/v1/actions/deliveries?x=1',
+                    'access_kind': 'read',
+                    'outcome': 'allowed',
+                    'status': 200,
+                    'duration_ms': 1,
+                }
+            )
+        body = mock_post.call_args.kwargs['json']
+        self.assertEqual(body.get('path'), '/api/v1/actions/deliveries')
+
+    def test_forward_call_log_requires_grant_version(self):
+        from apps.storage.mcp_identity import forward_call_log
+
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            forward_call_log(
+                {
+                    'tool': 'api_v1_actions_deliveries_list',
+                    'agent_id': _AGENT_A,
+                    'company_id': 1,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 0,
+                    'service': 'storage',
+                    'http_method': 'GET',
+                    'resource_path': '/api/v1/actions/deliveries',
+                    'access_kind': 'read',
+                    'outcome': 'allowed',
+                    'status': 200,
+                    'duration_ms': 1,
+                }
+            )
+        mock_post.assert_not_called()
+
+    def test_forward_call_log_delegated_requires_company_binding_version(self):
+        from apps.storage.mcp_identity import forward_call_log
+
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            forward_call_log(
+                {
+                    'tool': 'api_v1_actions_deliveries_list',
+                    'agent_id': _AGENT_A,
+                    'company_id': 1,
+                    'grant_version': 0,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'service': 'storage',
+                    'http_method': 'GET',
+                    'resource_path': '/api/v1/actions/deliveries',
+                    'access_kind': 'read',
+                    'outcome': 'allowed',
+                    'status': 200,
+                    'duration_ms': 1,
+                }
+            )
+        mock_post.assert_not_called()
+
+    def test_forward_call_log_destructive_allowed_requires_approval_id(self):
+        from apps.storage.mcp_identity import forward_call_log
+
+        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
+            forward_call_log(
+                {
+                    'tool': 'api_v1_actions_deliveries_list',
+                    'agent_id': _AGENT_A,
+                    'company_id': 1,
+                    'grant_version': 0,
+                    'global_company_id': _SAMPLE_GLOBAL,
+                    'company_binding_version': 0,
+                    'global_agent_id': _SAMPLE_GLOBAL_AGENT,
+                    'service': 'storage',
+                    'http_method': 'GET',
+                    'resource_path': '/api/v1/actions/deliveries',
+                    'access_kind': 'destructive',
                     'outcome': 'allowed',
                     'status': 200,
                     'duration_ms': 1,

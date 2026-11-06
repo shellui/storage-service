@@ -577,6 +577,19 @@ def create_approval_request(payload: dict[str, Any], agent_claims: dict[str, Any
     except requests.RequestException as exc:
         logger.warning('MCP approval request unreachable: %s', type(exc).__name__)
         return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
+    if response.status_code == 409:
+        try:
+            err_body = response.json()
+        except ValueError:
+            return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
+        if isinstance(err_body, dict) and str(err_body.get('error_code') or '') == 'out_of_sync':
+            return {
+                '_approval_error': True,
+                'error_code': 'out_of_sync',
+                'message': str(err_body.get('message') or 'Out of sync.'),
+            }
+        logger.warning('MCP approval request failed: %s', response.status_code)
+        return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
     if response.status_code == 404 or response.status_code >= 400:
         logger.warning('MCP approval request failed: %s', response.status_code)
         return {'_approval_error': True, 'error_code': 'upstream_error', 'message': 'Approval unavailable.'}
@@ -727,7 +740,8 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     method_u = http_method.strip().upper()
     if method_u not in _APPROVAL_HTTP_METHODS:
         return {}
-    reg = _registry_operation_for_call_log(tool.strip(), resource_path, method_u)
+    path_for_registry = resource_path.strip().split('#', 1)[0].split('?', 1)[0].strip()
+    reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
     if reg is None:
         return {}
     _operation_title, path_template = reg
@@ -780,27 +794,44 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if isinstance(ec, str) and ec.strip():
         out['error_code'] = ec.strip()[:128]
 
-    gcid = entry.get('global_company_id')
-    if isinstance(gcid, str) and parse_global_company_id(gcid):
-        out['global_company_id'] = parse_global_company_id(gcid)
-    gai = entry.get('global_agent_id')
-    if isinstance(gai, str) and parse_global_agent_id(gai):
-        out['global_agent_id'] = parse_global_agent_id(gai)
-    if entry.get('grant_version') is not None:
-        pgv = parse_grant_version(entry.get('grant_version'))
-        if pgv is None:
+    pgv = parse_grant_version(entry.get('grant_version'))
+    if pgv is None:
+        return {}
+    out['grant_version'] = pgv
+
+    gcid_raw = entry.get('global_company_id')
+    gcid_parsed = parse_global_company_id(gcid_raw) if isinstance(gcid_raw, str) else None
+    if gcid_parsed is not None:
+        out['global_company_id'] = gcid_parsed
+        cbv_delegated = parse_company_binding_version(entry.get('company_binding_version'))
+        if cbv_delegated is None:
             return {}
-        out['grant_version'] = pgv
-    if entry.get('company_binding_version') is not None:
+        out['company_binding_version'] = cbv_delegated
+    elif entry.get('company_binding_version') is not None:
         cbv = parse_company_binding_version(entry.get('company_binding_version'))
         if cbv is None:
             return {}
         out['company_binding_version'] = cbv
 
-    for opt_key in ('approval_request_id', 'approval_id'):
-        v = entry.get(opt_key)
-        if isinstance(v, str) and v.strip() and _UUID_RE.match(v.strip()):
-            out[opt_key] = v.strip()
+    gai_raw = entry.get('global_agent_id')
+    if isinstance(gai_raw, str) and gai_raw.strip():
+        gai_parsed = parse_global_agent_id(gai_raw)
+        if gai_parsed is None:
+            return {}
+        if gcid_parsed is None:
+            return {}
+        out['global_agent_id'] = gai_parsed
+
+    if out.get('access_kind') == 'destructive' and out.get('outcome') in ('allowed', 'session_used'):
+        aid_req = entry.get('approval_id')
+        if not (isinstance(aid_req, str) and aid_req.strip() and _UUID_RE.match(aid_req.strip())):
+            return {}
+        out['approval_id'] = aid_req.strip()
+    else:
+        for opt_key in ('approval_request_id', 'approval_id'):
+            v = entry.get(opt_key)
+            if isinstance(v, str) and v.strip() and _UUID_RE.match(v.strip()):
+                out[opt_key] = v.strip()
 
     return out
 

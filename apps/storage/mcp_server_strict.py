@@ -276,6 +276,7 @@ class StrictMcpServer:
         approval_payload: dict[str, Any] = {}
 
         approval_granted = False
+        consumed_approval_id: str | None = None
         approval_flow_state: str | None = None
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
@@ -376,6 +377,7 @@ class StrictMcpServer:
                         if consumed:
                             granted = True
                             approval_granted = True
+                            consumed_approval_id = str(approval_id)
                         else:
                             self._emit_audit(
                                 request=request,
@@ -594,7 +596,9 @@ class StrictMcpServer:
         )
         inner_fail = _inner_response_failed(status_code=status_code, data=data)
         http_outcome = 'failed' if eff_status >= 400 else 'allowed'
-        cons_approval_id = str(approval_payload['approval_id']) if approval_payload.get('approval_id') else None
+        cons_approval_id = consumed_approval_id or (
+            str(approval_payload['approval_id']) if approval_payload.get('approval_id') else None
+        )
         self._emit_audit(
             request=request,
             agent_claims=agent_claims,

@@ -82,9 +82,10 @@ def _agent_token(
 
 
 def _delegated_identity_authority_ok(body: dict) -> dict:
-    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (identity-service PR #135 head)."""
+    """Minimal Identity 200 for ``mcp-agent-delegated-authority`` (identity-service 6a27176)."""
     return {
         'authorized': True,
+        'active': True,
         'revoked': False,
         'paused': False,
         'agent_id': str(body.get('agent_id') or ''),
