@@ -512,7 +512,8 @@ class McpEndpointTests(TestCase):
             return 'error'
 
         def fake_consume(approval_id, payload, claims):
-            return str(approval_id) == appr_id and state_calls['n'] == 3
+            ok = str(approval_id) == appr_id and state_calls['n'] == 3
+            return (ok, {'approval_id': str(approval_id)})
 
         create_calls = {'n': 0}
 

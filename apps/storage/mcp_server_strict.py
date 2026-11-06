@@ -20,11 +20,11 @@ from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
 
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
-    parse_global_agent_id,
     parse_grant_version,
     parse_global_company_id,
 )
 from apps.storage.mcp_identity import (
+    _UUID_RE,
     delegated_live_authority_gate,
     grant_versions_compatible,
     identity_revocation_unavailable,
@@ -152,7 +152,7 @@ class StrictMcpServer:
         on_call: Callable[[dict[str, Any]], None] | None = None,
         approval_handler: Callable[..., dict[str, Any] | None] | None = None,
         approval_state: Callable[..., str | None] | None = None,
-        approval_consume: Callable[..., bool] | None = None,
+        approval_consume: Callable[..., Any] | None = None,
     ):
         self.schema_provider = schema_provider
         self.urlconf = urlconf
@@ -370,12 +370,34 @@ class StrictMcpServer:
                 if state == 'approved':
                     approval_id = approval_payload.get('approval_id')
                     if approval_id and self.approval_consume:
-                        consumed = self.approval_consume(str(approval_id), approval_payload, agent_claims)
+                        consume_out = self.approval_consume(str(approval_id), approval_payload, agent_claims)
+                        if isinstance(consume_out, tuple) and len(consume_out) == 2:
+                            consumed, consume_meta = consume_out[0], consume_out[1]
+                        else:
+                            consumed, consume_meta = bool(consume_out), {}
+                        if not isinstance(consume_meta, dict):
+                            consume_meta = {}
                         if consumed:
                             granted = True
                             approval_granted = True
                             consumed_approval_id = str(approval_id)
                         else:
+                            oc = str(consume_meta.get('outcome') or 'failed')
+                            st = consume_meta.get('status')
+                            sc = int(st) if isinstance(st, int) and not isinstance(st, bool) and st >= 0 else 503
+                            ec = consume_meta.get('error_code')
+                            ec_s = str(ec).strip()[:128] if ec is not None and str(ec).strip() else 'upstream_error'
+                            ec_audit = (
+                                ec_s
+                                if ec_s in AUDIT_ERROR_CODES or ec_s in _IDENTITY_RPC_ERRORS
+                                else 'unknown'
+                            )
+                            aid_log = consume_meta.get('approval_id')
+                            aid_final = (
+                                str(aid_log).strip()
+                                if aid_log is not None and _UUID_RE.match(str(aid_log).strip())
+                                else str(approval_id)
+                            )
                             self._emit_audit(
                                 request=request,
                                 agent_claims=agent_claims,
@@ -387,12 +409,19 @@ class StrictMcpServer:
                                 destructive=destructive,
                                 read_level=read_level,
                                 arguments=arguments,
-                                status_code=503,
-                                outcome='failed',
-                                error_code='upstream_error',
-                                approval_id=str(approval_id),
+                                status_code=sc,
+                                outcome=oc if oc in ('failed', 'session_used', 'waiting_approval') else 'failed',
+                                error_code=ec_audit,
+                                approval_id=aid_final,
                                 started=started,
                             )
+                            if oc == 'session_used':
+                                return JsonResponse(
+                                    self._result(
+                                        req_id,
+                                        {'content': [{'type': 'text', 'text': 'Approval already used.'}], 'isError': True},
+                                    )
+                                )
                             return JsonResponse(
                                 self._result(
                                     req_id,
@@ -607,7 +636,6 @@ class StrictMcpServer:
             error_code=_inner_http_error_code(eff_status),
             approval_id=cons_approval_id,
             started=started,
-            result_for_audit=redacted if eff_status < 400 else None,
         )
         return JsonResponse(
             self._result(
@@ -637,7 +665,6 @@ class StrictMcpServer:
         error_code: str | None,
         approval_id: str | None,
         started: float,
-        result_for_audit: Any | None = None,
     ) -> None:
         if not self.on_call:
             return
@@ -648,11 +675,14 @@ class StrictMcpServer:
             return
         cb_raw = agent_claims.get('company_binding_version')
         cbv = parse_company_binding_version(cb_raw) if cb_raw is not None else None
-        gai = parse_global_agent_id(agent_claims.get('global_agent_id'))
+        scope_s = str(agent_claims.get('scope') or '').strip()
+        if not scope_s:
+            return
         entry: dict[str, Any] = {
             'agent_id': agent_claims.get('agent_id'),
             'company_id': agent_claims.get('company_id'),
             'grant_version': gv,
+            'scope': scope_s[:512],
             'service': self.service_name,
             'tool': tool_name,
             'operation_title': operation_title,
@@ -668,8 +698,6 @@ class StrictMcpServer:
             entry['global_company_id'] = gcid
             if cbv is not None:
                 entry['company_binding_version'] = cbv
-            if gai is not None:
-                entry['global_agent_id'] = gai
         if error_code:
             if error_code in AUDIT_ERROR_CODES or error_code in _IDENTITY_RPC_ERRORS:
                 entry['error_code'] = error_code

@@ -9,8 +9,6 @@ import time
 import uuid
 from functools import lru_cache
 from typing import Any
-from urllib.parse import urlsplit
-
 import requests
 from django.conf import settings
 from django.core.cache import cache
@@ -88,16 +86,8 @@ _CALL_LOG_WIRE_ERROR_CODES = frozenset(
 
 
 def _public_mcp_path() -> str:
-    """RFC 8707 audience path `{STORAGE_PUBLIC_URL}/mcp` (empty public URL means ``/mcp`` on the request host)."""
-    raw = (getattr(settings, 'STORAGE_PUBLIC_URL', '') or '').strip()
-    if not raw:
-        return '/mcp'
-    try:
-        parts = urlsplit(raw)
-        prefix = (parts.path or '').rstrip('/')
-    except ValueError:
-        return '/mcp'
-    return f'{prefix}/mcp' if prefix else '/mcp'
+    """Canonical public MCP activity path (JSON-RPC ``POST /mcp``)."""
+    return '/mcp'
 
 _APPROVAL_STATUS_OK = frozenset({'approved', 'pending', 'denied', 'expired'})
 _UUID_RE = re.compile(
@@ -750,17 +740,20 @@ def consume_approval(
     approval_id: str,
     payload: dict[str, Any] | None,
     agent_claims: dict[str, Any],
-) -> bool:
+) -> tuple[bool, dict[str, Any]]:
+    """POST mcp-approval-consume. Returns ``(ok, meta)``; meta always includes ``approval_id`` when known."""
     payload = payload or {}
+    aid_str = str(approval_id).strip() if approval_id else ''
+    meta: dict[str, Any] = {'approval_id': aid_str if aid_str and _UUID_RE.match(aid_str) else None}
     allow, unavailable = delegated_live_authority_gate(payload, agent_claims)
     if unavailable or not allow:
-        return False
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
     origin = _identity_origin()
     assertion = _approval_assertion_from_payload(payload, agent_claims)
     if not origin or not approval_id or not assertion:
-        return False
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'approval_unavailable'}
     if not _UUID_RE.match(str(approval_id)):
-        return False
+        return False, {**meta, 'outcome': 'failed', 'status': 400, 'error_code': 'bad_request'}
     try:
         response = requests.post(
             f'{origin}/api/v1/mcp/internal/mcp-approval-consume',
@@ -769,36 +762,30 @@ def consume_approval(
             timeout=10,
         )
     except requests.RequestException:
-        return False
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
     if response.status_code == 404 or response.status_code >= 400:
-        return False
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
     try:
         data = response.json()
     except ValueError:
-        return False
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
     if not isinstance(data, dict):
-        return False
-    return data.get('consumed') is True
-
-
-def _safe_call_log_access_kind_for_identity(
-    *,
-    access_kind: str,
-    outcome: str,
-    approval_id_present: bool,
-) -> str | None:
-    """
-    Identity only treats ``destructive`` as the strict approval path for successful rows with ``approval_id``.
-
-    Map other outcomes to a supported access_kind so denied / waiting / failed rows still ingest.
-    """
-    if access_kind != 'destructive':
-        return access_kind
-    if outcome in ('allowed', 'session_used'):
-        return 'destructive' if approval_id_present else None
-    if outcome in ('denied', 'waiting_approval', 'failed'):
-        return 'write'
-    return None
+        return False, {**meta, 'outcome': 'failed', 'status': 503, 'error_code': 'upstream_error'}
+    if data.get('consumed') is True:
+        return True, meta
+    # Identity #136: trust structured consume failures (exact codes from Identity).
+    ec_any = data.get('error_code') if data.get('error_code') is not None else data.get('code')
+    ec = str(ec_any).strip().lower() if ec_any is not None else ''
+    status_raw = data.get('http_status') if data.get('http_status') is not None else data.get('status')
+    try:
+        st_body = int(status_raw) if status_raw is not None else 200
+    except (TypeError, ValueError):
+        st_body = 200
+    if not ec:
+        return False, {**meta, 'outcome': 'failed', 'status': st_body, 'error_code': 'upstream_error'}
+    if ec in ('already_consumed', 'approval_already_consumed', 'session_used'):
+        return False, {**meta, 'outcome': 'session_used', 'status': 409, 'error_code': 'expired'}
+    return False, {**meta, 'outcome': 'failed', 'status': st_body, 'error_code': ec[:128]}
 
 
 def _canonical_call_log_outcome(raw: Any) -> str | None:
@@ -878,30 +865,25 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
             return {}
         cbv_delegated = None
 
-    gai_raw = entry.get('global_agent_id')
-    if isinstance(gai_raw, str) and gai_raw.strip():
-        if not delegated:
-            return {}
-        gai_parsed = parse_global_agent_id(gai_raw)
-        if gai_parsed is None:
-            return {}
-    else:
-        gai_parsed = None
+    if entry.get('global_agent_id') is not None:
+        return {}
 
     appr_uuid: str | None = None
     raw_appr = entry.get('approval_id')
     if isinstance(raw_appr, str) and raw_appr.strip() and _UUID_RE.match(raw_appr.strip()):
         appr_uuid = raw_appr.strip()
 
-    wire_access = _safe_call_log_access_kind_for_identity(
-        access_kind=access_kind,
-        outcome=oc,
-        approval_id_present=appr_uuid is not None,
-    )
-    if wire_access is None:
+    if access_kind == 'destructive' and oc in ('allowed', 'session_used') and appr_uuid is None:
         return {}
 
     wire_path = _public_mcp_path().split('?', 1)[0].split('#', 1)[0].strip()[:500]
+    scope_raw = entry.get('scope')
+    if not isinstance(scope_raw, str) or not scope_raw.strip():
+        return {}
+    scope_norm = ' '.join(p for p in scope_raw.split() if p)[:256]
+    if not scope_norm:
+        return {}
+
     out: dict[str, Any] = {
         'agent_id': aid,
         'company_id': cid,
@@ -909,22 +891,18 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
         'tool': tool.strip()[:255],
         'method': 'POST',
         'path': wire_path,
+        'scope': scope_norm,
         'outcome': oc,
         'status': st,
         'duration_ms': dm,
         'grant_version': pgv,
-        'access_kind': wire_access,
+        'access_kind': access_kind,
     }
     if delegated:
         out['global_company_id'] = gcid_parsed
         out['company_binding_version'] = cbv_delegated
-        if gai_parsed is not None:
-            out['global_agent_id'] = gai_parsed
     if appr_uuid is not None:
         out['approval_id'] = appr_uuid
-    res = entry.get('result')
-    if isinstance(res, str) and res.strip():
-        out['result'] = res.strip()[:32]
     raw_ec = entry.get('error_code')
     ec = raw_ec.strip()[:128] if isinstance(raw_ec, str) and raw_ec.strip() else None
     if oc == 'allowed' and st < 400:

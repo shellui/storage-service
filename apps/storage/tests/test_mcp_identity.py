@@ -455,20 +455,20 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             raise requests.RequestException('down')
 
         with _patch_identity_posts(_fail_consume):
-            self.assertFalse(
-                consume_approval(
-                    str(uuid.uuid4()),
-                    {
-                        'agent_id': _AGENT_A,
-                        'company_id': 1,
-                        'service': 'storage',
-                        'action': 'write',
-                        'arguments_hash': 'hash',
-                        'mcp_expected_resource': _MCP_RESOURCE,
-                    },
-                    _claims_write(),
-                )
+            ok, meta = consume_approval(
+                str(uuid.uuid4()),
+                {
+                    'agent_id': _AGENT_A,
+                    'company_id': 1,
+                    'service': 'storage',
+                    'action': 'write',
+                    'arguments_hash': 'hash',
+                    'mcp_expected_resource': _MCP_RESOURCE,
+                },
+                _claims_write(),
             )
+        self.assertFalse(ok)
+        self.assertEqual(meta.get('error_code'), 'upstream_error')
 
     def test_consume_approval_false_when_consumed_missing(self):
         payload = {
@@ -480,9 +480,8 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'mcp_expected_resource': _MCP_RESOURCE,
         }
         with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {})):
-            self.assertFalse(
-                consume_approval(str(uuid.uuid4()), payload, _claims_write()),
-            )
+            ok, _meta = consume_approval(str(uuid.uuid4()), payload, _claims_write())
+        self.assertFalse(ok)
 
     def test_consume_approval_false_when_http200_but_consumed_false(self):
         payload = {
@@ -494,9 +493,8 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'mcp_expected_resource': _MCP_RESOURCE,
         }
         with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'consumed': False})):
-            self.assertFalse(
-                consume_approval(str(uuid.uuid4()), payload, _claims_write()),
-            )
+            ok, _meta = consume_approval(str(uuid.uuid4()), payload, _claims_write())
+        self.assertFalse(ok)
 
     def test_consume_approval_rejects_non_uuid(self):
         payload = {
@@ -507,7 +505,8 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'arguments_hash': 'hash',
             'mcp_expected_resource': _MCP_RESOURCE,
         }
-        self.assertFalse(consume_approval('not-a-uuid', payload, _claims_write()))
+        ok, _meta = consume_approval('not-a-uuid', payload, _claims_write())
+        self.assertFalse(ok)
 
     def test_consume_approval_sends_approval_id_and_assertion(self):
         aid = str(uuid.uuid4())
@@ -520,11 +519,34 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             'mcp_expected_resource': _MCP_RESOURCE,
         }
         with _patch_identity_posts(lambda: MagicMock(status_code=200, json=lambda: {'consumed': True})) as mock_post:
-            self.assertTrue(consume_approval(aid, payload, _claims_write()))
+            ok, meta = consume_approval(aid, payload, _claims_write())
+        self.assertTrue(ok)
+        self.assertEqual(meta.get('approval_id'), aid)
         consume_calls = [c for c in mock_post.call_args_list if 'mcp-approval-consume' in str(c)]
         self.assertTrue(consume_calls)
         self.assertEqual(consume_calls[-1].kwargs['json'], {'approval_id': aid})
         self.assertTrue(consume_calls[-1].kwargs['headers']['Authorization'].startswith('Bearer '))
+
+    def test_consume_approval_identity136_already_consumed_maps_session_used(self):
+        payload = {
+            'agent_id': _AGENT_A,
+            'company_id': 1,
+            'service': 'storage',
+            'action': 'write',
+            'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
+        }
+        with _patch_identity_posts(
+            lambda: MagicMock(
+                status_code=200,
+                json=lambda: {'consumed': False, 'error_code': 'already_consumed', 'http_status': 200},
+            )
+        ):
+            ok, meta = consume_approval(str(uuid.uuid4()), payload, _claims_write())
+        self.assertFalse(ok)
+        self.assertEqual(meta.get('outcome'), 'session_used')
+        self.assertEqual(meta.get('status'), 409)
+        self.assertEqual(meta.get('error_code'), 'expired')
 
     def test_forward_call_log_drops_unapproved_keys(self):
         from apps.storage.mcp_identity import forward_call_log
@@ -538,6 +560,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
+                    'scope': 'storage',
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
                     'service': 'storage',
@@ -556,6 +579,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertNotIn('arguments', body)
         self.assertNotIn('operation_title', body)
         self.assertNotIn('error_code', body)
+        self.assertEqual(body.get('scope'), 'storage')
         self.assertEqual(body.get('method'), 'POST')
         self.assertEqual(body.get('path'), '/mcp')
         self.assertNotIn('http_method', body)
@@ -571,6 +595,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
+                    'scope': 'storage',
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
                     'service': 'storage',
@@ -611,9 +636,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
+                    'scope': 'storage',
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
-                    'global_agent_id': _SAMPLE_GLOBAL_AGENT,
                     'service': 'storage',
                     'http_method': 'GET',
                     'resource_path': '/api/v1/actions/deliveries?x=1',
@@ -625,6 +650,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
             )
         body = mock_post.call_args.kwargs['json']
         self.assertEqual(body.get('path'), '/mcp')
+        self.assertEqual(body.get('scope'), 'storage')
 
     def test_forward_call_log_requires_grant_version(self):
         from apps.storage.mcp_identity import forward_call_log
@@ -635,6 +661,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'tool': 'api_v1_actions_deliveries_list',
                     'agent_id': _AGENT_A,
                     'company_id': 1,
+                    'scope': 'storage',
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
                     'service': 'storage',
@@ -658,6 +685,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
+                    'scope': 'storage',
                     'global_company_id': _SAMPLE_GLOBAL,
                     'service': 'storage',
                     'http_method': 'GET',
@@ -680,9 +708,9 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                     'agent_id': _AGENT_A,
                     'company_id': 1,
                     'grant_version': 0,
+                    'scope': 'storage',
                     'global_company_id': _SAMPLE_GLOBAL,
                     'company_binding_version': 0,
-                    'global_agent_id': _SAMPLE_GLOBAL_AGENT,
                     'service': 'storage',
                     'http_method': 'GET',
                     'resource_path': '/api/v1/actions/deliveries',
