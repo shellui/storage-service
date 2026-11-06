@@ -55,6 +55,11 @@ OPTIONAL = (
     Var('IDENTITY_JWKS_FILE', '', 'Identity and JWT. Pin the JWKS with a file or JSON in production.'),
     Var('IDENTITY_JWKS', ''),
     Var('IDENTITY_JWKS_URL', ''),
+    Var(
+        'IDENTITY_MCP_DELEGATED_AUTHORITY_PATH',
+        '',
+        'Identity internal path for live delegated agent row checks (default /api/v1/mcp/internal/mcp-agent-delegated-authority)',
+    ),
     Var('STORAGE_SERVICE_ISSUER', '', ''),
     Var('STORAGE_PUBLIC_URL', '', 'Public origin; agent tokens must target {url}/mcp. Empty uses the request host'),
     Var('STORAGE_SERVICE_SIGNING_KEY', ''),

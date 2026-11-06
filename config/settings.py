@@ -556,6 +556,8 @@ else:
         )
 IDENTITY_ISSUER = os.getenv('IDENTITY_ISSUER', '').strip() or None
 IDENTITY_AUDIENCE = os.getenv('IDENTITY_AUDIENCE', '').strip() or None
+# Path or absolute URL for delegated regional agent authority (Identity internal API).
+IDENTITY_MCP_DELEGATED_AUTHORITY_PATH = os.getenv('IDENTITY_MCP_DELEGATED_AUTHORITY_PATH', '').strip() or None
 JWKS_CACHE_TTL = _env_int('JWKS_CACHE_TTL', 900)
 JWKS_TIMEOUT = _env_float('JWKS_TIMEOUT', 15)
 JWKS_RETRIES = _env_int('JWKS_RETRIES', 2)

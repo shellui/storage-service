@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jwt
 from django.test import Client, TestCase, override_settings
@@ -12,7 +12,8 @@ from drf_spectacular.generators import SchemaGenerator
 from apps.actions.models import ActionRule, EventLog
 from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.models import ObjectShareLink, StorageAccessGrant, StorageObject
-from apps.storage.tests.test_mcp import _agent_token, _mcp_host_kwargs
+from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
+from apps.storage.tests.test_mcp import _TEST_JWKS, _agent_token, _mcp_host_kwargs, _signed_revocation_for_tests
 from shellui_django.mcp.openapi_tools import tools_from_schema
 
 COMPANY_A = 10
@@ -27,6 +28,7 @@ def _owner_token(*, company_id: int, user_id: int) -> str:
             'user_id': user_id,
             'company_id': company_id,
             'email': f'owner-{company_id}@example.com',
+            'aud': 'shellui',
             'user_metadata': {'is_staff': False, 'is_company_owner': True},
             'iss': 'https://identity.test',
             'exp': 2**31 - 1,
@@ -37,12 +39,14 @@ def _owner_token(*, company_id: int, user_id: int) -> str:
 
 
 @override_settings(
+    **MCP_SIGNING_TEST_SETTINGS,
     STORAGE_BACKEND='filesystem',
     JWT_HS256_FALLBACK_SECRET='test-secret',
     ALLOW_JWT_HS256_FALLBACK=True,
     IDENTITY_ISSUER='https://identity.test',
+    IDENTITY_AUDIENCE='shellui',
     IDENTITY_SERVICE_URL='https://identity.test',
-    IDENTITY_JWKS_URL='http://jwks.test/.well-known/jwks.json',
+    IDENTITY_JWKS_DOCUMENT=_TEST_JWKS,
     DEFAULT_COMPANY_QUOTA_BYTES=10 * 1024 * 1024,
 )
 class McpTenantIsolationTests(TestCase):
@@ -51,10 +55,29 @@ class McpTenantIsolationTests(TestCase):
 
         mcp_views._server = None
         self.client = Client()
+        from django.core.cache import cache
+
+        cache.delete('mcp:revoked_trusted_payload')
+        cache.delete('mcp:revoked_list_trusted')
+        cache.delete('mcp:revoked_verified_claims')
         self.agent_token = _agent_token(company_id=COMPANY_A)
-        self._revocation_patches = (
-            patch('apps.storage.mcp_views.identity_revocation_unavailable', return_value=False),
-            patch('apps.storage.mcp_views.agent_is_revoked', return_value=False),
+        claims = jwt.decode(self.agent_token, options={'verify_signature': False})
+        self._agent_id = str(claims['agent_id'])
+        self._company_id = int(claims['company_id'])
+        self._revocation_patch = patch(
+            'apps.storage.mcp_identity.requests.get',
+            return_value=MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(
+                    agents=[
+                        {
+                            'agent_id': self._agent_id,
+                            'company_id': self._company_id,
+                            'grant_version': 0,
+                        }
+                    ],
+                ),
+            ),
         )
         ensure_company_bucket(company_id=COMPANY_A)
         ensure_company_bucket(company_id=COMPANY_B)
@@ -124,7 +147,7 @@ class McpTenantIsolationTests(TestCase):
             'method': 'tools/call',
             'params': {'name': tool_name, 'arguments': arguments},
         }
-        with self._revocation_patches[0], self._revocation_patches[1]:
+        with self._revocation_patch:
             return self.client.post(
                 '/mcp',
                 data=json.dumps(payload),

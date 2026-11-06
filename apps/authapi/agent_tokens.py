@@ -9,6 +9,12 @@ from django.http import HttpRequest
 from apps.authapi.jwks_client import get_jwks_client
 from shellui_django.mcp.resources import access_token_audience_matches, normalize_resource_indicator
 
+from apps.authapi.mcp_authority import (
+    DelegatedAuthorityDenied,
+    DelegatedAuthorityUnavailable,
+    delegated_regional_authority_live_ok,
+)
+
 from .principal import StoragePrincipal
 
 
@@ -117,5 +123,9 @@ def authenticate_agent_bearer(
         return None
     if not agent_scope_allows_storage(claims):
         return None
+    try:
+        delegated_regional_authority_live_ok(claims, expected_resource=expected_resource)
+    except (DelegatedAuthorityUnavailable, DelegatedAuthorityDenied):
+        raise
     principal = principal_from_agent_claims(claims)
     return principal, claims
