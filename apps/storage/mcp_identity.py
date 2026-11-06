@@ -9,6 +9,7 @@ import time
 import uuid
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from django.conf import settings
@@ -48,7 +49,7 @@ _REVOKED_LOCK = threading.Lock()
 
 _CALL_LOG_OUTCOMES = frozenset(
     {
-        'pending_approval',
+        'waiting_approval',
         'allowed',
         'denied',
         'failed',
@@ -59,6 +60,19 @@ _CALL_LOG_OUTCOMES = frozenset(
 _CALL_LOG_ACCESS_KINDS = frozenset({'read', 'write', 'destructive', 'unknown'})
 
 _APPROVAL_HTTP_METHODS = frozenset({'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'})
+
+
+def _public_mcp_path() -> str:
+    """RFC 8707 audience path `{STORAGE_PUBLIC_URL}/mcp` (empty public URL means ``/mcp`` on the request host)."""
+    raw = (getattr(settings, 'STORAGE_PUBLIC_URL', '') or '').strip()
+    if not raw:
+        return '/mcp'
+    try:
+        parts = urlsplit(raw)
+        prefix = (parts.path or '').rstrip('/')
+    except ValueError:
+        return '/mcp'
+    return f'{prefix}/mcp' if prefix else '/mcp'
 
 _APPROVAL_STATUS_OK = frozenset({'approved', 'pending', 'denied', 'expired'})
 _UUID_RE = re.compile(
@@ -729,6 +743,20 @@ def consume_approval(
     return data.get('consumed') is True
 
 
+def _canonical_call_log_outcome(raw: Any) -> str | None:
+    """Normalize to Identity ``call_log_outcome`` ingest (d7fe351): five canonical strings."""
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip().lower()
+    if not s:
+        return None
+    if s == 'pending_approval':
+        return 'waiting_approval'
+    if s in _CALL_LOG_OUTCOMES:
+        return s
+    return None
+
+
 def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     tool = entry.get('tool')
     resource_path = entry.get('resource_path')
@@ -744,7 +772,7 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
     if reg is None:
         return {}
-    _operation_title, path_template = reg
+    _operation_title, _path_template = reg
 
     agent_raw = entry.get('agent_id')
     aid = parse_regional_agent_id(agent_raw)
@@ -759,80 +787,85 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(svc, str) or not svc.strip():
         return {}
 
+    oc = _canonical_call_log_outcome(entry.get('outcome'))
+    if oc is None:
+        return {}
+
+    st = entry.get('status')
+    if not (isinstance(st, int) and not isinstance(st, bool) and st >= 0):
+        return {}
+    dm = entry.get('duration_ms')
+    if not (isinstance(dm, int) and not isinstance(dm, bool) and dm >= 0):
+        return {}
+
+    pgv = parse_grant_version(entry.get('grant_version'))
+    if pgv is None:
+        return {}
+
+    ak = entry.get('access_kind')
+    if isinstance(ak, str) and ak.strip().lower() in _CALL_LOG_ACCESS_KINDS:
+        access_kind = ak.strip().lower()
+    else:
+        access_kind = 'unknown'
+
+    gcid_raw = entry.get('global_company_id')
+    gcid_parsed = parse_global_company_id(gcid_raw) if isinstance(gcid_raw, str) else None
+    delegated = gcid_parsed is not None
+    if delegated:
+        cbv_delegated = parse_company_binding_version(entry.get('company_binding_version'))
+        if cbv_delegated is None:
+            return {}
+    else:
+        if entry.get('company_binding_version') is not None:
+            return {}
+        cbv_delegated = None
+
+    gai_raw = entry.get('global_agent_id')
+    if isinstance(gai_raw, str) and gai_raw.strip():
+        if not delegated:
+            return {}
+        gai_parsed = parse_global_agent_id(gai_raw)
+        if gai_parsed is None:
+            return {}
+    else:
+        gai_parsed = None
+
+    appr_uuid: str | None = None
+    raw_appr = entry.get('approval_id')
+    if isinstance(raw_appr, str) and raw_appr.strip() and _UUID_RE.match(raw_appr.strip()):
+        appr_uuid = raw_appr.strip()
+
+    if access_kind == 'destructive' and oc in ('allowed', 'session_used'):
+        if appr_uuid is None:
+            return {}
+
+    wire_path = _public_mcp_path().split('?', 1)[0].split('#', 1)[0].strip()[:500]
     out: dict[str, Any] = {
         'agent_id': aid,
         'company_id': cid,
         'service': svc.strip()[:32],
         'tool': tool.strip()[:255],
-        'method': method_u[:10],
-        'path': path_template[:500],
+        'method': 'POST',
+        'path': wire_path,
+        'outcome': oc,
+        'status': st,
+        'duration_ms': dm,
+        'grant_version': pgv,
+        'access_kind': access_kind,
     }
-
-    st = entry.get('status')
-    if isinstance(st, int) and not isinstance(st, bool) and st >= 0:
-        out['status'] = st
-    dm = entry.get('duration_ms')
-    if isinstance(dm, int) and not isinstance(dm, bool) and dm >= 0:
-        out['duration_ms'] = dm
-
+    if delegated:
+        out['global_company_id'] = gcid_parsed
+        out['company_binding_version'] = cbv_delegated
+        if gai_parsed is not None:
+            out['global_agent_id'] = gai_parsed
+    if appr_uuid is not None:
+        out['approval_id'] = appr_uuid
     res = entry.get('result')
     if isinstance(res, str) and res.strip():
         out['result'] = res.strip()[:32]
-
-    oc = entry.get('outcome')
-    if not isinstance(oc, str) or oc.strip().lower() not in _CALL_LOG_OUTCOMES:
-        return {}
-    out['outcome'] = oc.strip().lower()
-
-    ak = entry.get('access_kind')
-    if isinstance(ak, str) and ak.strip().lower() in _CALL_LOG_ACCESS_KINDS:
-        out['access_kind'] = ak.strip().lower()
-    else:
-        out['access_kind'] = 'unknown'
-
     ec = entry.get('error_code')
     if isinstance(ec, str) and ec.strip():
         out['error_code'] = ec.strip()[:128]
-
-    pgv = parse_grant_version(entry.get('grant_version'))
-    if pgv is None:
-        return {}
-    out['grant_version'] = pgv
-
-    gcid_raw = entry.get('global_company_id')
-    gcid_parsed = parse_global_company_id(gcid_raw) if isinstance(gcid_raw, str) else None
-    if gcid_parsed is not None:
-        out['global_company_id'] = gcid_parsed
-        cbv_delegated = parse_company_binding_version(entry.get('company_binding_version'))
-        if cbv_delegated is None:
-            return {}
-        out['company_binding_version'] = cbv_delegated
-    elif entry.get('company_binding_version') is not None:
-        cbv = parse_company_binding_version(entry.get('company_binding_version'))
-        if cbv is None:
-            return {}
-        out['company_binding_version'] = cbv
-
-    gai_raw = entry.get('global_agent_id')
-    if isinstance(gai_raw, str) and gai_raw.strip():
-        gai_parsed = parse_global_agent_id(gai_raw)
-        if gai_parsed is None:
-            return {}
-        if gcid_parsed is None:
-            return {}
-        out['global_agent_id'] = gai_parsed
-
-    if out.get('access_kind') == 'destructive' and out.get('outcome') in ('allowed', 'session_used'):
-        aid_req = entry.get('approval_id')
-        if not (isinstance(aid_req, str) and aid_req.strip() and _UUID_RE.match(aid_req.strip())):
-            return {}
-        out['approval_id'] = aid_req.strip()
-    else:
-        for opt_key in ('approval_request_id', 'approval_id'):
-            v = entry.get(opt_key)
-            if isinstance(v, str) and v.strip() and _UUID_RE.match(v.strip()):
-                out[opt_key] = v.strip()
-
     return out
 
 

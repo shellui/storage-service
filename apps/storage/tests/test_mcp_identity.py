@@ -128,6 +128,9 @@ def _claims_write(
 def _claims_personal(*, company_id: int = 1, grant_version: int = 0) -> dict:
     return {
         'mcp_access': 'ask',
+        'mcp_read': 'safe',
+        'mcp_destructive': False,
+        'scope': 'storage',
         'company_id': company_id,
         'grant_version': grant_version,
     }
@@ -536,8 +539,8 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertNotIn('arguments', body)
         self.assertNotIn('operation_title', body)
         self.assertEqual(body.get('error_code'), 'upstream_error')
-        self.assertEqual(body.get('method'), 'GET')
-        self.assertEqual(body.get('path'), '/api/v1/actions/deliveries')
+        self.assertEqual(body.get('method'), 'POST')
+        self.assertEqual(body.get('path'), '/mcp')
         self.assertNotIn('http_method', body)
         self.assertNotIn('resource_path', body)
 
@@ -604,7 +607,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
                 }
             )
         body = mock_post.call_args.kwargs['json']
-        self.assertEqual(body.get('path'), '/api/v1/actions/deliveries')
+        self.assertEqual(body.get('path'), '/mcp')
 
     def test_forward_call_log_requires_grant_version(self):
         from apps.storage.mcp_identity import forward_call_log

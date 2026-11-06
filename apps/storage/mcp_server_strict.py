@@ -8,6 +8,7 @@ import logging
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 from django.http import HttpRequest, JsonResponse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -34,6 +35,21 @@ from apps.storage.mcp_identity import (
 logger = logging.getLogger(__name__)
 
 _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
+
+
+def _audit_mcp_wire_path() -> str:
+    """Identity ``McpInternalCallLogView`` expects JSON-RPC at ``POST /mcp`` on the public MCP route."""
+    from django.conf import settings
+
+    raw = (getattr(settings, 'STORAGE_PUBLIC_URL', '') or '').strip()
+    if not raw:
+        return '/mcp'
+    try:
+        parts = urlsplit(raw)
+        prefix = (parts.path or '').rstrip('/')
+    except ValueError:
+        return '/mcp'
+    return f'{prefix}/mcp' if prefix else '/mcp'
 
 # AI gateway and Shellui Identity error taxonomy (audit ``error.code`` and MCP JSON-RPC layer).
 AUDIT_ERROR_CODES = frozenset(
@@ -132,7 +148,7 @@ def _map_write_gate_outcome(decision: Any, *, granted: bool) -> str:
     if granted:
         return 'allowed'
     if getattr(decision, 'needs_approval', False):
-        return 'pending_approval'
+        return 'waiting_approval'
     if not getattr(decision, 'allowed', False):
         return 'denied'
     return 'failed'
@@ -266,7 +282,8 @@ class StrictMcpServer:
             tool_read_only=tool_read_only,
         )
         operation_title = _tool_operation_summary(tool, schema)
-        audit_path = path_template
+        audit_inner_path = path_template
+        audit_wire_path = _audit_mcp_wire_path()
         if destructive:
             access_kind = 'destructive'
         elif tool_read_only:
@@ -287,7 +304,7 @@ class StrictMcpServer:
                 'service': self.service_name,
                 'action': tool_name,
                 'arguments_hash': args_hash,
-                'resource_path': audit_path,
+                'resource_path': audit_inner_path,
                 'http_method': method,
                 'mcp_expected_resource': expected_res.strip() or None,
             }
@@ -300,8 +317,8 @@ class StrictMcpServer:
                         request=request,
                         agent_claims=agent_claims,
                         tool_name=tool_name,
-                        method=method,
-                        audit_path=audit_path,
+                        method='POST',
+                        audit_path=audit_wire_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -310,7 +327,6 @@ class StrictMcpServer:
                         status_code=503,
                         outcome='failed',
                         error_code='upstream_error',
-                        approval_request_id=None,
                         approval_id=None,
                         started=started,
                     )
@@ -325,8 +341,8 @@ class StrictMcpServer:
                         request=request,
                         agent_claims=agent_claims,
                         tool_name=tool_name,
-                        method=method,
-                        audit_path=audit_path,
+                        method='POST',
+                        audit_path=audit_wire_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -335,7 +351,6 @@ class StrictMcpServer:
                         status_code=409,
                         outcome='session_used',
                         error_code='expired',
-                        approval_request_id=None,
                         approval_id=None,
                         started=started,
                     )
@@ -350,8 +365,8 @@ class StrictMcpServer:
                         request=request,
                         agent_claims=agent_claims,
                         tool_name=tool_name,
-                        method=method,
-                        audit_path=audit_path,
+                        method='POST',
+                        audit_path=audit_wire_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -360,7 +375,6 @@ class StrictMcpServer:
                         status_code=403,
                         outcome='denied',
                         error_code='denied',
-                        approval_request_id=None,
                         approval_id=None,
                         started=started,
                     )
@@ -383,8 +397,8 @@ class StrictMcpServer:
                                 request=request,
                                 agent_claims=agent_claims,
                                 tool_name=tool_name,
-                                method=method,
-                                audit_path=audit_path,
+                                method='POST',
+                                audit_path=audit_wire_path,
                                 operation_title=operation_title,
                                 access_kind=access_kind,
                                 destructive=destructive,
@@ -393,7 +407,6 @@ class StrictMcpServer:
                                 status_code=503,
                                 outcome='failed',
                                 error_code='upstream_error',
-                                approval_request_id=None,
                                 approval_id=str(approval_id),
                                 started=started,
                             )
@@ -408,8 +421,8 @@ class StrictMcpServer:
                             request=request,
                             agent_claims=agent_claims,
                             tool_name=tool_name,
-                            method=method,
-                            audit_path=audit_path,
+                            method='POST',
+                            audit_path=audit_wire_path,
                             operation_title=operation_title,
                             access_kind=access_kind,
                             destructive=destructive,
@@ -418,7 +431,6 @@ class StrictMcpServer:
                             status_code=503,
                             outcome='failed',
                             error_code='upstream_error',
-                            approval_request_id=None,
                             approval_id=str(approval_id) if approval_id else None,
                             started=started,
                         )
@@ -433,18 +445,19 @@ class StrictMcpServer:
                         request=request,
                         agent_claims=agent_claims,
                         tool_name=tool_name,
-                        method=method,
-                        audit_path=audit_path,
+                        method='POST',
+                        audit_path=audit_wire_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
                         status_code=202,
-                        outcome='pending_approval',
+                        outcome='waiting_approval',
                         error_code=None,
-                        approval_request_id=None,
-                        approval_id=None,
+                        approval_id=str(approval_payload['approval_id'])
+                        if approval_payload.get('approval_id')
+                        else None,
                         started=started,
                     )
                     return JsonResponse(
@@ -465,8 +478,8 @@ class StrictMcpServer:
                         request=request,
                         agent_claims=agent_claims,
                         tool_name=tool_name,
-                        method=method,
-                        audit_path=audit_path,
+                        method='POST',
+                        audit_path=audit_wire_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
@@ -475,7 +488,6 @@ class StrictMcpServer:
                         status_code=503,
                         outcome='failed',
                         error_code=ec if ec in AUDIT_ERROR_CODES else 'upstream_error',
-                        approval_request_id=None,
                         approval_id=None,
                         started=started,
                     )
@@ -492,18 +504,17 @@ class StrictMcpServer:
                         request=request,
                         agent_claims=agent_claims,
                         tool_name=tool_name,
-                        method=method,
-                        audit_path=audit_path,
+                        method='POST',
+                        audit_path=audit_wire_path,
                         operation_title=operation_title,
                         access_kind=access_kind,
                         destructive=destructive,
                         read_level=read_level,
                         arguments=arguments,
                         status_code=202,
-                        outcome='pending_approval',
+                        outcome='waiting_approval',
                         error_code=None,
-                        approval_request_id=str(rid) if rid is not None else None,
-                        approval_id=None,
+                        approval_id=str(rid) if rid is not None else None,
                         started=started,
                     )
                     return JsonResponse(
@@ -522,8 +533,8 @@ class StrictMcpServer:
                     request=request,
                     agent_claims=agent_claims,
                     tool_name=tool_name,
-                    method=method,
-                    audit_path=audit_path,
+                    method='POST',
+                    audit_path=audit_wire_path,
                     operation_title=operation_title,
                     access_kind=access_kind,
                     destructive=destructive,
@@ -532,7 +543,6 @@ class StrictMcpServer:
                     status_code=403,
                     outcome=oc,
                     error_code='denied',
-                    approval_request_id=None,
                     approval_id=None,
                     started=started,
                 )
@@ -548,8 +558,8 @@ class StrictMcpServer:
                 request=request,
                 agent_claims=agent_claims,
                 tool_name=tool_name,
-                method=method,
-                audit_path=audit_path,
+                method='POST',
+                audit_path=audit_wire_path,
                 operation_title=operation_title,
                 access_kind=access_kind,
                 destructive=destructive,
@@ -558,7 +568,6 @@ class StrictMcpServer:
                 status_code=403,
                 outcome=oc,
                 error_code='denied',
-                approval_request_id=None,
                 approval_id=None,
                 started=started,
             )
@@ -603,8 +612,8 @@ class StrictMcpServer:
             request=request,
             agent_claims=agent_claims,
             tool_name=tool_name,
-            method=method,
-            audit_path=audit_path,
+            method='POST',
+            audit_path=audit_wire_path,
             operation_title=operation_title,
             access_kind=access_kind,
             destructive=destructive,
@@ -613,7 +622,6 @@ class StrictMcpServer:
             status_code=eff_status,
             outcome=http_outcome,
             error_code=_inner_http_error_code(eff_status),
-            approval_request_id=None,
             approval_id=cons_approval_id,
             started=started,
             result_for_audit=redacted if eff_status < 400 else None,
@@ -644,7 +652,6 @@ class StrictMcpServer:
         status_code: int,
         outcome: str,
         error_code: str | None,
-        approval_request_id: str | None,
         approval_id: str | None,
         started: float,
         result_for_audit: Any | None = None,
@@ -653,17 +660,20 @@ class StrictMcpServer:
             return
         duration_ms = int(round((time.perf_counter() - started) * 1000))
         gcid = parse_global_company_id(agent_claims.get('global_company_id'))
-        gv = parse_grant_version(agent_claims.get('grant_version'))
+        gv = (
+            parse_grant_version(agent_claims.get('grant_version'))
+            if 'grant_version' in agent_claims
+            else None
+        )
+        if gv is None and gcid is None:
+            gv = 0
         cb_raw = agent_claims.get('company_binding_version')
         cbv = parse_company_binding_version(cb_raw) if cb_raw is not None else None
         gai = parse_global_agent_id(agent_claims.get('global_agent_id'))
         entry: dict[str, Any] = {
             'agent_id': agent_claims.get('agent_id'),
             'company_id': agent_claims.get('company_id'),
-            'global_company_id': gcid,
-            'global_agent_id': gai,
             'grant_version': gv,
-            'company_binding_version': cbv,
             'service': self.service_name,
             'tool': tool_name,
             'operation_title': operation_title,
@@ -673,9 +683,14 @@ class StrictMcpServer:
             'outcome': outcome,
             'status': status_code,
             'duration_ms': duration_ms,
-            'approval_request_id': approval_request_id,
             'approval_id': approval_id,
         }
+        if gcid is not None:
+            entry['global_company_id'] = gcid
+            if cbv is not None:
+                entry['company_binding_version'] = cbv
+            if gai is not None:
+                entry['global_agent_id'] = gai
         if error_code:
             if error_code in AUDIT_ERROR_CODES or error_code in _IDENTITY_RPC_ERRORS:
                 entry['error_code'] = error_code
