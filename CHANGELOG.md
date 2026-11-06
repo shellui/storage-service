@@ -2,10 +2,30 @@
 
 Notable changes to this project. Format: [Keep a Changelog](http://keepachangelog.com/). Versioning: [Semantic Versioning](http://semver.org/).
 
+## [Unreleased] - yyyy-mm-dd
+
+### ✨ Feature - for new features
+
+- REST and MCP: external connector lifecycle under `/storage/v1/connector` (list, get, create, update, patch, delete) plus local configuration actions `POST …/configuration/check`, `…/configuration/validate`, and `…/configuration/retry`. Credentials are encrypted at rest, marked `x-mcp-secret` in OpenAPI, and omitted from responses. Only allowlisted non-secret `connector_settings` keys are stored and returned. Responses use `connector_last_issue_code` and `connector_configuration_status`, not raw provider errors. Checks validate configuration locally; they do not call live providers. Optional `connector_settings._dev_simulation` applies only when DEBUG or `TEST_MODE` is on.
+
+### 🐛 Bug Fixes - for any bug fixes
+
+- MCP: a destructive approval open sends `is_destructive: true`, so Identity can store the call log for that approval after it is consumed.
+
+### 🏗 Chore
+
+- Bump `shellui-django[mcp]` to the PyPI release 0.5.0.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
 ### ✨ Feature - for new features
+- Shellui MCP: `POST /mcp`, OpenAPI `x-mcp` markers for company-owner storage and Shellui Actions routes, OAuth protected-resource metadata, and handbook docs.
+
+### 🔒 Security
+
+- MCP: return `503 identity_unavailable` when the signed revocation list cannot be loaded; treat agents as revoked only on a trusted list.
+- MCP: refuse agent tokens that carry staff operator claims; approval consume requires an explicit `consumed: true` from identity.
 ### 🛠 Improvements - for general improvements
 ### 🚨 Changed - for changes in existing functionality
 ### ⚠️ Deprecated - for soon-to-be removed features
@@ -17,6 +37,23 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
+
+## [0.8.0] - 2026-11-01
+
+### 🏗 Chore
+
+- Bump `shellui-django[mcp]` to 0.4.0 and sign internal MCP assertions to Identity with this service's own RS256 key (`STORAGE_SERVICE_SIGNING_KEY`, `STORAGE_SERVICE_ISSUER`), public key at `/.well-known/jwks.json`.
+- Dockerfile `dev` target and handbook page for the Shellui local dev stack (env-driven JWKS and identity URLs).
+- Use the shared shellui-django package for MCP instead of a vendored copy.
+
+### ✨ Feature
+
+- Shellui MCP endpoint for agents (`POST /mcp`).
+- OpenAPI descriptions tuned for MCP agents.
+
+### 🐛 Bug Fixes
+
+- MCP agent tokens are checked against `{STORAGE_PUBLIC_URL}/mcp` when set, so the ai gateway can reach `/mcp` on an internal host.
 
 ## [0.7.1] - 2026-11-01
 

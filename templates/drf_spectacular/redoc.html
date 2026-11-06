@@ -74,10 +74,15 @@
         renderRedoc(message?.payload?.settings?.appearance ?? null);
       };
 
-      await init();
-      renderRedoc(shellui.initialSettings?.appearance ?? null);
-      shellui.addMessageListener("SHELLUI_SETTINGS", handleSettingsMessage);
-      shellui.addMessageListener("SHELLUI_SETTINGS_UPDATED", handleSettingsMessage);
+      renderRedoc(null);
+
+      void init()
+        .then(() => {
+          renderRedoc(shellui.initialSettings?.appearance ?? null);
+          shellui.addMessageListener("SHELLUI_SETTINGS", handleSettingsMessage);
+          shellui.addMessageListener("SHELLUI_SETTINGS_UPDATED", handleSettingsMessage);
+        })
+        .catch(() => {});
     </script>
     {% endblock body %}
   </body>

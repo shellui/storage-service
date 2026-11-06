@@ -4,14 +4,25 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from apps.authapi.mcp_fields import McpSecretCharField
+
 from .models import BucketKind, StorageAccessGrant
 
 
 class ErrorSerializer(serializers.Serializer):
-    statusCode = serializers.CharField()
-    error = serializers.CharField()
-    message = serializers.CharField()
-    request_id = serializers.CharField(required=False)
+    statusCode = serializers.CharField(
+        help_text='HTTP status as a string (mirrors the response status code).',
+    )
+    error = serializers.CharField(
+        help_text='Stable machine code (for example `not_found`, `forbidden`, `quota_exceeded`).',
+    )
+    message = serializers.CharField(
+        help_text='Human-readable detail. Prefer `error` for branching logic.',
+    )
+    request_id = serializers.CharField(
+        required=False,
+        help_text='Echo of the `X-Request-ID` header when present.',
+    )
 
 
 class HealthSerializer(serializers.Serializer):
@@ -25,6 +36,68 @@ class HealthSerializer(serializers.Serializer):
 class BucketAccessSerializer(serializers.Serializer):
     writers = serializers.CharField()
     can_write = serializers.BooleanField()
+
+
+class ConnectorBucketCredentialField(McpSecretCharField):
+    """Write-only OAuth or API credential for an external connector (never returned on GET)."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('required', False)
+        kwargs.setdefault('allow_blank', True)
+        kwargs.setdefault('write_only', True)
+        super().__init__(**kwargs)
+
+
+class ConnectorBucketApiSerializer(serializers.Serializer):
+    """Connector bucket row for REST (no raw credential fields)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    company_id = serializers.IntegerField()
+    kind = serializers.ChoiceField(choices=BucketKind.choices)
+    connector_provider = serializers.CharField(allow_null=True)
+    connector_settings = serializers.DictField()
+    credential_configured = serializers.BooleanField()
+    credential_hint = serializers.CharField(required=False)
+    connector_last_refresh_at = serializers.CharField(allow_null=True)
+    connector_last_test_at = serializers.CharField(allow_null=True)
+    connector_retry_after = serializers.CharField(allow_null=True)
+    connector_credential_updated_at = serializers.CharField(allow_null=True)
+    connector_configuration_status = serializers.CharField(
+        help_text='configured, disconnected, unsupported, adapter_unavailable, or configuration_invalid (local checks only; not live provider status).',
+    )
+    has_connector_issue = serializers.BooleanField()
+    connector_last_issue_code = serializers.CharField(
+        required=False,
+        help_text='Stable machine code when a check recorded an issue (no raw provider text).',
+    )
+
+
+class ConnectorBucketCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text='Unique slug for this connector mount within the company (not `company`).',
+    )
+    connector_provider = serializers.CharField()
+    connector_settings = serializers.DictField(required=False)
+    credential = ConnectorBucketCredentialField(
+        required=False,
+        help_text='OAuth refresh token or API secret. Stored encrypted; omitted from every read.',
+    )
+
+
+class ConnectorBucketUpdateSerializer(serializers.Serializer):
+    connector_provider = serializers.CharField(required=False)
+    connector_settings = serializers.DictField(required=False)
+    merge_settings = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text='When true (default), body `connector_settings` merge into existing settings.',
+    )
+    credential = ConnectorBucketCredentialField(
+        required=False,
+        allow_null=True,
+        help_text='Set a new credential, or null to clear.',
+    )
 
 
 class BucketSerializer(serializers.Serializer):
@@ -71,11 +144,18 @@ class ObjectUploadResponseSerializer(serializers.Serializer):
 
 
 class ObjectListRequestSerializer(serializers.Serializer):
-    prefix = serializers.CharField(required=False, allow_blank=True)
-    limit = serializers.IntegerField(required=False)
-    offset = serializers.IntegerField(required=False)
-    search = serializers.CharField(required=False, allow_blank=True)
-    sortBy = serializers.DictField(required=False)
+    prefix = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Folder prefix to list (empty for bucket root).',
+    )
+    limit = serializers.IntegerField(required=False, help_text='Max rows to return (default 100).')
+    offset = serializers.IntegerField(required=False, help_text='Skip this many rows before returning results.')
+    search = serializers.CharField(required=False, allow_blank=True, help_text='Case-insensitive name filter.')
+    sortBy = serializers.DictField(
+        required=False,
+        help_text='Optional `{ "column": "name", "order": "asc" }` sort (default name ascending).',
+    )
 
 
 class ObjectByIdSerializer(serializers.Serializer):
@@ -142,9 +222,9 @@ class ObjectCopyResponseSerializer(serializers.Serializer):
 
 
 class SignRequestSerializer(serializers.Serializer):
-    path = serializers.CharField(required=False)
-    expiresIn = serializers.IntegerField(required=False)
-    expires_in = serializers.IntegerField(required=False)
+    path = serializers.CharField(required=False, help_text='Object path when not in the URL.')
+    expiresIn = serializers.IntegerField(required=False, help_text='Lifetime in seconds (Supabase-style).')
+    expires_in = serializers.IntegerField(required=False, help_text='Alias for `expiresIn`.')
 
 
 class SignedUrlSerializer(serializers.Serializer):
@@ -240,7 +320,7 @@ class ShareLinkSerializer(serializers.Serializer):
     notes = serializers.CharField()
     active = serializers.BooleanField()
     path_url = serializers.CharField()
-    token = serializers.CharField(required=False)
+    token = McpSecretCharField(required=False)
 
 
 class ShareLinkCreateSerializer(serializers.Serializer):

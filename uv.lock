@@ -358,6 +358,20 @@ wheels = [
 ]
 
 [[package]]
+name = "djangorestframework-simplejwt"
+version = "5.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "djangorestframework" },
+    { name = "pyjwt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a8/27/2874a325c11112066139769f7794afae238a07ce6adf96259f08fd37a9d7/djangorestframework_simplejwt-5.5.1.tar.gz", hash = "sha256:e72c5572f51d7803021288e2057afcbd03f17fe11d484096f40a460abc76e87f", size = 101265, upload-time = "2025-07-21T16:52:25.026Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/94/fdfb7b2f0b16cd3ed4d4171c55c1c07a2d1e3b106c5978c8ad0c15b4a48b/djangorestframework_simplejwt-5.5.1-py3-none-any.whl", hash = "sha256:2c30f3707053d384e9f315d11c2daccfcb548d4faa453111ca19a542b732e469", size = 107674, upload-time = "2025-07-21T16:52:07.493Z" },
+]
+
+[[package]]
 name = "drf-spectacular"
 version = "0.29.0"
 source = { registry = "https://pypi.org/simple" }
@@ -735,6 +749,27 @@ wheels = [
 ]
 
 [[package]]
+name = "shellui-django"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "djangorestframework" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/24/b57fc372e839b6305d0e4ca5c2e1c1effc3ea1392f71390f811adecafecf/shellui_django-0.5.0.tar.gz", hash = "sha256:80b66ec455012b893f979a9730b6a0b90e12da96740a1445680ac84588433e44", size = 36789, upload-time = "2026-11-06T18:40:31.228Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/36/87755a0869fd466d8b578f73d3eb58a01eca58b95378fb2fb10b12199d6c/shellui_django-0.5.0-py3-none-any.whl", hash = "sha256:63d4c16c3f3b2cbf7087b01578f18ccc3db492ed8a10639c38a02129c40f920d", size = 29398, upload-time = "2026-11-06T18:40:29.922Z" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "cryptography" },
+    { name = "djangorestframework-simplejwt" },
+    { name = "pyjwt" },
+    { name = "requests" },
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -754,7 +789,7 @@ wheels = [
 
 [[package]]
 name = "storage-service"
-version = "0.7.1"
+version = "0.8.0"
 source = { virtual = "." }
 dependencies = [
     { name = "celery" },
@@ -764,6 +799,7 @@ dependencies = [
     { name = "django-cors-headers" },
     { name = "django-storages", extra = ["s3"] },
     { name = "djangorestframework" },
+    { name = "djangorestframework-simplejwt" },
     { name = "drf-spectacular" },
     { name = "drf-spectacular-sidecar" },
     { name = "gunicorn" },
@@ -775,6 +811,7 @@ dependencies = [
     { name = "redis" },
     { name = "requests" },
     { name = "sentry-sdk" },
+    { name = "shellui-django", extra = ["mcp"] },
     { name = "sqlparse" },
     { name = "whitenoise" },
 ]
@@ -788,6 +825,7 @@ requires-dist = [
     { name = "django-cors-headers", specifier = "==4.9.0" },
     { name = "django-storages", extras = ["s3"], specifier = "==1.14.6" },
     { name = "djangorestframework", specifier = "==3.18.2" },
+    { name = "djangorestframework-simplejwt", specifier = "==5.5.1" },
     { name = "drf-spectacular", specifier = "==0.29.0" },
     { name = "drf-spectacular-sidecar", specifier = "==2026.10.1" },
     { name = "gunicorn", specifier = "==26.0.0" },
@@ -799,6 +837,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "sentry-sdk", specifier = "==2.63.0" },
+    { name = "shellui-django", extras = ["mcp"], specifier = "==0.5.0" },
     { name = "sqlparse", specifier = "==0.6.0" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]

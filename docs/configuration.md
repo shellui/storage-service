@@ -6,6 +6,8 @@ description: Environment variables for storage-service, grouped by topic, with t
 
 storage-service reads configuration from environment variables. Copy [`.env.example`](../.env.example) to `.env` for local runs. Pass the same keys to Docker, Coolify, or your orchestrator in production.
 
+For the shared Shellui sibling-repo stack (`shellui/shellui/dev/docker-compose.yml`), see [Local dev stack](devstack.md) for host ports, internal URLs, and the `dev` Docker target.
+
 An empty boolean uses the default. `1`, `true`, `yes`, and `on` are true. Any other value, including `false`, is false. Byte sizes accept a bare integer or a `K`, `M`, `G`, or `T` suffix. Each suffix is a multiple of 1024, so `10G` is 10737418240 bytes.
 
 `.env.example` is generated from `config/env_registry.py`, the single list of settings. It keeps only the settings you need active. Optional ones are commented out with the default the code uses. After changing a setting, run `python manage.py generate_env --example > .env.example`. A test fails when the code, the registry, `.env.example` and this page drift apart.
@@ -46,6 +48,7 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DEBUG` | `false` | Local mode. The image sets `false`. Compose passes the value from `.env`, where the example file sets `true` |
+| `TEST_MODE` | `false` | Django test runs set this. Enables connector `_dev_simulation` for tests only. Leave false in production |
 | `LOG_LEVEL` | `INFO`, or `DEBUG` when `DEBUG=true` | Python log level |
 | `SETUP_TOKEN` | empty | One-time token for the web form that creates the first superuser when `DEBUG=false` |
 | `STORAGE_SERVICE_PORT` | `8001` | Host port published by Docker Compose. Gunicorn inside the image listens on 8000 |
@@ -57,15 +60,20 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `IDENTITY_SERVICE_URL` | empty | identity-service base URL. JWKS is `{url}/.well-known/jwks.json` when no document is pinned |
-| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | Fetch URL when no document is pinned. Ignored for verification when a document is set |
+| `IDENTITY_SERVICE_URL` | empty | identity-service origin for server-side HTTP (MCP internal APIs). JWKS defaults to `{url}/.well-known/jwks.json` when no document is pinned |
+| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. In Docker Compose, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
 | `IDENTITY_JWKS_FILE` | empty | Path to a JWKS file. Relative paths are from the repository root. Wins over `IDENTITY_JWKS` |
 | `IDENTITY_JWKS` | empty | JWKS JSON in the environment, used when no file is set |
+| `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` | empty | Optional path or absolute URL for Identity live delegated-agent checks. Empty uses `/api/v1/mcp/internal/mcp-agent-delegated-authority` under `IDENTITY_SERVICE_URL` |
 | `IDENTITY_ISSUER` | empty | Expected `iss`. Required when `DEBUG=false` |
 | `IDENTITY_AUDIENCE` | empty | Expected `aud`. Required when `DEBUG=false` |
 | `JWKS_CACHE_TTL` | `900` | Seconds to cache a fetched JWKS document. Unused for a pinned document |
 | `JWKS_TIMEOUT` | `15` | Seconds for one JWKS HTTP call |
 | `JWKS_RETRIES` | `2` | Extra attempts after a timeout or HTTP 5xx. HTTP 4xx is not retried |
+| `STORAGE_PUBLIC_URL` | empty | Public origin of this service. Agent tokens must target `{url}/mcp`, also when the ai gateway calls an internal host. Empty uses the request host |
+| `STORAGE_SERVICE_ISSUER` | empty | Public origin of this service, the `iss` of its internal MCP assertions to Identity. Set the same `STORAGE_SERVICE_ISSUER` on Identity. Unset: MCP calls to Identity fail closed |
+| `STORAGE_SERVICE_SIGNING_KEY` | empty | RSA private key (PEM, 2048 bits or more) that signs internal MCP assertions (RS256). Public key served at `/.well-known/jwks.json`. Never log or commit it |
+| `STORAGE_SERVICE_SIGNING_KEY_FILE` | empty | Path to that PEM instead of the variable. Relative paths are from the repository root. Wins over `STORAGE_SERVICE_SIGNING_KEY` |
 | `JWT_ALGORITHMS` | `RS256` | Comma-separated algorithms accepted for RS256 verification |
 | `JWT_HS256_FALLBACK_SECRET` | empty | HS256 secret for local identity debug tokens. Set it to the identity `SECRET_KEY` |
 | `ALLOW_JWT_HS256_FALLBACK` | `false` | Allow the HS256 secret when `DEBUG=false` |
@@ -172,6 +180,13 @@ The image entrypoint runs migrations, `check --deploy`, then Gunicorn. In `web` 
 | `GUNICORN_MAX_REQUESTS` | `1000` | Requests before a worker restarts |
 | `GUNICORN_MAX_REQUESTS_JITTER` | `200` | Random spread added to `GUNICORN_MAX_REQUESTS` |
 
+## Shellui MCP
+
+Shellui MCP exposes tagged OpenAPI operations to agents over `POST /mcp`. See [Shellui MCP](mcp.md). No extra variables are required for a default install.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MCP_RATE_LIMIT_AGENT` | `120` | Per-agent request limit per minute on `POST /mcp` |
 ## Shellui Actions
 
 Webhooks do not need Redis. These variables tune delivery. The catalog and the admin API are in [Webhooks](actions.md).

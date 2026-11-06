@@ -20,6 +20,18 @@ from rest_framework.views import APIView
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
 
 from . import metrics as storage_metrics
+from .openapi_admin import (
+    ADMIN_API_ERRORS,
+    BUCKET_ID_PATH,
+    CONNECTOR_ID_PATH,
+    COMPANY_ID_PATH,
+    GRANT_ID_PATH,
+    OBJECT_ID_PATH,
+    OBJECT_PATH_PARAM,
+    SHARE_TOKEN_PATH,
+    USER_ID_PATH,
+    mcp_openapi_fields,
+)
 from .access import (
     assert_can_access_path,
     get_accessible_bucket,
@@ -27,10 +39,19 @@ from .access import (
     list_accessible_buckets,
     serialize_grant,
 )
+from .connector_services import (
+    ConnectorError,
+    allow_connector_dev_simulation,
+    check_connector_configuration,
+    create_connector_bucket,
+    delete_connector_bucket,
+    serialize_connector_bucket_api,
+    update_connector_bucket,
+)
 from .downloads import build_download_response, build_signed_url
 from .grants import create_grant, delete_grant, list_grants, list_grants_effective
 from .mime import safe_object_path
-from .models import StorageObject, UserQuota
+from .models import Bucket, BucketKind, StorageObject, UserQuota
 from .quotas import get_or_create_company_quota, snapshot
 from .renderers import PrometheusTextRenderer
 from .serializers import (
@@ -56,6 +77,9 @@ from .serializers import (
     PrefixRenameResponseSerializer,
     PrefixSummarySerializer,
     QuotaSerializer,
+    ConnectorBucketApiSerializer,
+    ConnectorBucketCreateSerializer,
+    ConnectorBucketUpdateSerializer,
     ShareLinkCreateSerializer,
     ShareLinkSerializer,
     SignRequestSerializer,
@@ -91,12 +115,14 @@ from .services import (
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_ERRORS = {
+_BASIC_ERRORS = {
     400: ErrorSerializer,
     401: ErrorSerializer,
     403: ErrorSerializer,
     404: ErrorSerializer,
 }
+
+_API_ERRORS = ADMIN_API_ERRORS
 
 
 class OctetStreamParser(BaseParser):
@@ -115,7 +141,7 @@ class AnyBinaryParser(BaseParser):
         return stream
 
 
-def _error(exc: StorageError) -> Response:
+def _error(exc: StorageError | ConnectorError) -> Response:
     if exc.status >= 500:
         logger.error('Storage error %s (%s): %s', exc.status, exc.code, exc)
     return Response(
@@ -167,13 +193,13 @@ class HealthView(APIView):
 @extend_schema_view(
     get=extend_schema(
         tags=['buckets'],
-        summary='List buckets',
         operation_id='storage_v1_bucket_list',
-        responses={200: BucketSerializer(many=True), **_SCHEMA_ERRORS},
+        responses={200: BucketSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_bucket_list'),
     ),
     post=extend_schema(
         tags=['buckets'],
-        summary='Create bucket (disabled)',
+        summary='Create bucket (use connector routes for external mounts)',
         operation_id='storage_v1_bucket_create',
         request=None,
         responses={403: ErrorSerializer},
@@ -191,18 +217,279 @@ class BucketListCreateView(APIView):
 
     def post(self, request):
         return _error_message(
-            'Creating custom buckets is disabled. Use the company bucket with access grants.',
+            'Creating custom buckets is disabled. Use POST /storage/v1/connector for external connector mounts '
+            'or the company bucket with access grants.',
             status_code=403,
             code='bucket_create_disabled',
+        )
+
+
+def _require_connector_admin(principal) -> None:
+    if not getattr(principal, 'is_company_owner', False) and not getattr(principal, 'is_staff', False):
+        raise StorageError(
+            'Company owner or staff required for this operation.',
+            status=403,
+            code='connector_admin_required',
+        )
+
+
+def _get_connector_bucket(principal, connector_id: str) -> Bucket:
+    """Resolve a connector bucket for the principal's company."""
+    company_id = require_company_id(principal)
+    try:
+        bucket = Bucket.objects.get(company_id=company_id, name=connector_id)
+    except Bucket.DoesNotExist as exc:
+        raise StorageError('Connector not found', status=404, code='connector_not_found') from exc
+    if bucket.kind != BucketKind.CONNECTOR:
+        raise StorageError('Connector not found', status=404, code='connector_not_found')
+    return bucket
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_list',
+        responses={200: ConnectorBucketApiSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_list'),
+    ),
+    post=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_create',
+        request=ConnectorBucketCreateSerializer,
+        responses={201: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_create'),
+    ),
+)
+class ConnectorListCreateView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    def get(self, request):
+        company_id = require_company_id(request.user)
+        rows = Bucket.objects.filter(company_id=company_id, kind=BucketKind.CONNECTOR).order_by('name')
+        data = [
+            serialize_connector_bucket_api(b, include_secret_hint=True, include_provider_details=False)
+            for b in rows
+        ]
+        return Response(data)
+
+    def post(self, request):
+        try:
+            _require_connector_admin(request.user)
+            ser = ConnectorBucketCreateSerializer(data=request.data)
+            ser.is_valid(raise_exception=True)
+            vd = ser.validated_data
+            company_id = require_company_id(request.user)
+            bucket = create_connector_bucket(
+                company_id=company_id,
+                name=vd['name'],
+                connector_provider=vd['connector_provider'],
+                connector_settings=vd.get('connector_settings'),
+                credential=vd.get('credential') or None,
+                owner_id=int(request.user.user_id),
+                allow_dev_simulation=allow_connector_dev_simulation(),
+            )
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_issue_code=True,
+            ),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_retrieve',
+        parameters=[CONNECTOR_ID_PATH],
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_retrieve'),
+    ),
+    put=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_update',
+        parameters=[CONNECTOR_ID_PATH],
+        request=ConnectorBucketUpdateSerializer,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_update'),
+    ),
+    patch=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_partial_update',
+        parameters=[CONNECTOR_ID_PATH],
+        request=ConnectorBucketUpdateSerializer,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_partial_update'),
+    ),
+    delete=extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_destroy',
+        parameters=[CONNECTOR_ID_PATH],
+        responses={204: None, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_destroy'),
+    ),
+)
+class ConnectorDetailView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    def get(self, request, connector_id):
+        try:
+            bucket = _get_connector_bucket(request.user, connector_id)
+        except StorageError as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_issue_code=True,
+            )
+        )
+
+    def put(self, request, connector_id):
+        return self._update(request, connector_id, partial=False)
+
+    def patch(self, request, connector_id):
+        return self._update(request, connector_id, partial=True)
+
+    def _update(self, request, connector_id, *, partial: bool):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            ser = ConnectorBucketUpdateSerializer(data=request.data, partial=partial)
+            ser.is_valid(raise_exception=True)
+            vd = ser.validated_data
+            merge_default = False if request.method == 'PUT' else True
+            merge = vd.get('merge_settings', merge_default)
+            kwargs = {}
+            if 'connector_provider' in vd:
+                kwargs['connector_provider'] = vd['connector_provider']
+            if 'connector_settings' in vd:
+                kwargs['connector_settings'] = vd['connector_settings']
+                kwargs['merge_settings'] = merge
+            if 'credential' in vd:
+                kwargs['credential'] = vd['credential']
+            bucket = update_connector_bucket(
+                bucket,
+                allow_dev_simulation=allow_connector_dev_simulation(),
+                **kwargs,
+            )
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_issue_code=True,
+            )
+        )
+
+    def delete(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            delete_connector_bucket(bucket)
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ConnectorConfigurationCheckView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_configuration_check_create',
+        parameters=[CONNECTOR_ID_PATH],
+        request=None,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_configuration_check_create'),
+    )
+    def post(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            bucket = check_connector_configuration(bucket, allow_dev_simulation=allow_connector_dev_simulation())
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_issue_code=True,
+            )
+        )
+
+
+class ConnectorConfigurationValidateView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_configuration_validate_create',
+        parameters=[CONNECTOR_ID_PATH],
+        request=None,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_configuration_validate_create'),
+    )
+    def post(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            bucket = check_connector_configuration(bucket, allow_dev_simulation=allow_connector_dev_simulation())
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_issue_code=True,
+            )
+        )
+
+
+class ConnectorConfigurationRetryView(APIView):
+    permission_classes = [IsAuthenticatedPrincipal]
+
+    @extend_schema(
+        tags=['connectors'],
+        operation_id='storage_v1_connector_configuration_retry_create',
+        parameters=[CONNECTOR_ID_PATH],
+        request=None,
+        responses={200: ConnectorBucketApiSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_connector_configuration_retry_create'),
+    )
+    def post(self, request, connector_id):
+        try:
+            _require_connector_admin(request.user)
+            bucket = _get_connector_bucket(request.user, connector_id)
+            bucket = check_connector_configuration(bucket, allow_dev_simulation=allow_connector_dev_simulation())
+        except (StorageError, ConnectorError) as exc:
+            return _error(exc)
+        return Response(
+            serialize_connector_bucket_api(
+                bucket,
+                include_secret_hint=True,
+                include_provider_details=True,
+                include_issue_code=True,
+            )
         )
 
 
 @extend_schema_view(
     get=extend_schema(
         tags=['buckets'],
-        summary='Get bucket',
         operation_id='storage_v1_bucket_retrieve',
-        responses={200: BucketSerializer, **_SCHEMA_ERRORS},
+        parameters=[BUCKET_ID_PATH],
+        responses={200: BucketSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_bucket_retrieve'),
     ),
     put=extend_schema(
         tags=['buckets'],
@@ -249,9 +536,11 @@ class BucketEmptyView(APIView):
 
     @extend_schema(
         tags=['buckets'],
-        summary='Empty bucket',
+        operation_id='storage_v1_bucket_empty_create',
+        parameters=[BUCKET_ID_PATH],
         request=None,
-        responses={200: OpenApiTypes.BOOL, **_SCHEMA_ERRORS},
+        responses={200: OpenApiTypes.BOOL, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_bucket_empty_create'),
     )
     def post(self, request, bucket_id):
         try:
@@ -281,11 +570,20 @@ class ObjectResourceView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Download object',
+        operation_id='storage_v1_object_retrieve',
         parameters=[
-            OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False),
+            BUCKET_ID_PATH,
+            OBJECT_PATH_PARAM,
+            OpenApiParameter(
+                'download',
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='When set, sets Content-Disposition. Use `true` for filename from path, or a custom filename.',
+            ),
         ],
-        responses={200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'), **_SCHEMA_ERRORS},
+        responses={200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_retrieve'),
     )
     def get(self, request, bucket_id, object_path):
         try:
@@ -302,30 +600,42 @@ class ObjectResourceView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Upload object (POST)',
+        operation_id='storage_v1_object_create',
         parameters=[
-            OpenApiParameter('x-upsert', str, OpenApiParameter.HEADER, required=False),
+            BUCKET_ID_PATH,
+            OBJECT_PATH_PARAM,
+            OpenApiParameter(
+                'x-upsert',
+                str,
+                OpenApiParameter.HEADER,
+                required=False,
+                description='Set to `true` to replace an existing object at the same path.',
+            ),
         ],
         request={'application/octet-stream': OpenApiTypes.BINARY},
-        responses={200: ObjectUploadResponseSerializer, **_SCHEMA_ERRORS},
+        responses={200: ObjectUploadResponseSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_create'),
     )
     def post(self, request, bucket_id, object_path):
         return self._upload(request, bucket_id, object_path)
 
     @extend_schema(
         tags=['objects'],
-        summary='Upload object (PUT / upsert)',
+        operation_id='storage_v1_object_update',
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
         request={'application/octet-stream': OpenApiTypes.BINARY},
-        responses={200: ObjectUploadResponseSerializer, **_SCHEMA_ERRORS},
+        responses={200: ObjectUploadResponseSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_update'),
     )
     def put(self, request, bucket_id, object_path):
         return self._upload(request, bucket_id, object_path, default_upsert=True)
 
     @extend_schema(
         tags=['objects'],
-        summary='Delete single object',
         operation_id='storage_v1_object_destroy',
-        responses={200: OpenApiTypes.BOOL, **_SCHEMA_ERRORS},
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
+        responses={200: OpenApiTypes.BOOL, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_destroy'),
     )
     def delete(self, request, bucket_id, object_path):
         try:
@@ -408,15 +718,17 @@ class ObjectDownloadView(ObjectResourceView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Download object (authenticated alias)',
         operation_id='storage_v1_object_authenticated_retrieve',
         parameters=[
+            BUCKET_ID_PATH,
+            OBJECT_PATH_PARAM,
             OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False),
         ],
         responses={
             200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'),
-            **_SCHEMA_ERRORS,
+            **_API_ERRORS,
         },
+        **mcp_openapi_fields('storage_v1_object_authenticated_retrieve'),
     )
     def get(self, request, bucket_id, object_path):
         return super().get(request, bucket_id, object_path)
@@ -444,11 +756,6 @@ class ObjectPublicDownloadView(APIView):
 class ObjectInfoView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
-    @extend_schema(
-        tags=['objects'],
-        summary='Object metadata',
-        responses={200: ObjectSerializer, **_SCHEMA_ERRORS},
-    )
     def get(self, request, bucket_id, object_path):
         try:
             _bucket, obj = get_accessible_object(request.user, bucket_id, object_path)
@@ -459,13 +766,38 @@ class ObjectInfoView(APIView):
         return Response(serialize_object(obj))
 
 
+class ObjectAuthenticatedInfoView(ObjectInfoView):
+    @extend_schema(
+        tags=['objects'],
+        operation_id='storage_v1_object_info_authenticated_retrieve',
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
+        responses={200: ObjectSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_info_authenticated_retrieve'),
+    )
+    def get(self, request, bucket_id, object_path):
+        return super().get(request, bucket_id, object_path)
+
+
+class ObjectPublicInfoView(ObjectInfoView):
+    @extend_schema(
+        tags=['objects'],
+        operation_id='storage_v1_object_info_public_retrieve',
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
+        responses={200: ObjectSerializer, **_BASIC_ERRORS},
+    )
+    def get(self, request, bucket_id, object_path):
+        return super().get(request, bucket_id, object_path)
+
+
 class ObjectByIdView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
 
     @extend_schema(
         tags=['objects'],
-        summary='Resolve a file or folder by stable id',
-        responses={200: ObjectByIdSerializer, **_SCHEMA_ERRORS},
+        operation_id='storage_v1_object_id_retrieve',
+        parameters=[OBJECT_ID_PATH],
+        responses={200: ObjectByIdSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_id_retrieve'),
     )
     def get(self, request, object_id):
         try:
@@ -479,9 +811,11 @@ class ObjectListView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='List objects (folders + files)',
+        operation_id='storage_v1_object_list_create',
+        parameters=[BUCKET_ID_PATH],
         request=ObjectListRequestSerializer,
-        responses={200: ObjectSerializer(many=True), **_SCHEMA_ERRORS},
+        responses={200: ObjectSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_list_create'),
     )
     def post(self, request, bucket_id):
         try:
@@ -510,10 +844,11 @@ class ObjectDeleteManyView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Delete multiple objects',
         operation_id='storage_v1_object_delete_many',
+        parameters=[BUCKET_ID_PATH],
         request=ObjectDeleteManyRequestSerializer,
-        responses={200: DeletedNameSerializer(many=True), **_SCHEMA_ERRORS},
+        responses={200: DeletedNameSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_delete_many'),
     )
     def delete(self, request, bucket_id):
         try:
@@ -541,11 +876,19 @@ class ObjectPrefixView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Count objects under a folder prefix',
+        operation_id='storage_v1_object_prefix_retrieve',
         parameters=[
-            OpenApiParameter('prefix', str, OpenApiParameter.QUERY, required=False),
+            BUCKET_ID_PATH,
+            OpenApiParameter(
+                'prefix',
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Folder prefix to summarize (empty string for bucket root).',
+            ),
         ],
-        responses={200: PrefixSummarySerializer, **_SCHEMA_ERRORS},
+        responses={200: PrefixSummarySerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_prefix_retrieve'),
     )
     def get(self, request, bucket_id):
         try:
@@ -561,9 +904,11 @@ class ObjectPrefixView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Rename a folder prefix',
+        operation_id='storage_v1_object_prefix_create',
+        parameters=[BUCKET_ID_PATH],
         request=PrefixRenameRequestSerializer,
-        responses={200: PrefixRenameResponseSerializer, **_SCHEMA_ERRORS},
+        responses={200: PrefixRenameResponseSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_prefix_create'),
     )
     def post(self, request, bucket_id):
         try:
@@ -588,9 +933,11 @@ class ObjectPrefixView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Delete all objects under a folder prefix',
+        operation_id='storage_v1_object_prefix_destroy',
+        parameters=[BUCKET_ID_PATH],
         request=PrefixDeleteRequestSerializer,
-        responses={200: PrefixDeleteResponseSerializer, **_SCHEMA_ERRORS},
+        responses={200: PrefixDeleteResponseSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_prefix_destroy'),
     )
     def delete(self, request, bucket_id):
         try:
@@ -618,9 +965,10 @@ class ObjectMoveView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Move object',
+        operation_id='storage_v1_object_move_create',
         request=ObjectMoveRequestSerializer,
-        responses={200: ObjectMoveResponseSerializer, **_SCHEMA_ERRORS},
+        responses={200: ObjectMoveResponseSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_move_create'),
     )
     def post(self, request):
         try:
@@ -654,9 +1002,10 @@ class ObjectCopyView(APIView):
 
     @extend_schema(
         tags=['objects'],
-        summary='Copy object',
+        operation_id='storage_v1_object_copy_create',
         request=ObjectMoveRequestSerializer,
-        responses={200: ObjectCopyResponseSerializer, **_SCHEMA_ERRORS},
+        responses={200: ObjectCopyResponseSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_copy_create'),
     )
     def post(self, request):
         try:
@@ -710,10 +1059,11 @@ class ObjectSignView(APIView):
 class ObjectSignPathView(ObjectSignView):
     @extend_schema(
         tags=['objects'],
-        summary='Create signed URL',
         operation_id='storage_v1_object_sign_path_create',
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
         request=SignRequestSerializer,
-        responses={200: SignedUrlSerializer, **_SCHEMA_ERRORS},
+        responses={200: SignedUrlSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_sign_path_create'),
     )
     def post(self, request, bucket_id, object_path):
         return super().post(request, bucket_id, object_path)
@@ -722,10 +1072,11 @@ class ObjectSignPathView(ObjectSignView):
 class ObjectSignBodyView(ObjectSignView):
     @extend_schema(
         tags=['objects'],
-        summary='Create signed URL (path in body)',
         operation_id='storage_v1_object_sign_create',
+        parameters=[BUCKET_ID_PATH],
         request=SignRequestSerializer,
-        responses={200: SignedUrlSerializer, **_SCHEMA_ERRORS},
+        responses={200: SignedUrlSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_object_sign_create'),
     )
     def post(self, request, bucket_id):
         return super().post(request, bucket_id, '')
@@ -741,11 +1092,18 @@ class StatsView(APIView):
 
     @extend_schema(
         tags=['quotas'],
-        summary='Upload / storage statistics',
+        operation_id='storage_v1_stats_retrieve',
         parameters=[
-            OpenApiParameter('days', int, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(
+                'days',
+                int,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Rolling window length in days (1-90, default 14).',
+            ),
         ],
-        responses={200: OpenApiTypes.OBJECT, **_SCHEMA_ERRORS},
+        responses={200: OpenApiTypes.OBJECT, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_stats_retrieve'),
     )
     def get(self, request):
         # Staff see global stats; others are scoped to their company.
@@ -852,8 +1210,9 @@ class QuotaView(APIView):
 
     @extend_schema(
         tags=['quotas'],
-        summary='Current company / user quota usage',
-        responses={200: QuotaSerializer, **_SCHEMA_ERRORS},
+        operation_id='storage_v1_quota_retrieve',
+        responses={200: QuotaSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_quota_retrieve'),
     )
     def get(self, request):
         try:
@@ -886,9 +1245,11 @@ class CompanyQuotaAdminView(APIView):
 
     @extend_schema(
         tags=['quotas'],
-        summary='Set company quota',
+        operation_id='storage_v1_quota_company_update',
+        parameters=[COMPANY_ID_PATH],
         request=CompanyQuotaUpdateSerializer,
-        responses={200: CompanyQuotaSerializer, **_SCHEMA_ERRORS},
+        responses={200: CompanyQuotaSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_quota_company_update'),
     )
     def put(self, request, company_id: int):
         # Staff can manage any company; owners only their own.
@@ -917,9 +1278,11 @@ class UserQuotaAdminView(APIView):
 
     @extend_schema(
         tags=['quotas'],
-        summary='Set per-user quota override',
+        operation_id='storage_v1_quota_company_user_update',
+        parameters=[COMPANY_ID_PATH, USER_ID_PATH],
         request=UserQuotaUpdateSerializer,
-        responses={200: UserQuotaSerializer, **_SCHEMA_ERRORS},
+        responses={200: UserQuotaSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_quota_company_user_update'),
     )
     def put(self, request, company_id: int, user_id: int):
         if not request.user.is_staff and int(company_id) != int(request.user.company_id or -1):
@@ -950,20 +1313,28 @@ class UserQuotaAdminView(APIView):
 @extend_schema_view(
     get=extend_schema(
         tags=['access'],
-        summary='List access grants',
+        operation_id='storage_v1_access_grant_list',
         parameters=[
             OpenApiParameter('resource_type', str, OpenApiParameter.QUERY, required=False),
             OpenApiParameter('resource_id', str, OpenApiParameter.QUERY, required=False),
             OpenApiParameter('bucket', str, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter('include_effective', str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(
+                'include_effective',
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Set to `true` to include inherited effective grants for a path.',
+            ),
         ],
-        responses={200: AccessGrantSerializer(many=True), **_SCHEMA_ERRORS},
+        responses={200: AccessGrantSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_access_grant_list'),
     ),
     post=extend_schema(
         tags=['access'],
-        summary='Create access grant',
+        operation_id='storage_v1_access_grant_create',
         request=AccessGrantCreateSerializer,
-        responses={201: AccessGrantSerializer, **_SCHEMA_ERRORS},
+        responses={201: AccessGrantSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_access_grant_create'),
     ),
 )
 class AccessGrantListCreateView(APIView):
@@ -1009,8 +1380,10 @@ class AccessGrantDetailView(APIView):
 
     @extend_schema(
         tags=['access'],
-        summary='Delete access grant',
-        responses={204: None, **_SCHEMA_ERRORS},
+        operation_id='storage_v1_access_grant_destroy',
+        parameters=[GRANT_ID_PATH],
+        responses={204: None, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_access_grant_destroy'),
     )
     def delete(self, request, grant_id):
         try:
@@ -1028,14 +1401,18 @@ class AccessGrantDetailView(APIView):
 @extend_schema_view(
     get=extend_schema(
         tags=['share'],
-        summary='List share links for an object',
-        responses={200: ShareLinkSerializer(many=True), **_SCHEMA_ERRORS},
+        operation_id='storage_v1_share_list',
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
+        responses={200: ShareLinkSerializer(many=True), **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_share_list'),
     ),
     post=extend_schema(
         tags=['share'],
-        summary='Create a share link for an object',
+        operation_id='storage_v1_share_create',
+        parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
         request=ShareLinkCreateSerializer,
-        responses={201: ShareLinkSerializer, **_SCHEMA_ERRORS},
+        responses={201: ShareLinkSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_share_create'),
     ),
 )
 class ObjectShareView(APIView):
@@ -1111,7 +1488,7 @@ class ShareLinkView(APIView):
         ],
         responses={
             200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'),
-            **_SCHEMA_ERRORS,
+            **_BASIC_ERRORS,
         },
     )
     def get(self, request, token):
@@ -1129,8 +1506,10 @@ class ShareLinkView(APIView):
 
     @extend_schema(
         tags=['share'],
-        summary='Revoke a share link',
-        responses={200: ShareLinkSerializer, **_SCHEMA_ERRORS},
+        operation_id='storage_v1_share_link_destroy',
+        parameters=[SHARE_TOKEN_PATH],
+        responses={200: ShareLinkSerializer, **_API_ERRORS},
+        **mcp_openapi_fields('storage_v1_share_link_destroy'),
     )
     def delete(self, request, token):
         try:

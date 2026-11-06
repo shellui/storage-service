@@ -79,10 +79,12 @@ def get_bucket_for_company(company_id: int, name: str) -> Bucket:
 
 def serialize_bucket(bucket: Bucket, *, principal=None) -> dict:
     from .access import access_summary, can_access_bucket, display_name_for_bucket
+    from .connector_services import serialize_connector_bucket_api
+    from .models import BucketKind
 
     access = access_summary(bucket)
     can_write = bool(principal and can_access_bucket(principal, bucket, write=True))
-    return {
+    payload = {
         'id': bucket.name,
         'name': bucket.name,
         'display_name': display_name_for_bucket(bucket),
@@ -99,6 +101,21 @@ def serialize_bucket(bucket: Bucket, *, principal=None) -> dict:
         'created_at': bucket.created_at.isoformat().replace('+00:00', 'Z'),
         'updated_at': bucket.updated_at.isoformat().replace('+00:00', 'Z'),
     }
+    if bucket.kind == BucketKind.CONNECTOR:
+        meta = serialize_connector_bucket_api(bucket, include_secret_hint=True, include_provider_details=False)
+        payload.update(
+            {
+                'credential_configured': meta['credential_configured'],
+                'connector_last_refresh_at': meta['connector_last_refresh_at'],
+                'connector_last_test_at': meta['connector_last_test_at'],
+                'connector_retry_after': meta['connector_retry_after'],
+                'connector_credential_updated_at': meta['connector_credential_updated_at'],
+                'connector_configuration_status': meta['connector_configuration_status'],
+                'has_connector_issue': meta['has_connector_issue'],
+                'connector_settings': {},
+            }
+        )
+    return payload
 
 
 def serialize_object(
