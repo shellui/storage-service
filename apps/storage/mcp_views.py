@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework.request import Request
 from apps.authapi.agent_tokens import authenticate_agent_bearer, mcp_resource_audience
+from apps.authapi.mcp_authority import DelegatedAuthorityUnavailable
 from shellui_django.mcp.resources import access_token_audience_matches
 
 from apps.storage.mcp_server_strict import StrictMcpServer
@@ -57,7 +58,10 @@ def _agent_claims(request: HttpRequest) -> dict | None:
         return None
     raw = header.split(' ', 1)[1].strip()
     expected_resource = mcp_resource_audience(request)
-    result = authenticate_agent_bearer(raw, expected_resource=expected_resource)
+    try:
+        result = authenticate_agent_bearer(raw, expected_resource=expected_resource)
+    except DelegatedAuthorityUnavailable:
+        raise
     if not result:
         return None
     principal, claims = result
@@ -71,5 +75,8 @@ def _agent_claims(request: HttpRequest) -> dict | None:
 
 @csrf_exempt
 def mcp_endpoint(request: HttpRequest):
-    claims = _agent_claims(request)
+    try:
+        claims = _agent_claims(request)
+    except DelegatedAuthorityUnavailable:
+        return JsonResponse({'error': 'identity_unavailable'}, status=503)
     return _get_server().handle(request, agent_claims=claims)

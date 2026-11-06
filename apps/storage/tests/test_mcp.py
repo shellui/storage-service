@@ -21,6 +21,8 @@ from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_sc
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
 
+_AUTH_POST = 'apps.authapi.mcp_authority.requests.post'
+
 
 def _mcp_audience() -> str:
     # RFC 8707 allows http only on loopback; Django's default testserver host is rejected.
@@ -96,6 +98,9 @@ def _signed_revocation_for_tests(*, agents=None, revoked=None, max_gv=0):
 class McpEndpointTests(TestCase):
     def setUp(self):
         self.client = Client()
+        import apps.authapi.mcp_authority as mcp_authority
+
+        mcp_authority.clear_delegated_authority_cache()
         import apps.storage.mcp_views as mcp_views
 
         mcp_views._server = None
@@ -104,6 +109,10 @@ class McpEndpointTests(TestCase):
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
         cache.delete('mcp:revoked_verified_claims')
+        self._p_auth_post = patch(_AUTH_POST)
+        mock_post = self._p_auth_post.start()
+        self.addCleanup(self._p_auth_post.stop)
+        mock_post.return_value = MagicMock(status_code=200, json=lambda: {'authorized': True})
 
     def test_untagged_internal_path_not_in_openapi(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)

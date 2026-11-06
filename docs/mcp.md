@@ -12,6 +12,22 @@ Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC
 
 Do not point a global Shellui access JWT from the SaaS product directly at storage-service. Personal MCP uses a regional resource audience from Identity. Global agents reach storage through the AI gateway, which mints a regional MCP credential with the correct `aud` (see Shellui SaaS documentation on `develop` once the handbook merges).
 
+Exchange for regional tokens uses the Identity OAuth token endpoint for that region (for example `POST /oauth/token`). There is no storage-specific exchange URL. Pass the storage MCP resource as `aud` or `resource` per Identity docs.
+
+## Live delegated authority (regional tokens)
+
+If `global_company_id` is present (delegated regional token), storage-service also calls Identity with a signed service assertion. The POST JSON body is only:
+
+- `agent_id` (UUID string)
+- `company_id` (int, regional)
+- `global_company_id` (canonical lowercase UUID)
+- `grant_version` (int, `0` is valid)
+- `company_binding_version` (int, `0` is valid)
+
+No `int()` on raw strings in storage: claim shapes are validated first; the request uses the same Python types as the verified claims. If Identity returns `404`, `5xx`, or the request fails, `POST /mcp` answers `503` with `identity_unavailable`. If Identity answers `200` but denies, or the optional `row` object does not match the triple, the token is rejected (`401`). Wrong `iss` or `aud` skips the network call and rejects delegated tokens. Personal tokens (no `global_company_id`) skip this step.
+
+Configure `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` when Identity mounts the check elsewhere (see `docs/configuration.md`).
+
 ## Required agent token claims
 
 Claims must use the types below. Types match Identity’s regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
@@ -93,6 +109,83 @@ Webhook rules, deliveries, event types, and the company event log carry `x-mcp` 
 3. Use JSON-RPC methods `initialize`, `tools/list`, and `tools/call`.
 
 Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity internal APIs (revocation, approvals, call logs).
+
+### Example `tools/list` (excerpt)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list",
+  "params": {}
+}
+```
+
+### Example tools (from OpenAPI)
+
+Operation ids match `tools/list` names. Examples:
+
+**List buckets** (`storage_v1_bucket_list`): `GET /storage/v1/bucket`
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "storage_v1_bucket_list",
+    "arguments": {
+      "path": "/storage/v1/bucket",
+      "method": "GET",
+      "query": {},
+      "body": {}
+    }
+  }
+}
+```
+
+**List objects** (`storage_v1_object_list_create`): `POST /storage/v1/object/list/{bucket_id}`. Body schema `ObjectListRequest`: optional `prefix`, `limit`, `offset`, `search`, `sortBy`.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "storage_v1_object_list_create",
+    "arguments": {
+      "path": "/storage/v1/object/list/{bucket_id}",
+      "method": "POST",
+      "path_params": {"bucket_id": "company"},
+      "query": {},
+      "body": {"prefix": "", "limit": 50}
+    }
+  }
+}
+```
+
+**Create connector mount** (`storage_v1_connector_create`): `POST /storage/v1/connector`. Body schema `ConnectorBucketCreate` requires `name`, `connector_provider`; optional `connector_settings`, `credential` (`x-mcp-secret`, write-only).
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "storage_v1_connector_create",
+    "arguments": {
+      "path": "/storage/v1/connector",
+      "method": "POST",
+      "query": {},
+      "body": {
+        "name": "backup",
+        "connector_provider": "s3",
+        "connector_settings": {}
+      }
+    }
+  }
+}
+```
 
 ## Internal assertions to Identity
 
