@@ -33,6 +33,7 @@ from apps.storage.mcp_assertions import (
     parse_global_agent_id,
     parse_global_company_id,
     parse_grant_version,
+    parse_regional_agent_id,
     parse_trusted_agent_claims,
 )
 from config.service_signing import signing_kwargs
@@ -45,29 +46,6 @@ _REVOKED_VERIFIED_KEY = 'mcp:revoked_verified_claims'
 _REVOKED_EPOCH_KEY = 'mcp:revoked_cache_epoch'
 _REVOKED_LOCK = threading.Lock()
 
-# Allowlist forwarded to Identity call logs (shellui-django / gateway contract).
-_CALL_LOG_APPROVED_KEYS = frozenset(
-    {
-        'agent_id',
-        'company_id',
-        'global_company_id',
-        'global_agent_id',
-        'grant_version',
-        'company_binding_version',
-        'service',
-        'tool',
-        'http_method',
-        'resource_path',
-        'access_kind',
-        'outcome',
-        'status',
-        'duration_ms',
-        'approval_request_id',
-        'approval_id',
-        'error_code',
-    }
-)
-
 _CALL_LOG_OUTCOMES = frozenset(
     {
         'pending_approval',
@@ -78,7 +56,7 @@ _CALL_LOG_OUTCOMES = frozenset(
     }
 )
 
-_CALL_LOG_ACCESS_KINDS = frozenset({'read', 'write'})
+_CALL_LOG_ACCESS_KINDS = frozenset({'read', 'write', 'destructive', 'unknown'})
 
 _APPROVAL_HTTP_METHODS = frozenset({'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'})
 
@@ -752,44 +730,78 @@ def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
     reg = _registry_operation_for_call_log(tool.strip(), resource_path, method_u)
     if reg is None:
         return {}
-    operation_title, path_template = reg
+    _operation_title, path_template = reg
+
+    agent_raw = entry.get('agent_id')
+    aid = parse_regional_agent_id(agent_raw)
+    if aid is None:
+        return {}
+
+    cid = entry.get('company_id')
+    if not isinstance(cid, int) or isinstance(cid, bool) or cid < 1:
+        return {}
+
+    svc = entry.get('service')
+    if not isinstance(svc, str) or not svc.strip():
+        return {}
 
     out: dict[str, Any] = {
-        'tool': tool.strip()[:500],
-        'resource_path': path_template,
-        'http_method': method_u,
+        'agent_id': aid,
+        'company_id': cid,
+        'service': svc.strip()[:32],
+        'tool': tool.strip()[:255],
+        'method': method_u[:10],
+        'path': path_template[:500],
     }
-    for key in _CALL_LOG_APPROVED_KEYS:
-        if key in ('tool', 'resource_path', 'http_method'):
-            continue
-        if key not in entry:
-            continue
-        val = entry[key]
-        if key == 'error_code' and isinstance(val, str) and val:
-            out[key] = val[:128]
-        elif key in ('duration_ms', 'status', 'grant_version', 'company_binding_version'):
-            if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
-                out[key] = val
-        elif key == 'company_id' and isinstance(val, int) and not isinstance(val, bool) and val >= 1:
-            out[key] = val
-        elif key == 'global_company_id' and isinstance(val, str) and parse_global_company_id(val):
-            out[key] = parse_global_company_id(val)
-        elif key == 'global_agent_id' and isinstance(val, str) and parse_global_agent_id(val):
-            out[key] = parse_global_agent_id(val)
-        elif key == 'outcome' and isinstance(val, str) and val in _CALL_LOG_OUTCOMES:
-            out[key] = val
-        elif key == 'access_kind' and isinstance(val, str) and val in _CALL_LOG_ACCESS_KINDS:
-            out[key] = val
-        elif key in ('agent_id', 'service'):
-            if isinstance(val, str) and val:
-                out[key] = val[:500]
-        elif key in ('approval_request_id', 'approval_id'):
-            if isinstance(val, str) and val and _UUID_RE.match(val):
-                out[key] = val
-    if 'outcome' not in out or out.get('outcome') not in _CALL_LOG_OUTCOMES:
+
+    st = entry.get('status')
+    if isinstance(st, int) and not isinstance(st, bool) and st >= 0:
+        out['status'] = st
+    dm = entry.get('duration_ms')
+    if isinstance(dm, int) and not isinstance(dm, bool) and dm >= 0:
+        out['duration_ms'] = dm
+
+    res = entry.get('result')
+    if isinstance(res, str) and res.strip():
+        out['result'] = res.strip()[:32]
+
+    oc = entry.get('outcome')
+    if not isinstance(oc, str) or oc.strip().lower() not in _CALL_LOG_OUTCOMES:
         return {}
-    if 'access_kind' not in out or out.get('access_kind') not in _CALL_LOG_ACCESS_KINDS:
-        return {}
+    out['outcome'] = oc.strip().lower()
+
+    ak = entry.get('access_kind')
+    if isinstance(ak, str) and ak.strip().lower() in _CALL_LOG_ACCESS_KINDS:
+        out['access_kind'] = ak.strip().lower()
+    else:
+        out['access_kind'] = 'unknown'
+
+    ec = entry.get('error_code')
+    if isinstance(ec, str) and ec.strip():
+        out['error_code'] = ec.strip()[:128]
+
+    gcid = entry.get('global_company_id')
+    if isinstance(gcid, str) and parse_global_company_id(gcid):
+        out['global_company_id'] = parse_global_company_id(gcid)
+    gai = entry.get('global_agent_id')
+    if isinstance(gai, str) and parse_global_agent_id(gai):
+        out['global_agent_id'] = parse_global_agent_id(gai)
+    if entry.get('grant_version') is not None:
+        pgv = parse_grant_version(entry.get('grant_version'))
+        if pgv is None:
+            return {}
+        out['grant_version'] = pgv
+    if entry.get('company_binding_version') is not None:
+        cbv = parse_company_binding_version(entry.get('company_binding_version'))
+        if cbv is None:
+            return {}
+        out['company_binding_version'] = cbv
+
+    for opt_key in ('approval_request_id', 'approval_id'):
+        v = entry.get(opt_key)
+        if isinstance(v, str) and v.strip() and _UUID_RE.match(v.strip()):
+            out[opt_key] = v.strip()
+
     return out
 
 

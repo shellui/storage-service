@@ -508,7 +508,10 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertNotIn('arguments', body)
         self.assertNotIn('operation_title', body)
         self.assertEqual(body.get('error_code'), 'upstream_error')
-        self.assertEqual(body.get('resource_path'), '/api/v1/actions/deliveries')
+        self.assertEqual(body.get('method'), 'GET')
+        self.assertEqual(body.get('path'), '/api/v1/actions/deliveries')
+        self.assertNotIn('http_method', body)
+        self.assertNotIn('resource_path', body)
 
     def test_forward_call_log_drops_invalid_outcome(self):
         from apps.storage.mcp_identity import forward_call_log

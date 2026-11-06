@@ -20,6 +20,7 @@ from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
 
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
+    parse_global_agent_id,
     parse_grant_version,
     parse_global_company_id,
 )
@@ -266,7 +267,12 @@ class StrictMcpServer:
         )
         operation_title = _tool_operation_summary(tool, schema)
         audit_path = path_template
-        access_kind = 'read' if tool_read_only else 'write'
+        if destructive:
+            access_kind = 'destructive'
+        elif tool_read_only:
+            access_kind = 'read'
+        else:
+            access_kind = 'write'
         approval_payload: dict[str, Any] = {}
 
         approval_granted = False
@@ -646,10 +652,12 @@ class StrictMcpServer:
         gv = parse_grant_version(agent_claims.get('grant_version'))
         cb_raw = agent_claims.get('company_binding_version')
         cbv = parse_company_binding_version(cb_raw) if cb_raw is not None else None
+        gai = parse_global_agent_id(agent_claims.get('global_agent_id'))
         entry: dict[str, Any] = {
             'agent_id': agent_claims.get('agent_id'),
             'company_id': agent_claims.get('company_id'),
             'global_company_id': gcid,
+            'global_agent_id': gai,
             'grant_version': gv,
             'company_binding_version': cbv,
             'service': self.service_name,
