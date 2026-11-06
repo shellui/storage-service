@@ -399,6 +399,43 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertEqual(r.get('error_code'), 'out_of_sync')
         self.assertTrue(r.get('_approval_error'))
 
+    def test_create_approval_request_sends_destructive_boolean(self):
+        """Identity #138 rejects a destructive call log unless the approval row is destructive."""
+        payload = {
+            'agent_id': _AGENT_A,
+            'company_id': 1,
+            'service': 'storage',
+            'action': 'storage_v1_object_destroy',
+            'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
+            'is_destructive': True,
+        }
+        with _patch_identity_posts(
+            lambda: MagicMock(status_code=200, json=lambda: {'id': str(uuid.uuid4()), 'status': 'pending'})
+        ) as mock_post:
+            created = create_approval_request(payload, _claims_personal())
+        self.assertIsInstance(created, dict)
+        self.assertNotIn('_approval_error', created)
+        create_calls = [c for c in mock_post.call_args_list if 'mcp-approval-requests' in str(c)]
+        self.assertTrue(create_calls)
+        self.assertEqual(create_calls[-1].kwargs['json'], {'is_destructive': True})
+
+    def test_create_approval_request_omits_destructive_flag_when_unset(self):
+        payload = {
+            'agent_id': _AGENT_A,
+            'company_id': 1,
+            'service': 'storage',
+            'action': 'write',
+            'arguments_hash': 'hash',
+            'mcp_expected_resource': _MCP_RESOURCE,
+        }
+        with _patch_identity_posts(
+            lambda: MagicMock(status_code=200, json=lambda: {'id': str(uuid.uuid4()), 'status': 'pending'})
+        ) as mock_post:
+            create_approval_request(payload, _claims_personal())
+        create_calls = [c for c in mock_post.call_args_list if 'mcp-approval-requests' in str(c)]
+        self.assertEqual(create_calls[-1].kwargs['json'], {})
+
     def test_approval_state_returns_denied(self):
         payload = {
             'agent_id': _AGENT_A,
