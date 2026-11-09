@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [[package]]
@@ -750,15 +750,15 @@ wheels = [
 
 [[package]]
 name = "shellui-django"
-version = "0.5.0"
+version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/66/24/b57fc372e839b6305d0e4ca5c2e1c1effc3ea1392f71390f811adecafecf/shellui_django-0.5.0.tar.gz", hash = "sha256:80b66ec455012b893f979a9730b6a0b90e12da96740a1445680ac84588433e44", size = 36789, upload-time = "2026-11-06T18:40:31.228Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/a2/ee51137ae53990213cd6173c6521b90aebaaa9640071dacf5181149a9887/shellui_django-0.5.1.tar.gz", hash = "sha256:df00f68f06d59948e0d2e27a3010ec100a6ca38445deb79f798d750d9e02d4d1", size = 40411, upload-time = "2026-11-09T21:00:40.347Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/36/87755a0869fd466d8b578f73d3eb58a01eca58b95378fb2fb10b12199d6c/shellui_django-0.5.0-py3-none-any.whl", hash = "sha256:63d4c16c3f3b2cbf7087b01578f18ccc3db492ed8a10639c38a02129c40f920d", size = 29398, upload-time = "2026-11-06T18:40:29.922Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/ac/e524e809ad250f22f0ad9e523d342dfa33588f138a5cf07680c55d2f2d13/shellui_django-0.5.1-py3-none-any.whl", hash = "sha256:ebae9f774827d02d4f9b6e2b7fc440cee586bf5d4ffa05783427f4909dd14d28", size = 31648, upload-time = "2026-11-09T21:00:39.19Z" },
 ]
 
 [package.optional-dependencies]
@@ -837,7 +837,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "sentry-sdk", specifier = "==2.63.0" },
-    { name = "shellui-django", extras = ["mcp"], specifier = "==0.5.0" },
+    { name = "shellui-django", extras = ["mcp"], specifier = "==0.5.1" },
     { name = "sqlparse", specifier = "==0.6.0" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]
