@@ -65,7 +65,7 @@ Personal regional tokens (no `global_company_id`) skip this live step. Configure
 ## Direct `POST /mcp` versus gateway
 
 - **Direct:** clients call this service at `POST {public origin}/mcp` (see `STORAGE_PUBLIC_URL`). Tools use paths such as `/storage/v1/...` from OpenAPI.
-- **Gateway:** regional Shellui gateways may expose MCP under a company-scoped prefix such as `…/c/{numeric_company_id}/mcp`. That is routing only: the tool definitions and `storage_v1_*` operation ids are the same; the bearer token still targets this service's resource URL (`…/mcp`) per RFC 8707.
+- **Gateway:** regional Shellui gateways may expose MCP under a company-scoped prefix such as `…/c/{numeric_company_id}/mcp`. That is routing only. Tool names are `storage_<verb>_<noun>` (the same names the gateway publishes). OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. The bearer token still targets this service's resource URL (`…/mcp`) per RFC 8707.
 
 ## Required agent token claims
 
@@ -167,7 +167,7 @@ Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity
 
 Operation ids match `tools/list` names. Examples:
 
-**List buckets** (`storage_v1_bucket_list`): `GET /storage/v1/bucket`. The default bucket id is `company` (auto-created). **Create bucket** (`storage_v1_bucket_create`) may respond with `bucket_create_disabled` when custom buckets are not enabled for the company.
+**List buckets** (`storage_list_bucket`): `GET /storage/v1/bucket`. The default bucket id is `company` (auto-created). **Create bucket** (`storage_v1_bucket_create`, not an MCP tool) may respond with `bucket_create_disabled` when custom buckets are not enabled for the company.
 
 ```json
 {
@@ -175,7 +175,7 @@ Operation ids match `tools/list` names. Examples:
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "storage_v1_bucket_list",
+    "name": "storage_list_bucket",
     "arguments": {
       "path": "/storage/v1/bucket",
       "method": "GET",
@@ -186,7 +186,7 @@ Operation ids match `tools/list` names. Examples:
 }
 ```
 
-**List objects** (`storage_v1_object_list_create`): `POST /storage/v1/object/list/{bucket_id}`. Body schema `ObjectListRequest`: optional `prefix`, `limit`, `offset`, `search`, `sortBy`.
+**List objects** (`storage_create_object_list`): `POST /storage/v1/object/list/{bucket_id}`. Body schema `ObjectListRequest`: optional `prefix`, `limit`, `offset`, `search`, `sortBy`.
 
 ```json
 {
@@ -194,7 +194,7 @@ Operation ids match `tools/list` names. Examples:
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "storage_v1_object_list_create",
+    "name": "storage_create_object_list",
     "arguments": {
       "path": "/storage/v1/object/list/{bucket_id}",
       "method": "POST",
@@ -206,7 +206,7 @@ Operation ids match `tools/list` names. Examples:
 }
 ```
 
-**Create connector mount** (`storage_v1_connector_create`): `POST /storage/v1/connector`. Body schema `ConnectorBucketCreate` requires `name`, `connector_provider`; optional `connector_settings`, `credential` (`x-mcp-secret`, write-only).
+**Create connector mount** (`storage_create_connector`): `POST /storage/v1/connector`. Body schema `ConnectorBucketCreate` requires `name`, `connector_provider`; optional `connector_settings`, `credential` (`x-mcp-secret`, write-only).
 
 ```json
 {
@@ -214,7 +214,7 @@ Operation ids match `tools/list` names. Examples:
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "storage_v1_connector_create",
+    "name": "storage_create_connector",
     "arguments": {
       "path": "/storage/v1/connector",
       "method": "POST",
@@ -235,16 +235,16 @@ Operation ids match `tools/list` names. Examples:
 
 `object_path` may contain `/`. Example: `notes/a.txt`.
 
-Object upload and replace (`storage_v1_object_create`, `storage_v1_object_update`) take a JSON body:
+Object upload and replace (`storage_create_object`, `storage_replace_object`) take a JSON body:
 
 - `content_base64`: file bytes as standard base64, with padding
 - `content_type`: optional MIME type (`application/octet-stream` when omitted)
 
 Downloads return JSON text with `content_base64`, `content_type`, and `size`. An object larger than 8 MB returns `object_too_large_for_mcp`. Call a sign tool and fetch that URL instead.
 
-`storage_v1_object_delete_many` takes `{ "prefixes": ["a.txt"] }` or `{ "paths": ["a.txt"] }`.
+`storage_delete_many_object` takes `{ "prefixes": ["a.txt"] }` or `{ "paths": ["a.txt"] }`.
 
-`storage_v1_object_prefix_destroy` requires body `prefix`. The handler also reads query `prefix` when the body value is empty. The MCP schema still requires the body field.
+`storage_delete_object_prefix` requires body `prefix`. The handler also reads query `prefix` when the body value is empty. The MCP schema still requires the body field.
 
 Create share returns `token` once. Later reads omit it. Webhook signing secrets stay masked in MCP results. The admin HTTP create and rotate responses return `secret` once. `path_url` is redacted on every MCP response because the path contains the share token.
 

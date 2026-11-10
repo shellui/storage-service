@@ -14,6 +14,7 @@ from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.models import ObjectShareLink, StorageAccessGrant, StorageObject
 from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
 from apps.storage.tests.test_mcp import _TEST_JWKS, _agent_token, _mcp_host_kwargs, _signed_revocation_for_tests
+from apps.storage.mcp_tool_names import apply_published_tool_names
 from shellui_django.mcp.openapi_tools import tools_from_schema
 
 COMPANY_A = 10
@@ -129,7 +130,9 @@ class McpTenantIsolationTests(TestCase):
         )
 
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        self.tools = {t['name']: t for t in tools_from_schema(schema)}
+        self.tools = {
+            t['_meta']['operationId']: t for t in apply_published_tool_names(tools_from_schema(schema))
+        }
 
     def _mcp_tools_call(self, tool_name: str, *, path_params=None, query=None, body=None):
         tool = self.tools[tool_name]
@@ -145,7 +148,7 @@ class McpTenantIsolationTests(TestCase):
             'jsonrpc': '2.0',
             'id': 1,
             'method': 'tools/call',
-            'params': {'name': tool_name, 'arguments': arguments},
+            'params': {'name': tool['name'], 'arguments': arguments},
         }
         with self._revocation_patch:
             return self.client.post(

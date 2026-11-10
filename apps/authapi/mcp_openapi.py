@@ -97,11 +97,18 @@ MCP_REQUIRED_SECRET_SCHEMA_PROPERTIES: frozenset[tuple[str, str]] = frozenset(
 MCP_EXPLICIT_REGISTRY: dict[str, dict[str, Any]] = {}
 
 
-def _mcp_payload(*, read_only: bool, destructive: bool = False, sensitive: bool = False) -> dict[str, Any]:
+def _mcp_payload(
+    *,
+    read_only: bool,
+    destructive: bool = False,
+    sensitive: bool = False,
+    tool_name: str,
+) -> dict[str, Any]:
     return {
         'read_only': read_only,
         'destructive': destructive,
         'sensitive': sensitive,
+        'tool_name': tool_name,
     }
 
 
@@ -109,13 +116,21 @@ def mcp_tool(
     *,
     operation_id: str,
     read_only: bool,
+    tool_name: str,
     destructive: bool = False,
     sensitive: bool = False,
 ) -> dict[str, Any]:
     """Register an MCP tool and return ``extend_schema`` kwargs (explicit decoration only)."""
     if operation_id in MCP_FORBIDDEN_OPERATION_IDS:
         raise ValueError(f'mcp_tool cannot tag forbidden operation: {operation_id}')
-    payload = _mcp_payload(read_only=read_only, destructive=destructive, sensitive=sensitive)
+    if not tool_name.startswith('storage_') or tool_name.startswith('api_v1_'):
+        raise ValueError(f'MCP tool_name must be storage_<verb>_<noun>: {tool_name}')
+    payload = _mcp_payload(
+        read_only=read_only,
+        destructive=destructive,
+        sensitive=sensitive,
+        tool_name=tool_name,
+    )
     existing = MCP_EXPLICIT_REGISTRY.get(operation_id)
     if existing is not None and existing != payload:
         raise ValueError(f'mcp_tool called twice with different flags for {operation_id}')
@@ -162,9 +177,16 @@ def validate_mcp_schema(schema: dict[str, Any]) -> None:
             f'x-mcp in schema must match mcp_tool registry only: '
             f'schema={sorted(tagged_in_schema)} registry={sorted(MCP_EXPLICIT_REGISTRY)}'
         )
+    seen_names: set[str] = set()
     for op_id, payload in tagged_in_schema.items():
         if payload != MCP_EXPLICIT_REGISTRY[op_id]:
             raise AssertionError(f'x-mcp payload mismatch for {op_id}: {payload} != {MCP_EXPLICIT_REGISTRY[op_id]}')
+        tool_name = str(payload.get('tool_name') or '')
+        if not tool_name.startswith('storage_') or tool_name.startswith('api_v1_'):
+            raise AssertionError(f'MCP tool_name must be storage_<verb>_<noun>: {op_id}={tool_name}')
+        if tool_name in seen_names:
+            raise AssertionError(f'duplicate MCP tool_name: {tool_name}')
+        seen_names.add(tool_name)
 
     missing_decorators = MCP_REQUIRED_OPERATION_IDS - set(MCP_EXPLICIT_REGISTRY)
     if missing_decorators:

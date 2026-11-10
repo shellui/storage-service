@@ -2,256 +2,8 @@
   "access": [
     {
       "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_deliveries_list",
-      "needs_approval": false,
-      "path": "/api/v1/actions/deliveries",
-      "read_only": true
-    },
-    {
-      "destructive": false,
       "method": "POST",
-      "name": "api_v1_actions_deliveries_requeue",
-      "needs_approval": false,
-      "path": "/api/v1/actions/deliveries/{delivery_id}/requeue",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_deliveries_retrieve",
-      "needs_approval": false,
-      "path": "/api/v1/actions/deliveries/{delivery_id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_event_log_list",
-      "needs_approval": false,
-      "path": "/api/v1/actions/event-log",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_event_log_retention_retrieve",
-      "needs_approval": false,
-      "path": "/api/v1/actions/event-log/retention",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_event_log_retrieve",
-      "needs_approval": false,
-      "path": "/api/v1/actions/event-log/{id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_event_log_types_list",
-      "needs_approval": false,
-      "path": "/api/v1/actions/event-log/types",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_events_list",
-      "needs_approval": false,
-      "path": "/api/v1/actions/events",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "api_v1_actions_rules_create",
-      "needs_approval": false,
-      "path": "/api/v1/actions/rules",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "api_v1_actions_rules_destroy",
-      "needs_approval": true,
-      "path": "/api/v1/actions/rules/{id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_rules_list",
-      "needs_approval": false,
-      "path": "/api/v1/actions/rules",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "PATCH",
-      "name": "api_v1_actions_rules_partial_update",
-      "needs_approval": false,
-      "path": "/api/v1/actions/rules/{id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "api_v1_actions_rules_retrieve",
-      "needs_approval": false,
-      "path": "/api/v1/actions/rules/{id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "api_v1_actions_rules_rotate_secret",
-      "needs_approval": false,
-      "path": "/api/v1/actions/rules/{id}/rotate-secret",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "api_v1_actions_rules_send_test",
-      "needs_approval": false,
-      "path": "/api/v1/actions/rules/{id}/send-test",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_access_grant_create",
-      "needs_approval": false,
-      "path": "/storage/v1/access/grant",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_v1_access_grant_destroy",
-      "needs_approval": true,
-      "path": "/storage/v1/access/grant/{grant_id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_access_grant_list",
-      "needs_approval": false,
-      "path": "/storage/v1/access/grant",
-      "read_only": true
-    },
-    {
-      "destructive": true,
-      "method": "POST",
-      "name": "storage_v1_bucket_empty_create",
-      "needs_approval": true,
-      "path": "/storage/v1/bucket/{bucket_id}/empty",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_bucket_list",
-      "needs_approval": false,
-      "path": "/storage/v1/bucket",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_bucket_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/bucket/{bucket_id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_connector_configuration_check_create",
-      "needs_approval": false,
-      "path": "/storage/v1/connector/{connector_id}/configuration/check",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_connector_configuration_retry_create",
-      "needs_approval": false,
-      "path": "/storage/v1/connector/{connector_id}/configuration/retry",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_connector_configuration_validate_create",
-      "needs_approval": false,
-      "path": "/storage/v1/connector/{connector_id}/configuration/validate",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_connector_create",
-      "needs_approval": false,
-      "path": "/storage/v1/connector",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_v1_connector_destroy",
-      "needs_approval": true,
-      "path": "/storage/v1/connector/{connector_id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_connector_list",
-      "needs_approval": false,
-      "path": "/storage/v1/connector",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "PATCH",
-      "name": "storage_v1_connector_partial_update",
-      "needs_approval": false,
-      "path": "/storage/v1/connector/{connector_id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_connector_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/connector/{connector_id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "PUT",
-      "name": "storage_v1_connector_update",
-      "needs_approval": false,
-      "path": "/storage/v1/connector/{connector_id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_object_authenticated_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/object/authenticated/{bucket_id}/{object_path}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_object_copy_create",
+      "name": "storage_copy_object",
       "needs_approval": false,
       "path": "/storage/v1/object/copy",
       "read_only": false
@@ -259,47 +11,63 @@
     {
       "destructive": false,
       "method": "POST",
-      "name": "storage_v1_object_create",
+      "name": "storage_create_access_grant",
       "needs_approval": false,
-      "path": "/storage/v1/object/{bucket_id}/{object_path}",
+      "path": "/storage/v1/access/grant",
       "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_v1_object_delete_many",
-      "needs_approval": true,
-      "path": "/storage/v1/object/{bucket_id}",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_v1_object_destroy",
-      "needs_approval": true,
-      "path": "/storage/v1/object/{bucket_id}/{object_path}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_object_id_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/object/id/{object_id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_object_info_authenticated_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/object/info/authenticated/{bucket_id}/{object_path}",
-      "read_only": true
     },
     {
       "destructive": false,
       "method": "POST",
-      "name": "storage_v1_object_list_create",
+      "name": "storage_create_action_rules",
+      "needs_approval": false,
+      "path": "/api/v1/actions/rules",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_connector",
+      "needs_approval": false,
+      "path": "/storage/v1/connector",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_connector_configuration_check",
+      "needs_approval": false,
+      "path": "/storage/v1/connector/{connector_id}/configuration/check",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_connector_configuration_retry",
+      "needs_approval": false,
+      "path": "/storage/v1/connector/{connector_id}/configuration/retry",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_connector_configuration_validate",
+      "needs_approval": false,
+      "path": "/storage/v1/connector/{connector_id}/configuration/validate",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_object",
+      "needs_approval": false,
+      "path": "/storage/v1/object/{bucket_id}/{object_path}",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_object_list",
       "needs_approval": false,
       "path": "/storage/v1/object/list/{bucket_id}",
       "read_only": true
@@ -307,63 +75,279 @@
     {
       "destructive": false,
       "method": "POST",
-      "name": "storage_v1_object_move_create",
+      "name": "storage_create_object_prefix",
+      "needs_approval": false,
+      "path": "/storage/v1/object/prefix/{bucket_id}",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_create_share",
+      "needs_approval": false,
+      "path": "/storage/v1/share/{bucket_id}/{object_path}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_access_grant",
+      "needs_approval": true,
+      "path": "/storage/v1/access/grant/{grant_id}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_action_rules",
+      "needs_approval": true,
+      "path": "/api/v1/actions/rules/{id}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_connector",
+      "needs_approval": true,
+      "path": "/storage/v1/connector/{connector_id}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_link_share",
+      "needs_approval": true,
+      "path": "/storage/v1/share/link/{token}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_many_object",
+      "needs_approval": true,
+      "path": "/storage/v1/object/{bucket_id}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_object",
+      "needs_approval": true,
+      "path": "/storage/v1/object/{bucket_id}/{object_path}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "DELETE",
+      "name": "storage_delete_object_prefix",
+      "needs_approval": true,
+      "path": "/storage/v1/object/prefix/{bucket_id}",
+      "read_only": false
+    },
+    {
+      "destructive": true,
+      "method": "POST",
+      "name": "storage_empty_bucket",
+      "needs_approval": true,
+      "path": "/storage/v1/bucket/{bucket_id}/empty",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_action_deliveries",
+      "needs_approval": false,
+      "path": "/api/v1/actions/deliveries/{delivery_id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_action_event_log",
+      "needs_approval": false,
+      "path": "/api/v1/actions/event-log/{id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_action_event_log_retention",
+      "needs_approval": false,
+      "path": "/api/v1/actions/event-log/retention",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_action_rules",
+      "needs_approval": false,
+      "path": "/api/v1/actions/rules/{id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_bucket",
+      "needs_approval": false,
+      "path": "/storage/v1/bucket/{bucket_id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_connector",
+      "needs_approval": false,
+      "path": "/storage/v1/connector/{connector_id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_object",
+      "needs_approval": false,
+      "path": "/storage/v1/object/authenticated/{bucket_id}/{object_path}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_object_id",
+      "needs_approval": false,
+      "path": "/storage/v1/object/id/{object_id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_object_info",
+      "needs_approval": false,
+      "path": "/storage/v1/object/info/authenticated/{bucket_id}/{object_path}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_object_prefix",
+      "needs_approval": false,
+      "path": "/storage/v1/object/prefix/{bucket_id}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_public_object",
+      "needs_approval": false,
+      "path": "/storage/v1/object/{bucket_id}/{object_path}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_quota",
+      "needs_approval": false,
+      "path": "/storage/v1/quota",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_get_stats",
+      "needs_approval": false,
+      "path": "/storage/v1/stats",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_access_grant",
+      "needs_approval": false,
+      "path": "/storage/v1/access/grant",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_action_deliveries",
+      "needs_approval": false,
+      "path": "/api/v1/actions/deliveries",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_action_event_log",
+      "needs_approval": false,
+      "path": "/api/v1/actions/event-log",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_action_event_log_types",
+      "needs_approval": false,
+      "path": "/api/v1/actions/event-log/types",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_action_events",
+      "needs_approval": false,
+      "path": "/api/v1/actions/events",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_action_rules",
+      "needs_approval": false,
+      "path": "/api/v1/actions/rules",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_bucket",
+      "needs_approval": false,
+      "path": "/storage/v1/bucket",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_connector",
+      "needs_approval": false,
+      "path": "/storage/v1/connector",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "GET",
+      "name": "storage_list_share",
+      "needs_approval": false,
+      "path": "/storage/v1/share/{bucket_id}/{object_path}",
+      "read_only": true
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_move_object",
       "needs_approval": false,
       "path": "/storage/v1/object/move",
       "read_only": false
     },
     {
       "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_object_prefix_create",
+      "method": "PUT",
+      "name": "storage_replace_connector",
       "needs_approval": false,
-      "path": "/storage/v1/object/prefix/{bucket_id}",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_v1_object_prefix_destroy",
-      "needs_approval": true,
-      "path": "/storage/v1/object/prefix/{bucket_id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_object_prefix_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/object/prefix/{bucket_id}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_object_retrieve",
-      "needs_approval": false,
-      "path": "/storage/v1/object/{bucket_id}/{object_path}",
-      "read_only": true
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_object_sign_create",
-      "needs_approval": false,
-      "path": "/storage/v1/object/sign/{bucket_id}",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
-      "name": "storage_v1_object_sign_path_create",
-      "needs_approval": false,
-      "path": "/storage/v1/object/sign/{bucket_id}/{object_path}",
+      "path": "/storage/v1/connector/{connector_id}",
       "read_only": false
     },
     {
       "destructive": false,
       "method": "PUT",
-      "name": "storage_v1_object_update",
+      "name": "storage_replace_object",
       "needs_approval": false,
       "path": "/storage/v1/object/{bucket_id}/{object_path}",
       "read_only": false
@@ -371,7 +355,7 @@
     {
       "destructive": false,
       "method": "PUT",
-      "name": "storage_v1_quota_company_update",
+      "name": "storage_replace_quota_company",
       "needs_approval": false,
       "path": "/storage/v1/quota/company/{company_id}",
       "read_only": false
@@ -379,131 +363,94 @@
     {
       "destructive": false,
       "method": "PUT",
-      "name": "storage_v1_quota_company_user_update",
+      "name": "storage_replace_quota_company_user",
       "needs_approval": false,
       "path": "/storage/v1/quota/company/{company_id}/user/{user_id}",
       "read_only": false
     },
     {
       "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_quota_retrieve",
+      "method": "POST",
+      "name": "storage_requeue_action_deliveries",
       "needs_approval": false,
-      "path": "/storage/v1/quota",
-      "read_only": true
+      "path": "/api/v1/actions/deliveries/{delivery_id}/requeue",
+      "read_only": false
     },
     {
       "destructive": false,
       "method": "POST",
-      "name": "storage_v1_share_create",
+      "name": "storage_rotate_rule_secret",
       "needs_approval": false,
-      "path": "/storage/v1/share/{bucket_id}/{object_path}",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_v1_share_link_destroy",
-      "needs_approval": true,
-      "path": "/storage/v1/share/link/{token}",
+      "path": "/api/v1/actions/rules/{id}/rotate-secret",
       "read_only": false
     },
     {
       "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_share_list",
+      "method": "POST",
+      "name": "storage_send_test_rule",
       "needs_approval": false,
-      "path": "/storage/v1/share/{bucket_id}/{object_path}",
-      "read_only": true
+      "path": "/api/v1/actions/rules/{id}/send-test",
+      "read_only": false
     },
     {
       "destructive": false,
-      "method": "GET",
-      "name": "storage_v1_stats_retrieve",
+      "method": "POST",
+      "name": "storage_sign_object",
       "needs_approval": false,
-      "path": "/storage/v1/stats",
-      "read_only": true
+      "path": "/storage/v1/object/sign/{bucket_id}",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "POST",
+      "name": "storage_sign_object_path",
+      "needs_approval": false,
+      "path": "/storage/v1/object/sign/{bucket_id}/{object_path}",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "PATCH",
+      "name": "storage_update_action_rules",
+      "needs_approval": false,
+      "path": "/api/v1/actions/rules/{id}",
+      "read_only": false
+    },
+    {
+      "destructive": false,
+      "method": "PATCH",
+      "name": "storage_update_connector",
+      "needs_approval": false,
+      "path": "/storage/v1/connector/{connector_id}",
+      "read_only": false
     }
   ],
   "tools": [
     {
       "annotations": {
         "destructiveHint": false,
-        "readOnlyHint": true
+        "readOnlyHint": false
       },
-      "description": "List recent webhook deliveries",
+      "description": "Copy an object",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "body": {
             "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/deliveries",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
             "properties": {
-              "action_rule_id": {
-                "type": "integer"
-              },
-              "company_id": {
-                "type": "integer"
-              },
-              "created_after": {
+              "destinationKey": {
                 "type": "string"
               },
-              "created_before": {
+              "from": {
                 "type": "string"
               },
-              "event_type": {
+              "sourceKey": {
                 "type": "string"
               },
-              "page": {
-                "type": "integer"
-              },
-              "page_size": {
-                "type": "integer"
-              },
-              "scheduled_job_run_id": {
-                "type": "integer"
-              },
-              "status": {
+              "to": {
                 "type": "string"
               }
             },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_deliveries_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Requeue a failed webhook delivery",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
             "type": "object"
           },
           "method": {
@@ -513,176 +460,7 @@
             "type": "string"
           },
           "path": {
-            "const": "/api/v1/actions/deliveries/{delivery_id}/requeue",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "delivery_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "delivery_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_deliveries_requeue"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read one webhook delivery",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/deliveries/{delivery_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "delivery_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "delivery_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_deliveries_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "List recent domain events for the company",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "created_after": {
-                "type": "string"
-              },
-              "created_before": {
-                "type": "string"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "page": {
-                "type": "integer"
-              },
-              "page_size": {
-                "type": "integer"
-              },
-              "scope": {
-                "enum": [
-                  "company",
-                  "platform"
-                ],
-                "type": "string"
-              },
-              "user": {
-                "type": "string"
-              },
-              "user_id": {
-                "type": "integer"
-              }
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_event_log_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read event log retention settings",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log/retention",
+            "const": "/storage/v1/object/copy",
             "type": "string"
           },
           "query": {
@@ -697,529 +475,7 @@
         ],
         "type": "object"
       },
-      "name": "api_v1_actions_event_log_retention_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read one domain event log entry",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "scope": {
-                "enum": [
-                  "company",
-                  "platform"
-                ],
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_event_log_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "List domain event type ids",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log/types",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_event_log_types_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "List Shellui Actions event types",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/events",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_events_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Create a Shellui Actions webhook rule. The signing secret is shown once in admin, not to the agent.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "allow_private_urls": {
-                "type": "boolean"
-              },
-              "authorization_header": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "secret": {
-                "type": "string"
-              },
-              "url": {
-                "format": "uri",
-                "type": "string"
-              }
-            },
-            "required": [
-              "event_type",
-              "name"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Delete a Shellui Actions webhook rule",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_destroy"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "List Shellui Actions webhook rules",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Update a Shellui Actions webhook rule",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "allow_private_urls": {
-                "type": "boolean"
-              },
-              "authorization_header": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "secret": {
-                "type": "string"
-              },
-              "url": {
-                "format": "uri",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PATCH"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_partial_update"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read one Shellui Actions webhook rule",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Rotate a webhook signing secret. The new secret is shown once in admin, not to the agent.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}/rotate-secret",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_rotate_secret"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Send a sample webhook for a rule",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}/send-test",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "api_v1_actions_rules_send_test"
+      "name": "storage_copy_object"
     },
     {
       "annotations": {
@@ -1317,122 +573,50 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_access_grant_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Revoke an access grant",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/access/grant/{grant_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "grant_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "grant_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_access_grant_destroy"
+      "name": "storage_create_access_grant"
     },
     {
       "annotations": {
         "destructiveHint": false,
-        "readOnlyHint": true
+        "readOnlyHint": false
       },
-      "description": "List access grants",
+      "description": "Create a Shellui Actions webhook rule. The signing secret is shown once in admin, not to the agent.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "body": {
             "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/access/grant",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
             "properties": {
-              "bucket": {
+              "allow_private_urls": {
+                "type": "boolean"
+              },
+              "authorization_header": {
                 "type": "string"
               },
-              "include_effective": {
+              "description": {
                 "type": "string"
               },
-              "resource_id": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "event_type": {
                 "type": "string"
               },
-              "resource_type": {
+              "name": {
+                "type": "string"
+              },
+              "secret": {
+                "type": "string"
+              },
+              "url": {
+                "format": "uri",
                 "type": "string"
               }
             },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_access_grant_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Empty a storage bucket",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
+            "required": [
+              "event_type",
+              "name"
+            ],
             "type": "object"
           },
           "method": {
@@ -1442,58 +626,7 @@
             "type": "string"
           },
           "path": {
-            "const": "/storage/v1/bucket/{bucket_id}/empty",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_bucket_empty_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "List storage buckets",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/bucket",
+            "const": "/api/v1/actions/rules",
             "type": "string"
           },
           "query": {
@@ -1508,211 +641,7 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_bucket_list"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read one storage bucket",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/bucket/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_bucket_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Re-run local connector configuration check",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}/configuration/check",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_configuration_check_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Retry local configuration check after backoff",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}/configuration/retry",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_configuration_retry_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Validate stored connector configuration locally",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}/configuration/validate",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_configuration_validate_create"
+      "name": "storage_create_action_rules"
     },
     {
       "annotations": {
@@ -1771,374 +700,20 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_connector_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Delete a connector mount",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_destroy"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "List external connector mounts",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_list"
+      "name": "storage_create_connector"
     },
     {
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Patch connector configuration",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_provider": {
-                "type": "string"
-              },
-              "connector_settings": {
-                "additionalProperties": true,
-                "properties": {},
-                "type": "object"
-              },
-              "credential": {
-                "description": "Set a new credential, or null to clear.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "merge_settings": {
-                "description": "When true (default), body `connector_settings` merge into existing settings.",
-                "type": "boolean"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PATCH"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_partial_update"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read one connector mount",
+      "description": "Re-run local connector configuration check",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "body": {
             "additionalProperties": false,
             "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Replace connector configuration (PUT)",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_provider": {
-                "type": "string"
-              },
-              "connector_settings": {
-                "additionalProperties": true,
-                "properties": {},
-                "type": "object"
-              },
-              "credential": {
-                "description": "Set a new credential, or null to clear.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "merge_settings": {
-                "description": "When true (default), body `connector_settings` merge into existing settings.",
-                "type": "boolean"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_connector_update"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Download an object (authenticated alias)",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/authenticated/{bucket_id}/{object_path}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "download": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_authenticated_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Copy an object",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "destinationKey": {
-                "type": "string"
-              },
-              "from": {
-                "type": "string"
-              },
-              "sourceKey": {
-                "type": "string"
-              },
-              "to": {
-                "type": "string"
-              }
-            },
             "type": "object"
           },
           "method": {
@@ -2148,8 +723,20 @@
             "type": "string"
           },
           "path": {
-            "const": "/storage/v1/object/copy",
+            "const": "/storage/v1/connector/{connector_id}/configuration/check",
             "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
           },
           "query": {
             "additionalProperties": false,
@@ -2159,11 +746,114 @@
         },
         "required": [
           "path",
-          "method"
+          "method",
+          "path_params"
         ],
         "type": "object"
       },
-      "name": "storage_v1_object_copy_create"
+      "name": "storage_create_connector_configuration_check"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Retry local configuration check after backoff",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector/{connector_id}/configuration/retry",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_create_connector_configuration_retry"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Validate stored connector configuration locally",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector/{connector_id}/configuration/validate",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_create_connector_configuration_validate"
     },
     {
       "annotations": {
@@ -2230,232 +920,7 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_object_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Delete many objects",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "paths": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "prefixes": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_delete_many"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Delete one object",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_destroy"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Resolve object by stable id",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/id/{object_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "object_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "object_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_id_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read object metadata",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/info/authenticated/{bucket_id}/{object_path}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_info_authenticated_retrieve"
+      "name": "storage_create_object"
     },
     {
       "annotations": {
@@ -2529,58 +994,7 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_object_list_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Move an object",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "destinationKey": {
-                "type": "string"
-              },
-              "from": {
-                "type": "string"
-              },
-              "sourceKey": {
-                "type": "string"
-              },
-              "to": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/move",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_move_create"
+      "name": "storage_create_object_list"
     },
     {
       "annotations": {
@@ -2647,543 +1061,7 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_object_prefix_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Delete a folder prefix",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "prefix": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "prefix"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/prefix/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "prefix": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_prefix_destroy"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Summarize a folder prefix",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/prefix/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "prefix": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_prefix_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Download an object",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "download": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_retrieve"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Create a signed download URL (path in body)",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresIn": {
-                "description": "Lifetime in seconds (Supabase-style).",
-                "type": "integer"
-              },
-              "expires_in": {
-                "description": "Alias for `expiresIn`.",
-                "type": "integer"
-              },
-              "path": {
-                "description": "Object path when not in the URL.",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/sign/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_sign_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Create a signed download URL",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresIn": {
-                "description": "Lifetime in seconds (Supabase-style).",
-                "type": "integer"
-              },
-              "expires_in": {
-                "description": "Alias for `expiresIn`.",
-                "type": "integer"
-              },
-              "path": {
-                "description": "Object path when not in the URL.",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/sign/{bucket_id}/{object_path}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_sign_path_create"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Upload or replace an object (PUT)",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "content_base64": {
-                "description": "File bytes as standard base64 (padding required). MCP object upload and replace use this field.",
-                "type": "string"
-              },
-              "content_type": {
-                "description": "MIME type stored on the object. Defaults to application/octet-stream.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "content_base64"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_object_update"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Set company quota limits",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "max_bytes": {
-                "type": "integer"
-              },
-              "max_bytes_per_user": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/quota/company/{company_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "company_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "company_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_quota_company_update"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Set per-user quota override",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "max_bytes": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "max_bytes"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/quota/company/{company_id}/user/{user_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "company_id": {
-                "type": "string"
-              },
-              "user_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "company_id",
-              "user_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method",
-          "path_params"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_quota_company_user_update"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Read quota usage",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/quota",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
-        "type": "object"
-      },
-      "name": "storage_v1_quota_retrieve"
+      "name": "storage_create_object_prefix"
     },
     {
       "annotations": {
@@ -3266,7 +1144,160 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_share_create"
+      "name": "storage_create_share"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Revoke an access grant",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/access/grant/{grant_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "grant_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "grant_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_delete_access_grant"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Delete a Shellui Actions webhook rule",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/rules/{id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_delete_action_rules"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Delete a connector mount",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector/{connector_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_delete_connector"
     },
     {
       "annotations": {
@@ -3317,7 +1348,1273 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_share_link_destroy"
+      "name": "storage_delete_link_share"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Delete many objects",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "paths": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "prefixes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/{bucket_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_delete_many_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Delete one object",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              },
+              "object_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id",
+              "object_path"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_delete_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Delete a folder prefix",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "prefix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "prefix"
+            ],
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/prefix/{bucket_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "prefix": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_delete_object_prefix"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Empty a storage bucket",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/bucket/{bucket_id}/empty",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_empty_bucket"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one webhook delivery",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/deliveries/{delivery_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "delivery_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_action_deliveries"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one domain event log entry",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/event-log/{id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "scope": {
+                "enum": [
+                  "company",
+                  "platform"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_action_event_log"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read event log retention settings",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/event-log/retention",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_action_event_log_retention"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one Shellui Actions webhook rule",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/rules/{id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_action_rules"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one storage bucket",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/bucket/{bucket_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_bucket"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one connector mount",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector/{connector_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_connector"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Download an object (authenticated alias)",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/authenticated/{bucket_id}/{object_path}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              },
+              "object_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id",
+              "object_path"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "download": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Resolve object by stable id",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/id/{object_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "object_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_object_id"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read object metadata",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/info/authenticated/{bucket_id}/{object_path}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              },
+              "object_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id",
+              "object_path"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_object_info"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Summarize a folder prefix",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/prefix/{bucket_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "prefix": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_object_prefix"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Download an object",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              },
+              "object_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id",
+              "object_path"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "download": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_public_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read quota usage",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/quota",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_quota"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read storage statistics",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/stats",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "days": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_get_stats"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List access grants",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/access/grant",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket": {
+                "type": "string"
+              },
+              "include_effective": {
+                "type": "string"
+              },
+              "resource_id": {
+                "type": "string"
+              },
+              "resource_type": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_access_grant"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List recent webhook deliveries",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/deliveries",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "action_rule_id": {
+                "type": "integer"
+              },
+              "company_id": {
+                "type": "integer"
+              },
+              "created_after": {
+                "type": "string"
+              },
+              "created_before": {
+                "type": "string"
+              },
+              "event_type": {
+                "type": "string"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "scheduled_job_run_id": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_action_deliveries"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List recent domain events for the company",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/event-log",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {
+              "created_after": {
+                "type": "string"
+              },
+              "created_before": {
+                "type": "string"
+              },
+              "event_type": {
+                "type": "string"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "scope": {
+                "enum": [
+                  "company",
+                  "platform"
+                ],
+                "type": "string"
+              },
+              "user": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_action_event_log"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List domain event type ids",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/event-log/types",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_action_event_log_types"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List Shellui Actions event types",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/events",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_action_events"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List Shellui Actions webhook rules",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/rules",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_action_rules"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List storage buckets",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/bucket",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_bucket"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List external connector mounts",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_list_connector"
     },
     {
       "annotations": {
@@ -3372,14 +2669,326 @@
         ],
         "type": "object"
       },
-      "name": "storage_v1_share_list"
+      "name": "storage_list_share"
     },
     {
       "annotations": {
         "destructiveHint": false,
-        "readOnlyHint": true
+        "readOnlyHint": false
       },
-      "description": "Read storage statistics",
+      "description": "Move an object",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "destinationKey": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string"
+              },
+              "sourceKey": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/move",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "storage_move_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Replace connector configuration (PUT)",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_provider": {
+                "type": "string"
+              },
+              "connector_settings": {
+                "additionalProperties": true,
+                "properties": {},
+                "type": "object"
+              },
+              "credential": {
+                "description": "Set a new credential, or null to clear.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "merge_settings": {
+                "description": "When true (default), body `connector_settings` merge into existing settings.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PUT"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector/{connector_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_replace_connector"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Upload or replace an object (PUT)",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "content_base64": {
+                "description": "File bytes as standard base64 (padding required). MCP object upload and replace use this field.",
+                "type": "string"
+              },
+              "content_type": {
+                "description": "MIME type stored on the object. Defaults to application/octet-stream.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "content_base64"
+            ],
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PUT"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              },
+              "object_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id",
+              "object_path"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_replace_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set company quota limits",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "max_bytes": {
+                "type": "integer"
+              },
+              "max_bytes_per_user": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PUT"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/quota/company/{company_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "company_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "company_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_replace_quota_company"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set per-user quota override",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "max_bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PUT"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/quota/company/{company_id}/user/{user_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "company_id": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "company_id",
+              "user_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_replace_quota_company_user"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Requeue a failed webhook delivery",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3390,31 +2999,422 @@
           },
           "method": {
             "enum": [
-              "GET"
+              "POST"
             ],
             "type": "string"
           },
           "path": {
-            "const": "/storage/v1/stats",
+            "const": "/api/v1/actions/deliveries/{delivery_id}/requeue",
             "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "delivery_id"
+            ],
+            "type": "object"
           },
           "query": {
             "additionalProperties": false,
-            "properties": {
-              "days": {
-                "type": "integer"
-              }
-            },
+            "properties": {},
             "type": "object"
           }
         },
         "required": [
           "path",
-          "method"
+          "method",
+          "path_params"
         ],
         "type": "object"
       },
-      "name": "storage_v1_stats_retrieve"
+      "name": "storage_requeue_action_deliveries"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Rotate a webhook signing secret. The new secret is shown once in admin, not to the agent.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/rules/{id}/rotate-secret",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_rotate_rule_secret"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Send a sample webhook for a rule",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/rules/{id}/send-test",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_send_test_rule"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a signed download URL (path in body)",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "expiresIn": {
+                "description": "Lifetime in seconds (Supabase-style).",
+                "type": "integer"
+              },
+              "expires_in": {
+                "description": "Alias for `expiresIn`.",
+                "type": "integer"
+              },
+              "path": {
+                "description": "Object path when not in the URL.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/sign/{bucket_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_sign_object"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a signed download URL",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "expiresIn": {
+                "description": "Lifetime in seconds (Supabase-style).",
+                "type": "integer"
+              },
+              "expires_in": {
+                "description": "Alias for `expiresIn`.",
+                "type": "integer"
+              },
+              "path": {
+                "description": "Object path when not in the URL.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "POST"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/object/sign/{bucket_id}/{object_path}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "bucket_id": {
+                "type": "string"
+              },
+              "object_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket_id",
+              "object_path"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_sign_object_path"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update a Shellui Actions webhook rule",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "allow_private_urls": {
+                "type": "boolean"
+              },
+              "authorization_header": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "event_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "secret": {
+                "type": "string"
+              },
+              "url": {
+                "format": "uri",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PATCH"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/api/v1/actions/rules/{id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_update_action_rules"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Patch connector configuration",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_provider": {
+                "type": "string"
+              },
+              "connector_settings": {
+                "additionalProperties": true,
+                "properties": {},
+                "type": "object"
+              },
+              "credential": {
+                "description": "Set a new credential, or null to clear.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "merge_settings": {
+                "description": "When true (default), body `connector_settings` merge into existing settings.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PATCH"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "const": "/storage/v1/connector/{connector_id}",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": false,
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "connector_id"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "path_params"
+        ],
+        "type": "object"
+      },
+      "name": "storage_update_connector"
     }
   ]
 }

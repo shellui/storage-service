@@ -29,6 +29,7 @@ from apps.storage.tests.test_mcp import (
     _mcp_host_kwargs,
     _signed_revocation_for_tests,
 )
+from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES, apply_published_tool_names
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.routing import McpToolArgumentError
 
@@ -137,9 +138,14 @@ class McpToolContractTests(TestCase):
 
     def test_tools_list_matches_snapshot(self):
         public_tools = self._tools_list()
-        internal = tools_from_schema(SchemaGenerator().get_schema(request=None, public=True))
+        internal = apply_published_tool_names(
+            tools_from_schema(SchemaGenerator().get_schema(request=None, public=True))
+        )
         self.assertEqual([tool['name'] for tool in public_tools], [tool['name'] for tool in internal])
-        self.assertEqual(set(tool['name'] for tool in public_tools), set(MCP_REQUIRED_OPERATION_IDS))
+        self.assertEqual(
+            {tool['name'] for tool in public_tools},
+            set(MCP_PUBLISHED_TOOL_NAMES.values()),
+        )
         for public, internal_tool in zip(public_tools, internal, strict=True):
             self.assertEqual(public['name'], internal_tool['name'])
             self.assertEqual(public['description'], internal_tool['description'])
@@ -154,9 +160,20 @@ class McpToolContractTests(TestCase):
         self.assertEqual(_canon(document), _canon(expected))
 
     def test_every_listed_tool_has_a_happy_path_test(self):
-        names = {tool['name'] for tool in self._tools_list()}
-        methods = {name[5:] for name in dir(McpToolHappyPathTests) if name.startswith('test_storage_') or name.startswith('test_api_')}
-        self.assertEqual(names, methods)
+        published_to_op = {published: op for op, published in MCP_PUBLISHED_TOOL_NAMES.items()}
+        ops = {published_to_op[tool['name']] for tool in self._tools_list()}
+        methods = {
+            name[5:]
+            for name in dir(McpToolHappyPathTests)
+            if name.startswith('test_storage_v1_') or name.startswith('test_api_v1_')
+        }
+        self.assertEqual(ops, methods)
+
+    def test_tool_names_use_storage_prefix(self):
+        for tool in self._tools_list():
+            name = tool['name']
+            self.assertFalse(name.startswith('api_v1_'), name)
+            self.assertTrue(name.startswith('storage_'), name)
 
     def test_nested_object_path_is_a_single_parameter(self):
         path = materialize_storage_mcp_path(
@@ -216,7 +233,10 @@ class McpToolHappyPathTests(TestCase):
             self.addCleanup(item.stop)
         self.call_log = started[1]
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        self.tools = {tool['name']: tool for tool in tools_from_schema(schema)}
+        self.tools = {
+            tool['_meta']['operationId']: tool
+            for tool in apply_published_tool_names(tools_from_schema(schema))
+        }
         self._seed()
 
     def _rest(self, method: str, path: str, *, body=None, content: bytes | None = None, content_type: str | None = None):
@@ -315,7 +335,7 @@ class McpToolHappyPathTests(TestCase):
             'jsonrpc': '2.0',
             'id': 1,
             'method': 'tools/call',
-            'params': {'name': name, 'arguments': arguments},
+            'params': {'name': tool['name'], 'arguments': arguments},
         }
         extra = []
         if name == 'api_v1_actions_rules_send_test':
@@ -702,7 +722,7 @@ class McpToolHappyPathTests(TestCase):
         self._exercise('storage_v1_bucket_list')
         self.assertTrue(self.call_log.called)
         posted = self.call_log.call_args.kwargs['json']
-        self.assertEqual(posted['tool'], 'storage_v1_bucket_list')
+        self.assertEqual(posted['tool'], 'storage_list_bucket')
         self.assertEqual(posted['method'], 'POST')
         self.assertEqual(posted['path'], '/mcp')
         self.assertEqual(posted['outcome'], 'allowed')

@@ -32,6 +32,7 @@ from apps.storage.mcp_assertions import (
     parse_grant_version,
     parse_global_company_id,
 )
+from apps.storage.mcp_tool_names import apply_published_tool_names
 from apps.storage.mcp_identity import (
     _UUID_RE,
     _registry_operation_for_call_log,
@@ -447,7 +448,7 @@ class StrictMcpServer:
             return JsonResponse(self._result(req_id, {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}}))
         if method == 'tools/list':
             schema = self.schema_provider()
-            tools = [public_mcp_tool(t) for t in tools_from_schema(schema)]
+            tools = [public_mcp_tool(t) for t in apply_published_tool_names(tools_from_schema(schema))]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
             return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
@@ -466,7 +467,7 @@ class StrictMcpServer:
         tool_name = str(params.get('name') or '')
         arguments = params.get('arguments') or {}
         schema = self.schema_provider()
-        tools = tools_from_schema(schema)
+        tools = apply_published_tool_names(tools_from_schema(schema))
         tool = next((t for t in tools if t['name'] == tool_name), None)
         if tool is None:
             return JsonResponse(self._error(req_id, -32602, 'Unknown tool'))

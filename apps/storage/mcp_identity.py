@@ -27,6 +27,7 @@ from apps.authapi.mcp_authority import (
     DelegatedAuthorityUnavailable,
     delegated_regional_authority_live_ok,
 )
+from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
     parse_global_agent_id,
@@ -732,7 +733,9 @@ def _registry_operation_for_call_log(
     op = p_item.get(str(http_method).lower())
     if not isinstance(op, dict):
         return None
-    if str(op.get('operationId') or '') != str(tool_name):
+    op_id = str(op.get('operationId') or '')
+    published = MCP_PUBLISHED_TOOL_NAMES.get(op_id)
+    if str(tool_name) not in {op_id, published}:
         return None
     summary = (op.get('summary') or '').strip()
     title = (summary[:256] if summary else str(tool_name))[:256]
