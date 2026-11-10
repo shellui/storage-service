@@ -224,15 +224,15 @@ MCP_SPECS: dict[str, _McpSpec] = {
     'api_v1_actions_rules_list': _McpSpec(
         'List Shellui Actions webhook rules',
         'Each rule posts signed HTTPS webhooks when a storage domain event fires. '
-        'Secrets are write-only except immediately after create or rotate.',
+        'The signing secret is shown once on the admin HTTP create or rotate response. MCP masks it.',
         'Read-only.',
     ),
     'api_v1_actions_rules_create': _McpSpec(
-        'Create a Shellui Actions webhook rule',
+        'Create a Shellui Actions webhook rule. The signing secret is shown once in admin, not to the agent.',
         'Creates an HTTPS webhook rule for a registered `event_type`. '
-        'Returns the signing `secret` once in the response body.',
+        'The admin HTTP response returns the signing `secret` once. MCP masks it.',
         'Inserts rule row and stores encrypted secret.',
-        notes='Store `secret` before closing the response. URL must be publicly reachable unless staff SSRF override is enabled.',
+        notes='Read the secret from the admin HTTP response before you close it. URL must be publicly reachable unless staff SSRF override is enabled.',
     ),
     'api_v1_actions_rules_retrieve': _McpSpec(
         'Read one Shellui Actions webhook rule',
@@ -250,10 +250,10 @@ MCP_SPECS: dict[str, _McpSpec] = {
         'Deletes the rule row.', destructive=True,
     ),
     'api_v1_actions_rules_rotate_secret': _McpSpec(
-        'Rotate a webhook signing secret',
-        'Generates a new HMAC secret and returns it once in the response body.',
+        'Rotate a webhook signing secret. The new secret is shown once in admin, not to the agent.',
+        'Generates a new HMAC secret. The admin HTTP response returns it once. MCP masks it.',
         'Updates encrypted secret on the rule.',
-        notes='Update your receiver before relying on the new secret.',
+        notes='Copy the new secret from the admin HTTP response, then update your receiver.',
     ),
     'api_v1_actions_rules_send_test': _McpSpec(
         'Send a sample webhook for a rule',

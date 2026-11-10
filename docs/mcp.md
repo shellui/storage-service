@@ -128,7 +128,7 @@ See [Buckets, folders, and files](buckets-and-objects.md), [Access grants](acces
 
 ## Shellui Actions tools (`/api/v1/actions/`)
 
-Webhook rules, deliveries, event types, and the company event log carry `x-mcp` when intended for agents. Signing secrets are write-only except immediately after create or rotate. See [Webhooks](actions.md).
+Webhook rules, deliveries, event types, and the company event log carry `x-mcp` when intended for agents. Signing secrets stay masked in MCP results. The admin HTTP create and rotate responses return the secret once. See [Webhooks](actions.md).
 
 ## Not available to agents
 
@@ -246,7 +246,7 @@ Downloads return JSON text with `content_base64`, `content_type`, and `size`. An
 
 `storage_v1_object_prefix_destroy` requires body `prefix`. The handler also reads query `prefix` when the body value is empty. The MCP schema still requires the body field.
 
-Create share, create webhook rule, and rotate webhook secret return the secret once (`token` or `secret`). Later reads omit it. `path_url` is redacted on every MCP response because the path contains the share token.
+Create share returns `token` once. Later reads omit it. Webhook signing secrets stay masked in MCP results. The admin HTTP create and rotate responses return `secret` once. `path_url` is redacted on every MCP response because the path contains the share token.
 
 `tools/list` sets `annotations.readOnlyHint` and `annotations.destructiveHint`. Destructive tools need a fresh approval before the call runs. Other writes run when `mcp_access` is `full`, and need approval when `mcp_access` is `ask`.
 

@@ -839,7 +839,7 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Create a Shellui Actions webhook rule",
+      "description": "Create a Shellui Actions webhook rule. The signing secret is shown once in admin, not to the agent.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1124,7 +1124,7 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Rotate a webhook signing secret",
+      "description": "Rotate a webhook signing secret. The new secret is shown once in admin, not to the agent.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

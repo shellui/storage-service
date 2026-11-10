@@ -667,14 +667,19 @@ class McpToolHappyPathTests(TestCase):
         self.assertNotIn(token, payload.get('path_url') or '')
 
     def _check_rule_create(self, payload):
-        secret = payload.get('secret')
-        self.assertTrue(secret and secret != '[redacted]')
         self.assertEqual(payload.get('name'), 'mcp-created-rule')
+        self.assertEqual(payload.get('secret'), '[redacted]')
+        self.assertNotIn('whsec_', json.dumps(payload))
+        stored = (ActionRule.objects.get(name='mcp-created-rule').config or {}).get('secret')
+        self.assertTrue(stored and stored != '[redacted]')
 
     def _check_rotate(self, payload):
-        secret = payload.get('secret')
-        self.assertTrue(secret and secret != '[redacted]')
-        self.assertNotEqual(secret, _RULE_SECRET)
+        self.assertEqual(payload.get('secret'), '[redacted]')
+        text = json.dumps(payload)
+        self.assertNotIn(_RULE_SECRET, text)
+        self.assertNotIn('whsec_', text)
+        stored = (ActionRule.objects.get(pk=self.rule.pk).config or {}).get('secret')
+        self.assertTrue(stored and stored not in {'[redacted]', _RULE_SECRET})
 
     def test_stats_safe_read_redacts_recent_filenames(self):
         token = _agent_token(company_id=_COMPANY, mcp_access='read_only', mcp_read='safe')

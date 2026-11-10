@@ -48,12 +48,11 @@ _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
 # MCP downloads return base64. Larger objects should use a signed URL.
 _MCP_BINARY_LIMIT_BYTES = 8 * 1024 * 1024
 
-# Create and rotate responses include a one-time secret. Later reads omit it.
-# shellui-django redacts every key named token/secret, including this first response.
+# Share create returns the token once. Webhook signing secrets stay masked in MCP
+# results, including on create and rotate. The admin HTTP response still returns
+# that secret once.
 _REVEAL_ONCE_FIELDS = {
     'storage_v1_share_create': ('token',),
-    'api_v1_actions_rules_create': ('secret',),
-    'api_v1_actions_rules_rotate_secret': ('secret',),
 }
 
 _STATS_FILENAME_KEYS = frozenset({'name', 'basename'})
