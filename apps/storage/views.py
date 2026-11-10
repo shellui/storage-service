@@ -70,6 +70,7 @@ from .serializers import (
     ObjectMoveRequestSerializer,
     ObjectMoveResponseSerializer,
     ObjectSerializer,
+    ObjectUploadJsonSerializer,
     ObjectUploadResponseSerializer,
     PrefixDeleteRequestSerializer,
     PrefixDeleteResponseSerializer,
@@ -612,7 +613,10 @@ class ObjectResourceView(APIView):
                 description='Set to `true` to replace an existing object at the same path.',
             ),
         ],
-        request={'application/octet-stream': OpenApiTypes.BINARY},
+        request={
+            'application/octet-stream': OpenApiTypes.BINARY,
+            'application/json': ObjectUploadJsonSerializer,
+        },
         responses={200: ObjectUploadResponseSerializer, **_API_ERRORS},
         **mcp_openapi_fields('storage_v1_object_create'),
     )
@@ -623,7 +627,10 @@ class ObjectResourceView(APIView):
         tags=['objects'],
         operation_id='storage_v1_object_update',
         parameters=[BUCKET_ID_PATH, OBJECT_PATH_PARAM],
-        request={'application/octet-stream': OpenApiTypes.BINARY},
+        request={
+            'application/octet-stream': OpenApiTypes.BINARY,
+            'application/json': ObjectUploadJsonSerializer,
+        },
         responses={200: ObjectUploadResponseSerializer, **_API_ERRORS},
         **mcp_openapi_fields('storage_v1_object_update'),
     )
@@ -665,6 +672,33 @@ class ObjectResourceView(APIView):
             if hasattr(request.data, 'get') and request.FILES:
                 fileobj = request.FILES.get('file') or next(iter(request.FILES.values()), None)
                 cache_control = request.data.get('cacheControl') or request.data.get('cache_control')
+
+            if fileobj is None and content_type and 'application/json' in content_type.split(';', 1)[0]:
+                from io import BytesIO
+
+                # AnyBinaryParser matches */* ahead of JSONParser, so request.data is the raw stream.
+                raw_body = request.body
+                if isinstance(raw_body, str):
+                    raw_body = raw_body.encode('utf-8')
+                try:
+                    payload = json.loads(raw_body.decode('utf-8') if raw_body else b'{}')
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    raise ValueError('JSON uploads require an object with content_base64.') from exc
+                if not isinstance(payload, dict) or 'content_base64' not in payload:
+                    raise ValueError('JSON uploads require content_base64.')
+                raw_b64 = payload.get('content_base64')
+                if not isinstance(raw_b64, str):
+                    raise ValueError('content_base64 must be a string.')
+                try:
+                    blob = base64.b64decode(raw_b64, validate=True)
+                except Exception as exc:
+                    raise ValueError('content_base64 is not valid base64.') from exc
+                fileobj = BytesIO(blob)
+                mime = payload.get('content_type')
+                if isinstance(mime, str) and mime.strip():
+                    content_type = mime.strip()
+                else:
+                    content_type = 'application/octet-stream'
 
             if fileobj is None:
                 if hasattr(request.data, 'read'):
@@ -934,7 +968,16 @@ class ObjectPrefixView(APIView):
     @extend_schema(
         tags=['objects'],
         operation_id='storage_v1_object_prefix_destroy',
-        parameters=[BUCKET_ID_PATH],
+        parameters=[
+            BUCKET_ID_PATH,
+            OpenApiParameter(
+                'prefix',
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Folder prefix to delete when the JSON body omits `prefix`.',
+            ),
+        ],
         request=PrefixDeleteRequestSerializer,
         responses={200: PrefixDeleteResponseSerializer, **_API_ERRORS},
         **mcp_openapi_fields('storage_v1_object_prefix_destroy'),

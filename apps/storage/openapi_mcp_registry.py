@@ -109,13 +109,15 @@ MCP_SPECS: dict[str, _McpSpec] = {
     ),
     'storage_v1_object_create': _McpSpec(
         'Upload an object (POST)',
-        'Creates a file at the path. Send raw bytes or multipart form with `file`. '
-        'Header `x-upsert: true` replaces an existing object.',
+        'Creates a file at the path. REST clients send raw bytes or multipart form with `file`. '
+        'MCP calls send JSON `content_base64` (standard base64) and optional `content_type`. '
+        'Header `x-upsert: true` replaces an existing object on REST. MCP replace uses the PUT upload tool.',
         'Writes object metadata and backend storage. Counts toward company quota.',
     ),
     'storage_v1_object_update': _McpSpec(
         'Upload or replace an object (PUT)',
-        'Upserts by default (Supabase-compatible). Same body shapes as POST upload.',
+        'Upserts by default (Supabase-compatible). REST body shapes match POST upload. '
+        'MCP calls send JSON `content_base64` and optional `content_type`.',
         'Writes or replaces object bytes and metadata.',
     ),
     'storage_v1_object_destroy': _McpSpec(

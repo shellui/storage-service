@@ -229,6 +229,27 @@ Operation ids match `tools/list` names. Examples:
 }
 ```
 
+## Tool arguments
+
+`tools/list` names match OpenAPI `operationId` values. Each input schema requires `path` and `method`. Copy both from the tool. When the path has parameters, send `path_params` too.
+
+`object_path` may contain `/`. Example: `notes/a.txt`.
+
+Object upload and replace (`storage_v1_object_create`, `storage_v1_object_update`) take a JSON body:
+
+- `content_base64`: file bytes as standard base64, with padding
+- `content_type`: optional MIME type (`application/octet-stream` when omitted)
+
+Downloads return JSON text with `content_base64`, `content_type`, and `size`. An object larger than 8 MB returns `object_too_large_for_mcp`. Call a sign tool and fetch that URL instead.
+
+`storage_v1_object_delete_many` takes `{ "prefixes": ["a.txt"] }` or `{ "paths": ["a.txt"] }`.
+
+`storage_v1_object_prefix_destroy` requires body `prefix`. The handler also reads query `prefix` when the body value is empty. The MCP schema still requires the body field.
+
+Create share, create webhook rule, and rotate webhook secret return the secret once (`token` or `secret`). Later reads omit it. `path_url` is redacted on every MCP response because the path contains the share token.
+
+`tools/list` sets `annotations.readOnlyHint` and `annotations.destructiveHint`. Destructive tools need a fresh approval before the call runs. Other writes run when `mcp_access` is `full`, and need approval when `mcp_access` is `ask`.
+
 ## Internal assertions to Identity
 
 Revocation polling, approvals, and call logs send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json` (same origin as this service). Identity must register that issuer; dynamic values such as `GITHUB_SHA` are not a substitute for the stable issuer string.
