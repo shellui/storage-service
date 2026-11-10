@@ -69,7 +69,9 @@ Personal regional tokens (no `global_company_id`) skip this live step. Configure
 - **Direct:** clients call this service at `POST {public origin}/mcp` (see `STORAGE_PUBLIC_URL`). Tools use paths such as `/storage/v1/...` from OpenAPI.
 - **Gateway:** regional Shellui gateways may expose MCP under a company-scoped prefix such as `…/c/{numeric_company_id}/mcp`. That is routing only. Tool names are `storage_<verb>_<noun>` (the same names the gateway publishes). OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. The bearer token still targets this service's resource URL (`…/mcp`) per RFC 8707.
 
-Company AI clients usually connect through the ai-service gateway (`/c/<company_id>/mcp`), whose `tools/list` defaults to a short discovery list (`ai_search_tools`, `ai_describe_tool`, `ai_call_tool`). A direct service `POST /mcp` still returns this service's full catalog.
+Company AI clients usually connect through the ai-service gateway (`/c/<company_id>/mcp`). The default `tools/list` is `ai_list_services`, `ai_search_tools`, `ai_describe_tool`, and `ai_call_tool`. It also includes one list read per connected service. For storage, that read is `storage_list_bucket`.
+
+Clients can request the full list with `?tools=all`. `ai_call_tool` uses the same approvals as a direct call. A direct service `POST /mcp` still returns this service's full catalog.
 
 ## Required agent token claims
 
