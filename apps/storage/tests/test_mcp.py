@@ -34,6 +34,21 @@ def _mcp_host_kwargs() -> dict[str, str]:
     return {'HTTP_HOST': '127.0.0.1'}
 
 
+def _grant_create_call_arguments(tool: dict) -> dict:
+    """Body must include AccessGrantCreate required fields or tools/call is rejected before approval."""
+    return {
+        'path': tool['_meta']['path'],
+        'method': tool['_meta']['method'],
+        'query': {},
+        'body': {
+            'subject_type': 'user',
+            'subject_id': '7',
+            'resource_type': 'object',
+            'resource_id': 'notes/a.txt',
+        },
+    }
+
+
 _DELEGATED_OK_GAI = '28e20f88-286e-46ea-858e-1d75bca615ff'
 
 
@@ -399,12 +414,7 @@ class McpEndpointTests(TestCase):
             'method': 'tools/call',
             'params': {
                 'name': tool['name'],
-                'arguments': {
-                    'path': tool['_meta']['path'],
-                    'method': tool['_meta']['method'],
-                    'query': {},
-                    'body': {},
-                },
+                'arguments': _grant_create_call_arguments(tool),
             },
         }
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
@@ -480,12 +490,7 @@ class McpEndpointTests(TestCase):
             'method': 'tools/call',
             'params': {
                 'name': tool['name'],
-                'arguments': {
-                    'path': tool['_meta']['path'],
-                    'method': tool['_meta']['method'],
-                    'query': {},
-                    'body': {},
-                },
+                'arguments': _grant_create_call_arguments(tool),
             },
         }
         row = {
