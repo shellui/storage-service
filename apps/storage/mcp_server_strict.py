@@ -17,7 +17,6 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from shellui_django.mcp.masking import redact_mapping
 from shellui_django.mcp.openapi_mcp import marker_tree_for_operation_response, marker_tree_for_schema
-from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.rate_limit import check_agent_rate_limit
 from shellui_django.mcp.routing import (
     McpToolArgumentError,
@@ -27,12 +26,12 @@ from shellui_django.mcp.routing import (
 )
 from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
 
+from apps.storage.mcp_tool_schema import coerce_mcp_call_arguments, published_mcp_tools
 from apps.storage.mcp_assertions import (
     parse_company_binding_version,
     parse_grant_version,
     parse_global_company_id,
 )
-from apps.storage.mcp_tool_names import apply_published_tool_names
 from apps.storage.mcp_identity import (
     _UUID_RE,
     _registry_operation_for_call_log,
@@ -448,7 +447,7 @@ class StrictMcpServer:
             return JsonResponse(self._result(req_id, {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}}))
         if method == 'tools/list':
             schema = self.schema_provider()
-            tools = [public_mcp_tool(t) for t in apply_published_tool_names(tools_from_schema(schema))]
+            tools = [public_mcp_tool(t) for t in published_mcp_tools(schema)]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
             return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
@@ -465,14 +464,20 @@ class StrictMcpServer:
     ) -> JsonResponse:
         started = time.perf_counter()
         tool_name = str(params.get('name') or '')
-        arguments = params.get('arguments') or {}
+        raw_arguments = params.get('arguments')
+        if raw_arguments is None:
+            raw_arguments = {}
         schema = self.schema_provider()
-        tools = apply_published_tool_names(tools_from_schema(schema))
+        tools = published_mcp_tools(schema)
         tool = next((t for t in tools if t['name'] == tool_name), None)
         if tool is None:
             return JsonResponse(self._error(req_id, -32602, 'Unknown tool'))
         meta = tool.get('_meta') or {}
         path_template = str(meta.get('path') or '')
+        try:
+            arguments = coerce_mcp_call_arguments(raw_arguments, meta)
+        except McpToolArgumentError as exc:
+            return JsonResponse(self._error(req_id, -32602, str(exc)))
         path = str(arguments.get('path') or path_template)
         method = str(arguments.get('method') or meta.get('method') or 'GET').upper()
         if path != path_template or method != meta.get('method'):
@@ -482,9 +487,8 @@ class StrictMcpServer:
         if not registry_valid:
             return JsonResponse(self._error(req_id, -32602, 'Tool registry mismatch'))
         try:
-            raw_arguments = arguments if isinstance(arguments, dict) else {}
-            validate_mcp_tool_arguments(_library_validation_arguments(raw_arguments), meta)
-            path_params = raw_arguments.get('path_params') if isinstance(raw_arguments.get('path_params'), dict) else {}
+            validate_mcp_tool_arguments(_library_validation_arguments(arguments), meta)
+            path_params = arguments.get('path_params') if isinstance(arguments.get('path_params'), dict) else {}
             resolved_path = materialize_storage_mcp_path(path_template, path_params)
         except McpToolArgumentError as exc:
             return JsonResponse(self._error(req_id, -32602, str(exc)))

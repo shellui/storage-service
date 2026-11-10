@@ -29,8 +29,8 @@ from apps.storage.tests.test_mcp import (
     _mcp_host_kwargs,
     _signed_revocation_for_tests,
 )
-from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES, apply_published_tool_names
-from shellui_django.mcp.openapi_tools import tools_from_schema
+from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES
+from apps.storage.mcp_tool_schema import published_mcp_tools
 from shellui_django.mcp.routing import McpToolArgumentError
 
 _FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'mcp_tools_contract.json'
@@ -138,9 +138,7 @@ class McpToolContractTests(TestCase):
 
     def test_tools_list_matches_snapshot(self):
         public_tools = self._tools_list()
-        internal = apply_published_tool_names(
-            tools_from_schema(SchemaGenerator().get_schema(request=None, public=True))
-        )
+        internal = published_mcp_tools(SchemaGenerator().get_schema(request=None, public=True))
         self.assertEqual([tool['name'] for tool in public_tools], [tool['name'] for tool in internal])
         self.assertEqual(
             {tool['name'] for tool in public_tools},
@@ -185,6 +183,52 @@ class McpToolContractTests(TestCase):
     def test_bucket_id_rejects_a_slash(self):
         with self.assertRaises(McpToolArgumentError):
             materialize_storage_mcp_path('/storage/v1/bucket/{bucket_id}', {'bucket_id': 'a/b'})
+
+    def test_unknown_flat_argument_is_rejected(self):
+        response = self.client.post(
+            '/mcp',
+            data=json.dumps(
+                {
+                    'jsonrpc': '2.0',
+                    'id': 9,
+                    'method': 'tools/call',
+                    'params': {'name': 'storage_list_bucket', 'arguments': {'method': 'GET'}},
+                }
+            ),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {self.token}',
+            **_mcp_host_kwargs(),
+        )
+        self.assertEqual(response.status_code, 200, response.content[:500])
+        self.assertEqual(response.json()['error']['code'], -32602)
+
+    def test_legacy_method_path_envelope_still_runs(self):
+        response = self.client.post(
+            '/mcp',
+            data=json.dumps(
+                {
+                    'jsonrpc': '2.0',
+                    'id': 10,
+                    'method': 'tools/call',
+                    'params': {
+                        'name': 'storage_list_bucket',
+                        'arguments': {
+                            'path': '/storage/v1/bucket',
+                            'method': 'GET',
+                            'query': {},
+                            'body': {},
+                        },
+                    },
+                }
+            ),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {self.token}',
+            **_mcp_host_kwargs(),
+        )
+        self.assertEqual(response.status_code, 200, response.content[:500])
+        body = response.json()
+        self.assertIn('result', body, body)
+        self.assertFalse(body['result'].get('isError'), body['result'])
 
 
 @override_settings(
@@ -235,7 +279,7 @@ class McpToolHappyPathTests(TestCase):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         self.tools = {
             tool['_meta']['operationId']: tool
-            for tool in apply_published_tool_names(tools_from_schema(schema))
+            for tool in published_mcp_tools(schema)
         }
         self._seed()
 
@@ -322,15 +366,13 @@ class McpToolHappyPathTests(TestCase):
 
     def _call(self, name: str, *, path_params=None, query=None, body=None, token: str | None = None):
         tool = self.tools[name]
-        meta = tool['_meta']
-        arguments = {
-            'path': meta['path'],
-            'method': meta['method'],
-            'query': query or {},
-            'body': body or {},
-        }
-        if meta.get('path_params'):
-            arguments['path_params'] = path_params or {}
+        arguments: dict = {}
+        if path_params:
+            arguments.update(path_params)
+        if query:
+            arguments.update(query)
+        if body:
+            arguments.update(body)
         payload = {
             'jsonrpc': '2.0',
             'id': 1,

@@ -182,12 +182,7 @@ Published MCP names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI 
   "method": "tools/call",
   "params": {
     "name": "storage_list_bucket",
-    "arguments": {
-      "path": "/storage/v1/bucket",
-      "method": "GET",
-      "query": {},
-      "body": {}
-    }
+    "arguments": {}
   }
 }
 ```
@@ -202,11 +197,9 @@ Published MCP names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI 
   "params": {
     "name": "storage_create_object_list",
     "arguments": {
-      "path": "/storage/v1/object/list/{bucket_id}",
-      "method": "POST",
-      "path_params": {"bucket_id": "company"},
-      "query": {},
-      "body": {"prefix": "", "limit": 50}
+      "bucket_id": "company",
+      "prefix": "",
+      "limit": 50
     }
   }
 }
@@ -222,14 +215,9 @@ Published MCP names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI 
   "params": {
     "name": "storage_create_connector",
     "arguments": {
-      "path": "/storage/v1/connector",
-      "method": "POST",
-      "query": {},
-      "body": {
-        "name": "backup",
-        "connector_provider": "s3",
-        "connector_settings": {}
-      }
+      "name": "backup",
+      "connector_provider": "s3",
+      "connector_settings": {}
     }
   }
 }
@@ -237,7 +225,7 @@ Published MCP names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI 
 
 ## Tool arguments
 
-`tools/list` names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. Each input schema requires `path` and `method`. Copy both from the tool. When the path has parameters, send `path_params` too.
+`tools/list` names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. Arguments are the path, query, and body fields in one object. Do not send HTTP method, URL, `query`, `body`, or `path_params`. A field with a fixed set of values has `enum` and a short description. Required fields are the required path fields and required body fields.
 
 `object_path` may contain `/`. Example: `notes/a.txt`.
 
