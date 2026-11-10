@@ -19,6 +19,7 @@ from apps.storage.tests.rs256_helpers import (
     signed_revocation_poll_response_body,
 )
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
+from apps.storage.mcp_tool_names import apply_published_tool_names
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
 
@@ -346,8 +347,8 @@ class McpEndpointTests(TestCase):
 
     def test_read_only_blocks_write_tool(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        tools = tools_from_schema(schema)
-        write_tool = next(t for t in tools if t['name'] == 'storage_v1_object_destroy')
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        write_tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_object_destroy')
         token = _agent_token(mcp_access=ACCESS_READ_ONLY)
         claims = jwt.decode(token, options={'verify_signature': False})
         aid = str(claims['agent_id'])
@@ -397,8 +398,8 @@ class McpEndpointTests(TestCase):
         )
         self.assertTrue(decision.needs_approval)
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        tools = tools_from_schema(schema)
-        tool = next(t for t in tools if t['name'] == 'storage_v1_access_grant_create')
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_access_grant_create')
         token = _agent_token(
             mcp_access=ACCESS_ASK,
             grant_version=0,
@@ -470,8 +471,8 @@ class McpEndpointTests(TestCase):
 
     def test_ask_approval_create_pending_approve_consume_reuse_revoke(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        tools = tools_from_schema(schema)
-        tool = next(t for t in tools if t['name'] == 'storage_v1_access_grant_create')
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_access_grant_create')
         agent_id = str(uuid.uuid4())
         company_id = 10
         appr_id = str(uuid.uuid4())

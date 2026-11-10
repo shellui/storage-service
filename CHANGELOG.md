@@ -14,6 +14,7 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 - MCP `tools/call` JSON-encodes object bodies, allows `/` in `object_path`, and returns download bytes as base64. Uploads accept `content_base64`.
 - OpenAPI keeps the JSON body on delete-many and prefix delete, so those MCP tools accept `prefixes`, `paths`, and `prefix`.
 - MCP returns the share `token` once on create. Webhook signing secrets stay masked. `path_url` stays redacted. Signed URLs and recent stats filenames follow `mcp_read`.
+- MCP tool names are `storage_<verb>_<noun>` (the names the ai-service gateway publishes). OpenAPI `operationId` values are unchanged. This service does not store tool names, so there is no data migration.
 
 ### 🏗 Chore
 

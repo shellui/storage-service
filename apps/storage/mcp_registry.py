@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from apps.authapi.mcp_openapi import mcp_tool
+from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES
 
 
 def register_storage_mcp_tools() -> None:
-    read = lambda op, **kw: mcp_tool(operation_id=op, read_only=True, **kw)  # noqa: E731
-    write = lambda op, **kw: mcp_tool(operation_id=op, read_only=False, **kw)  # noqa: E731
+    def read(op: str, **kw):
+        return mcp_tool(operation_id=op, read_only=True, tool_name=MCP_PUBLISHED_TOOL_NAMES[op], **kw)
+
+    def write(op: str, **kw):
+        return mcp_tool(operation_id=op, read_only=False, tool_name=MCP_PUBLISHED_TOOL_NAMES[op], **kw)
 
     read('storage_v1_bucket_list')
     read('storage_v1_bucket_retrieve')
