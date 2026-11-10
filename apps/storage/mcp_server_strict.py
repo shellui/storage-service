@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
 import time
+from datetime import date, datetime
+from decimal import Decimal
+from uuid import UUID
 from collections.abc import Callable
 from typing import Any
 from django.http import HttpRequest, JsonResponse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from shellui_django.mcp.masking import redact_mapping
-from shellui_django.mcp.openapi_mcp import marker_tree_for_operation_response
+from shellui_django.mcp.openapi_mcp import marker_tree_for_operation_response, marker_tree_for_schema
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.rate_limit import check_agent_rate_limit
-from shellui_django.mcp.routing import McpToolArgumentError, materialize_openapi_path, validate_mcp_tool_arguments
+from shellui_django.mcp.routing import (
+    McpToolArgumentError,
+    materialize_openapi_path,
+    path_parameter_names,
+    validate_mcp_tool_arguments,
+)
 from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
 
 from apps.storage.mcp_assertions import (
@@ -35,6 +44,18 @@ from apps.storage.mcp_identity import (
 logger = logging.getLogger(__name__)
 
 _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
+
+# MCP downloads return base64. Larger objects should use a signed URL.
+_MCP_BINARY_LIMIT_BYTES = 8 * 1024 * 1024
+
+# Share create returns the token once. Webhook signing secrets stay masked in MCP
+# results, including on create and rotate. The admin HTTP response still returns
+# that secret once.
+_REVEAL_ONCE_FIELDS = {
+    'storage_v1_share_create': ('token',),
+}
+
+_STATS_FILENAME_KEYS = frozenset({'name', 'basename'})
 
 # AI gateway and Shellui Identity error taxonomy (audit ``error.code`` and MCP JSON-RPC layer).
 AUDIT_ERROR_CODES = frozenset(
@@ -111,6 +132,197 @@ def _http_status_bucket(status_code: int) -> str:
     if status_code >= 500:
         return 'internal_error'
     return 'unknown'
+
+
+def public_mcp_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    """Tool object returned by ``tools/list`` (no private ``_meta``)."""
+    public = {k: v for k, v in tool.items() if not str(k).startswith('_')}
+    meta = tool.get('_meta') or {}
+    public['annotations'] = {
+        'readOnlyHint': bool(meta.get('read_only')),
+        'destructiveHint': bool(meta.get('destructive')),
+    }
+    return public
+
+
+def _library_validation_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Copy arguments so nested ``object_path`` values pass the shared slash check.
+
+    The shared helper rejects ``/`` in every path parameter. ``object_path`` is a
+    catch-all segment on the storage routes, so the real substitution happens in
+    ``materialize_storage_mcp_path``.
+    """
+    cloned = dict(arguments)
+    path_params = cloned.get('path_params')
+    if isinstance(path_params, dict) and 'object_path' in path_params:
+        params = dict(path_params)
+        raw = params.get('object_path')
+        if isinstance(raw, str):
+            params['object_path'] = raw.replace('/', '_')
+        cloned['path_params'] = params
+    return cloned
+
+
+def materialize_storage_mcp_path(path_template: str, path_params: dict[str, Any]) -> str:
+    """Substitute path parameters. ``object_path`` may contain ``/``."""
+    names = path_parameter_names(path_template)
+    if not isinstance(path_params, dict):
+        raise McpToolArgumentError('path_params must be an object.')
+    if set(path_params.keys()) != set(names):
+        return materialize_openapi_path(path_template, path_params)
+    resolved = path_template
+    for name in names:
+        raw = path_params[name]
+        if raw is None:
+            raise McpToolArgumentError(f'Path parameter {name} is required.')
+        text = str(raw).strip()
+        if not text:
+            raise McpToolArgumentError(f'Path parameter {name} is required.')
+        if any(ord(ch) < 32 for ch in text) or '{' in text or '}' in text or '?' in text or '#' in text:
+            raise McpToolArgumentError(f'Path parameter {name} is invalid.')
+        if name == 'object_path':
+            if not text.strip('/'):
+                raise McpToolArgumentError('Path parameter object_path is required.')
+            if '\\' in text:
+                raise McpToolArgumentError('Path parameter object_path is invalid.')
+        elif '/' in text:
+            raise McpToolArgumentError(f'Path parameter {name} is invalid.')
+        token = '{' + name + '}'
+        if token not in resolved:
+            raise McpToolArgumentError('Unresolved path template.')
+        resolved = resolved.replace(token, text, 1)
+    if path_parameter_names(resolved):
+        raise McpToolArgumentError('Unresolved path template.')
+    return resolved
+
+
+def _response_markers(operation: dict[str, Any] | None, schema: dict[str, Any], data: Any) -> tuple[Any, dict[str, Any]]:
+    """Return ``(payload, markers)`` for redaction.
+
+    List bodies are wrapped as ``{"result": [...]}`` so item field markers apply.
+    """
+    if isinstance(data, dict):
+        return data, marker_tree_for_operation_response(operation, schema)
+    # shellui-django redacts a list item by looking up the parent key inside the
+    # item markers. Nest the field markers under that same key so path_url is covered.
+    item_markers = _array_item_markers(operation, schema)
+    nested = {
+        'result': {
+            'secret': False,
+            'sensitive': False,
+            'children': item_markers,
+        }
+    }
+    wrapped_markers = {
+        'result': {'secret': False, 'sensitive': False, 'children': nested},
+    }
+    return {'result': data}, wrapped_markers
+
+
+def _array_item_markers(operation: dict[str, Any] | None, schema: dict[str, Any]) -> dict[str, Any]:
+    responses = (operation or {}).get('responses') or {}
+    if not isinstance(responses, dict):
+        return {}
+    for status_code in ('200', '201', '202', '204'):
+        response = responses.get(status_code)
+        if not isinstance(response, dict):
+            continue
+        content = response.get('content') or {}
+        if not isinstance(content, dict):
+            continue
+        json_schema = (content.get('application/json') or {}).get('schema')
+        if not isinstance(json_schema, dict):
+            continue
+        synthetic = {'type': 'object', 'properties': {'result': json_schema}}
+        wrapped = marker_tree_for_schema(synthetic, schema)
+        node = wrapped.get('result') if isinstance(wrapped, dict) else None
+        children = node.get('children') if isinstance(node, dict) else None
+        if isinstance(children, dict):
+            return children
+    return {}
+
+
+def _redact_stats_filenames(data: Any, *, read_sensitive: bool) -> Any:
+    if read_sensitive or not isinstance(data, dict):
+        return data
+    recent = data.get('recent')
+    if not isinstance(recent, list):
+        return data
+    cleaned = []
+    for row in recent:
+        if isinstance(row, dict):
+            row = dict(row)
+            for key in _STATS_FILENAME_KEYS:
+                if key in row and row[key] not in (None, ''):
+                    row[key] = '[redacted]'
+        cleaned.append(row)
+    data = dict(data)
+    data['recent'] = cleaned
+    return data
+
+
+def _reveal_once_secrets(operation_id: str, original: Any, redacted: dict[str, Any]) -> dict[str, Any]:
+    fields = _REVEAL_ONCE_FIELDS.get(operation_id)
+    if not fields or not isinstance(original, dict):
+        return redacted
+    restored = dict(redacted)
+    for key in fields:
+        value = original.get(key)
+        if isinstance(value, str) and value and value != '[redacted]':
+            restored[key] = value
+    return restored
+
+
+def _binary_mcp_payload(response: Any) -> dict[str, Any]:
+    content_type = str(response.get('Content-Type') or 'application/octet-stream').split(';', 1)[0].strip()
+    declared = response.get('Content-Length')
+    try:
+        declared_len = int(declared) if declared is not None else None
+    except (TypeError, ValueError):
+        declared_len = None
+    if declared_len is not None and declared_len > _MCP_BINARY_LIMIT_BYTES:
+        closer = getattr(response, 'close', None)
+        if callable(closer):
+            closer()
+        return {
+            'error': 'object_too_large_for_mcp',
+            'size': declared_len,
+            'content_type': content_type,
+        }
+    if getattr(response, 'streaming', False):
+        raw = b''.join(response.streaming_content)
+    else:
+        raw = bytes(response.content or b'')
+    closer = getattr(response, 'close', None)
+    if callable(closer):
+        closer()
+    if len(raw) > _MCP_BINARY_LIMIT_BYTES:
+        return {
+            'error': 'object_too_large_for_mcp',
+            'size': len(raw),
+            'content_type': content_type,
+        }
+    payload = {
+        'content_type': content_type,
+        'content_base64': base64.b64encode(raw).decode('ascii'),
+        'size': len(raw),
+    }
+    disposition = response.get('Content-Disposition')
+    if disposition:
+        payload['content_disposition'] = str(disposition)
+    return payload
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    raise TypeError(f'Object of type {type(value).__name__} is not JSON serializable')
 
 
 def _tool_operation_summary(tool: dict[str, Any], schema: dict[str, Any]) -> str:
@@ -235,7 +447,7 @@ class StrictMcpServer:
             return JsonResponse(self._result(req_id, {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}}))
         if method == 'tools/list':
             schema = self.schema_provider()
-            tools = [{k: v for k, v in t.items() if not k.startswith('_')} for t in tools_from_schema(schema)]
+            tools = [public_mcp_tool(t) for t in tools_from_schema(schema)]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
             return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
@@ -269,9 +481,10 @@ class StrictMcpServer:
         if not registry_valid:
             return JsonResponse(self._error(req_id, -32602, 'Tool registry mismatch'))
         try:
-            validate_mcp_tool_arguments(arguments if isinstance(arguments, dict) else {}, meta)
-            path_params = arguments.get('path_params') if isinstance(arguments.get('path_params'), dict) else {}
-            resolved_path = materialize_openapi_path(path_template, path_params)
+            raw_arguments = arguments if isinstance(arguments, dict) else {}
+            validate_mcp_tool_arguments(_library_validation_arguments(raw_arguments), meta)
+            path_params = raw_arguments.get('path_params') if isinstance(raw_arguments.get('path_params'), dict) else {}
+            resolved_path = materialize_storage_mcp_path(path_template, path_params)
         except McpToolArgumentError as exc:
             return JsonResponse(self._error(req_id, -32602, str(exc)))
 
@@ -640,7 +853,13 @@ class StrictMcpServer:
         }
         if method not in _BODYLESS_METHODS:
             body = arguments.get('body')
-            inner_kwargs['data'] = body if body is not None else {}
+            if body is None:
+                body = {}
+            if not isinstance(body, dict):
+                return JsonResponse(self._error(req_id, -32602, 'body must be an object.'))
+            # APIRequestFactory.generic stringifies a dict. Views need JSON bytes.
+            inner_kwargs['data'] = json.dumps(body).encode('utf-8')
+            inner_kwargs['content_type'] = 'application/json'
         drf_request = self._factory.generic(method, resolved_path, **inner_kwargs)
         self._attach_request_principal(drf_request, request, agent_claims)
         from django.urls import resolve
@@ -648,17 +867,24 @@ class StrictMcpServer:
         match = resolve(resolved_path, urlconf=self.urlconf)
         response = match.func(drf_request, *match.args, **match.kwargs)
         status_code = getattr(response, 'status_code', 500)
-        try:
+        if hasattr(response, 'data'):
             data = response.data  # type: ignore[attr-defined]
-        except AttributeError:
-            data = {'detail': 'ok'}
+        else:
+            data = _binary_mcp_payload(response)
         eff_status = _inner_response_effective_status(status_code=status_code, data=data)
         read_sensitive = read_level == 'sensitive'
+        if registry_op_id == 'storage_v1_stats_retrieve':
+            data = _redact_stats_filenames(data, read_sensitive=read_sensitive)
+        payload_for_redact, redact_markers = _response_markers(operation, schema, data)
+        if response_markers and isinstance(data, dict):
+            redact_markers = response_markers
         redacted = redact_mapping(
-            data if isinstance(data, dict) else {'result': data},
+            payload_for_redact,
             read_sensitive=read_sensitive,
-            markers=response_markers,
+            markers=redact_markers,
         )
+        if eff_status < 400:
+            redacted = _reveal_once_secrets(registry_op_id, data if isinstance(data, dict) else None, redacted)
         inner_fail = _inner_response_failed(status_code=status_code, data=data)
         http_outcome = 'failed' if eff_status >= 400 else 'allowed'
         cons_approval_id = consumed_approval_id or (
@@ -687,7 +913,7 @@ class StrictMcpServer:
             self._result(
                 req_id,
                 {
-                    'content': [{'type': 'text', 'text': json.dumps(redacted)}],
+                    'content': [{'type': 'text', 'text': json.dumps(redacted, default=_json_default)}],
                     'isError': eff_status >= 400,
                 },
             )

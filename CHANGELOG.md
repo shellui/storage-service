@@ -11,6 +11,9 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 ### 🐛 Bug Fixes - for any bug fixes
 
 - MCP: a destructive approval open sends `is_destructive: true`, so Identity can store the call log for that approval after it is consumed.
+- MCP `tools/call` JSON-encodes object bodies, allows `/` in `object_path`, and returns download bytes as base64. Uploads accept `content_base64`.
+- OpenAPI keeps the JSON body on delete-many and prefix delete, so those MCP tools accept `prefixes`, `paths`, and `prefix`.
+- MCP returns the share `token` once on create. Webhook signing secrets stay masked. `path_url` stays redacted. Signed URLs and recent stats filenames follow `mcp_read`.
 
 ### 🏗 Chore
 

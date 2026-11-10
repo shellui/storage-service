@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from apps.authapi.mcp_fields import McpSecretCharField
+from apps.authapi.mcp_fields import McpSecretCharField, McpSensitiveCharField
 
 from .models import BucketKind, StorageAccessGrant
 
@@ -143,6 +143,20 @@ class ObjectUploadResponseSerializer(serializers.Serializer):
     Key = serializers.CharField()
 
 
+class ObjectUploadJsonSerializer(serializers.Serializer):
+    """JSON body for MCP uploads. REST may still send raw bytes."""
+
+    content_base64 = serializers.CharField(
+        allow_blank=True,
+        help_text='File bytes as standard base64 (padding required). MCP object upload and replace use this field.',
+    )
+    content_type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='MIME type stored on the object. Defaults to application/octet-stream.',
+    )
+
+
 class ObjectListRequestSerializer(serializers.Serializer):
     prefix = serializers.CharField(
         required=False,
@@ -180,6 +194,12 @@ class PrefixRenameRequestSerializer(serializers.Serializer):
     destination = serializers.CharField(required=False)
     to = serializers.CharField(required=False)
 
+    def get_fields(self):
+        fields = super().get_fields()
+        # JSON key matches the handler (`from` or `source`).
+        fields['from'] = serializers.CharField(required=False)
+        return fields
+
 
 class PrefixRenameResponseSerializer(serializers.Serializer):
     moved = serializers.IntegerField()
@@ -211,6 +231,11 @@ class ObjectMoveRequestSerializer(serializers.Serializer):
     destinationKey = serializers.CharField(required=False)
     to = serializers.CharField(required=False)
 
+    def get_fields(self):
+        fields = super().get_fields()
+        fields['from'] = serializers.CharField(required=False)
+        return fields
+
 
 class ObjectMoveResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
@@ -228,8 +253,8 @@ class SignRequestSerializer(serializers.Serializer):
 
 
 class SignedUrlSerializer(serializers.Serializer):
-    signedURL = serializers.CharField()
-    signedUrl = serializers.CharField()
+    signedURL = McpSensitiveCharField()
+    signedUrl = McpSensitiveCharField()
 
 
 class QuotaBytesSerializer(serializers.Serializer):
@@ -319,7 +344,7 @@ class ShareLinkSerializer(serializers.Serializer):
     created_at = serializers.CharField()
     notes = serializers.CharField()
     active = serializers.BooleanField()
-    path_url = serializers.CharField()
+    path_url = McpSecretCharField()
     token = McpSecretCharField(required=False)
 
 

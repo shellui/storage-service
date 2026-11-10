@@ -33,7 +33,15 @@ class StorageError(Exception):
 
 
 def _save_blob(storage_key: str, data: bytes) -> None:
+    """Write ``data`` at ``storage_key``, replacing any previous bytes.
+
+    Django's filesystem backend refuses to overwrite (``allow_overwrite`` defaults
+    off) and stores the new bytes under a different name. Callers keep the original
+    key, so a replace must delete first.
+    """
     try:
+        if default_storage.exists(storage_key):
+            default_storage.delete(storage_key)
         default_storage.save(storage_key, ContentFile(data))
     except Exception as exc:
         raise _blob_write_error(exc) from exc
