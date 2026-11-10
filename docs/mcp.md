@@ -6,6 +6,8 @@ description: Company-owner storage APIs that Shellui MCP agents may call, and ho
 
 # Shellui MCP
 
+MCP is in Beta. Tool names and behavior may still change.
+
 Shellui MCP exposes company-scoped storage HTTP APIs as tools. storage-service implements `POST /mcp` (Streamable HTTP JSON-RPC). Identity issues OAuth tokens; this service publishes OpenAPI with `x-mcp` extensions and OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`.
 
 Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions.
@@ -66,6 +68,8 @@ Personal regional tokens (no `global_company_id`) skip this live step. Configure
 
 - **Direct:** clients call this service at `POST {public origin}/mcp` (see `STORAGE_PUBLIC_URL`). Tools use paths such as `/storage/v1/...` from OpenAPI.
 - **Gateway:** regional Shellui gateways may expose MCP under a company-scoped prefix such as `…/c/{numeric_company_id}/mcp`. That is routing only. Tool names are `storage_<verb>_<noun>` (the same names the gateway publishes). OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. The bearer token still targets this service's resource URL (`…/mcp`) per RFC 8707.
+
+Company AI clients usually connect through the ai-service gateway (`/c/<company_id>/mcp`), whose `tools/list` defaults to a short discovery list (`ai_search_tools`, `ai_describe_tool`, `ai_call_tool`). A direct service `POST /mcp` still returns this service's full catalog.
 
 ## Required agent token claims
 
@@ -165,7 +169,7 @@ Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity
 
 ### Example tools (from OpenAPI)
 
-Operation ids match `tools/list` names. Examples:
+Published MCP names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. Examples:
 
 **List buckets** (`storage_list_bucket`): `GET /storage/v1/bucket`. The default bucket id is `company` (auto-created). **Create bucket** (`storage_v1_bucket_create`, not an MCP tool) may respond with `bucket_create_disabled` when custom buckets are not enabled for the company.
 
@@ -231,7 +235,7 @@ Operation ids match `tools/list` names. Examples:
 
 ## Tool arguments
 
-`tools/list` names match OpenAPI `operationId` values. Each input schema requires `path` and `method`. Copy both from the tool. When the path has parameters, send `path_params` too.
+`tools/list` names are `storage_<verb>_<noun>` from `x-mcp.tool_name`. OpenAPI `operationId` values stay `storage_v1_*` and `api_v1_*`. Each input schema requires `path` and `method`. Copy both from the tool. When the path has parameters, send `path_params` too.
 
 `object_path` may contain `/`. Example: `notes/a.txt`.
 
