@@ -7,6 +7,9 @@ from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES
 
 
 def register_storage_mcp_tools() -> None:
+    # destructiveHint: delete, overwrite a value that cannot be read back, public
+    # access, a send to an outside party, a delivery re-send, or secret rotation.
+    # Creating or updating a Shellui Actions webhook rule is not destructive.
     def read(op: str, **kw):
         return mcp_tool(operation_id=op, read_only=True, tool_name=MCP_PUBLISHED_TOOL_NAMES[op], **kw)
 
@@ -20,8 +23,8 @@ def register_storage_mcp_tools() -> None:
     read('storage_v1_connector_list')
     read('storage_v1_connector_retrieve')
     write('storage_v1_connector_create', sensitive=True)
-    write('storage_v1_connector_update', sensitive=True)
-    write('storage_v1_connector_partial_update', sensitive=True)
+    write('storage_v1_connector_update', sensitive=True, destructive=True)
+    write('storage_v1_connector_partial_update', sensitive=True, destructive=True)
     write('storage_v1_connector_destroy', destructive=True)
     write('storage_v1_connector_configuration_check_create', sensitive=True)
     write('storage_v1_connector_configuration_validate_create', sensitive=True)
@@ -41,15 +44,15 @@ def register_storage_mcp_tools() -> None:
     write('storage_v1_object_prefix_destroy', destructive=True)
     write('storage_v1_object_move_create')
     write('storage_v1_object_copy_create')
-    write('storage_v1_object_sign_create', sensitive=True)
-    write('storage_v1_object_sign_path_create', sensitive=True)
+    write('storage_v1_object_sign_create', sensitive=True, destructive=True)
+    write('storage_v1_object_sign_path_create', sensitive=True, destructive=True)
 
     read('storage_v1_access_grant_list')
     write('storage_v1_access_grant_create')
     write('storage_v1_access_grant_destroy', destructive=True)
 
     read('storage_v1_share_list')
-    write('storage_v1_share_create', sensitive=True)
+    write('storage_v1_share_create', sensitive=True, destructive=True)
     write('storage_v1_share_link_destroy', destructive=True)
 
     read('storage_v1_quota_retrieve')
@@ -64,11 +67,11 @@ def register_storage_mcp_tools() -> None:
     read('api_v1_actions_rules_retrieve', sensitive=True)
     write('api_v1_actions_rules_partial_update', sensitive=True)
     write('api_v1_actions_rules_destroy', destructive=True, sensitive=True)
-    write('api_v1_actions_rules_rotate_secret', sensitive=True)
-    write('api_v1_actions_rules_send_test', sensitive=True)
+    write('api_v1_actions_rules_rotate_secret', sensitive=True, destructive=True)
+    write('api_v1_actions_rules_send_test', sensitive=True, destructive=True)
     read('api_v1_actions_deliveries_list', sensitive=True)
     read('api_v1_actions_deliveries_retrieve', sensitive=True)
-    write('api_v1_actions_deliveries_requeue', sensitive=True)
+    write('api_v1_actions_deliveries_requeue', sensitive=True, destructive=True)
     read('api_v1_actions_event_log_list', sensitive=True)
     read('api_v1_actions_event_log_retrieve', sensitive=True)
     read('api_v1_actions_event_log_types_list')

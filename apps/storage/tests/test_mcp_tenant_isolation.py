@@ -14,8 +14,7 @@ from apps.storage.access import COMPANY_BUCKET_NAME, ensure_company_bucket
 from apps.storage.models import ObjectShareLink, StorageAccessGrant, StorageObject
 from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
 from apps.storage.tests.test_mcp import _TEST_JWKS, _agent_token, _mcp_host_kwargs, _signed_revocation_for_tests
-from apps.storage.mcp_tool_names import apply_published_tool_names
-from shellui_django.mcp.openapi_tools import tools_from_schema
+from apps.storage.mcp_tool_schema import published_mcp_tools
 
 COMPANY_A = 10
 COMPANY_B = 20
@@ -131,19 +130,18 @@ class McpTenantIsolationTests(TestCase):
 
         schema = SchemaGenerator().get_schema(request=None, public=True)
         self.tools = {
-            t['_meta']['operationId']: t for t in apply_published_tool_names(tools_from_schema(schema))
+            t['_meta']['operationId']: t for t in published_mcp_tools(schema)
         }
 
     def _mcp_tools_call(self, tool_name: str, *, path_params=None, query=None, body=None):
         tool = self.tools[tool_name]
-        arguments = {
-            'path': tool['_meta']['path'],
-            'method': tool['_meta']['method'],
-            'query': query or {},
-            'body': body or {},
-        }
-        if path_params is not None:
-            arguments['path_params'] = path_params
+        arguments: dict = {}
+        if path_params:
+            arguments.update(path_params)
+        if query:
+            arguments.update(query)
+        if body:
+            arguments.update(body)
         payload = {
             'jsonrpc': '2.0',
             'id': 1,
@@ -224,17 +222,18 @@ class McpTenantIsolationTests(TestCase):
         self._assert_blocked_no_leak(response)
 
     def test_agent_rejects_mismatched_company_id_query_on_rules_list(self):
+        # Rule list takes no company_id. The flat schema rejects the extra argument
+        # before the handler, so another company's rules cannot be requested.
         tool = 'api_v1_actions_rules_list'
         response = self._mcp_tools_call(
             tool,
             query={'company_id': str(COMPANY_B)},
         )
         self.assertEqual(response.status_code, 200)
-        result = response.json()['result']
-        self.assertTrue(result.get('isError'))
-        text = json.dumps(result)
-        self.assertNotIn('b-rule', text)
-        self.assertNotIn(str(self.rule_b.pk), text)
+        body = response.json()
+        self.assertEqual(body['error']['code'], -32602)
+        self.assertIn('company_id', body['error']['message'])
+        self.assertNotIn('b-rule', json.dumps(body))
 
     def test_s3_keys_stay_under_company_prefix(self):
         self.assertIn(f'/{COMPANY_B}/', self.storage_key_b)

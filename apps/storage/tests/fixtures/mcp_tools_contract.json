@@ -81,10 +81,10 @@
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "POST",
       "name": "storage_create_share",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/storage/v1/share/{bucket_id}/{object_path}",
       "read_only": false
     },
@@ -337,10 +337,10 @@
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "PUT",
       "name": "storage_replace_connector",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/storage/v1/connector/{connector_id}",
       "read_only": false
     },
@@ -369,42 +369,42 @@
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "POST",
       "name": "storage_requeue_action_deliveries",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/api/v1/actions/deliveries/{delivery_id}/requeue",
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "POST",
       "name": "storage_rotate_rule_secret",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/api/v1/actions/rules/{id}/rotate-secret",
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "POST",
       "name": "storage_send_test_rule",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/api/v1/actions/rules/{id}/send-test",
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "POST",
       "name": "storage_sign_object",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/storage/v1/object/sign/{bucket_id}",
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "POST",
       "name": "storage_sign_object_path",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/storage/v1/object/sign/{bucket_id}/{object_path}",
       "read_only": false
     },
@@ -417,10 +417,10 @@
       "read_only": false
     },
     {
-      "destructive": false,
+      "destructive": true,
       "method": "PATCH",
       "name": "storage_update_connector",
-      "needs_approval": false,
+      "needs_approval": true,
       "path": "/storage/v1/connector/{connector_id}",
       "read_only": false
     }
@@ -431,48 +431,27 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Copy an object",
+      "description": "Copies one object. `sourceKey` and `destinationKey` use `bucket/path`, and the call returns the new `Key` or fails when the destination exists.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "destinationKey": {
-                "type": "string"
-              },
-              "from": {
-                "type": "string"
-              },
-              "sourceKey": {
-                "type": "string"
-              },
-              "to": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "destinationKey": {
+            "description": "Destination as bucket/path.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/copy",
+          "from": {
+            "description": "Source as bucket/path. Alias of sourceKey.",
             "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "sourceKey": {
+            "description": "Source as bucket/path, such as company/notes/a.txt.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Destination as bucket/path. Alias of destinationKey.",
+            "type": "string"
           }
         },
-        "required": [
-          "path",
-          "method"
-        ],
         "type": "object"
       },
       "name": "storage_copy_object"
@@ -482,94 +461,69 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Create an access grant",
+      "description": "Creates an access grant. Requires `subject_type`, `subject_id`, `resource_type`, and `resource_id`, and returns the grant.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket": {
-                "type": "string"
-              },
-              "effect": {
-                "description": "* `allow` - Allow\n* `deny` - Deny (block)",
-                "enum": [
-                  "allow",
-                  "deny"
-                ],
-                "type": "string"
-              },
-              "expires_at": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "notes": {
-                "type": "string"
-              },
-              "permission": {
-                "description": "* `read` - Read\n* `write` - Write\n* `admin` - Admin",
-                "enum": [
-                  "read",
-                  "write",
-                  "admin"
-                ],
-                "type": "string"
-              },
-              "resource_id": {
-                "type": "string"
-              },
-              "resource_type": {
-                "description": "* `bucket` - Bucket\n* `folder` - Folder prefix\n* `object` - Object",
-                "enum": [
-                  "bucket",
-                  "folder",
-                  "object"
-                ],
-                "type": "string"
-              },
-              "subject_id": {
-                "type": "string"
-              },
-              "subject_type": {
-                "description": "* `user` - User\n* `group` - Group\n* `company` - Company",
-                "enum": [
-                  "user",
-                  "group",
-                  "company"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "resource_id",
-              "resource_type",
-              "subject_id",
-              "subject_type"
-            ],
-            "type": "object"
+          "bucket": {
+            "type": "string"
           },
-          "method": {
+          "effect": {
+            "description": "allow grants access. deny blocks it.\n\n* `allow` - Allow\n* `deny` - Deny (block)",
             "enum": [
-              "POST"
+              "allow",
+              "deny"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/access/grant",
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
             "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "permission": {
+            "description": "Access level: read, write, or admin.\n\n* `read` - Read\n* `write` - Write\n* `admin` - Admin",
+            "enum": [
+              "read",
+              "write",
+              "admin"
+            ],
+            "type": "string"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "resource_type": {
+            "description": "What the grant covers: bucket, folder, or object.\n\n* `bucket` - Bucket\n* `folder` - Folder prefix\n* `object` - Object",
+            "enum": [
+              "bucket",
+              "folder",
+              "object"
+            ],
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "subject_type": {
+            "description": "Who the grant applies to: user, group, or company.\n\n* `user` - User\n* `group` - Group\n* `company` - Company",
+            "enum": [
+              "user",
+              "group",
+              "company"
+            ],
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method"
+          "resource_id",
+          "resource_type",
+          "subject_id",
+          "subject_type"
         ],
         "type": "object"
       },
@@ -580,64 +534,45 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Create a Shellui Actions webhook rule. The signing secret is shown once in admin, not to the agent.",
+      "description": "Creates a Shellui Actions webhook rule from `event_type`, `name`, and `url`. Returns the rule with the signing secret masked.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "allow_private_urls": {
-                "type": "boolean"
-              },
-              "authorization_header": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "secret": {
-                "type": "string"
-              },
-              "url": {
-                "format": "uri",
-                "type": "string"
-              }
-            },
-            "required": [
-              "event_type",
-              "name"
-            ],
-            "type": "object"
+          "allow_private_urls": {
+            "type": "boolean"
           },
-          "method": {
+          "authorization_header": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "event_type": {
+            "description": "Shellui Actions event id for this rule.\n\n* `storage.bucket.created` - Company bucket provisioned\n* `storage.object.deleted` - Object deleted\n* `storage.object.uploaded` - Object uploaded",
             "enum": [
-              "POST"
+              "storage.bucket.created",
+              "storage.object.deleted",
+              "storage.object.uploaded"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/api/v1/actions/rules",
+          "name": {
             "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "secret": {
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method"
+          "event_type",
+          "name"
         ],
         "type": "object"
       },
@@ -648,55 +583,39 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Create a connector mount",
+      "description": "Creates a connector mount from `name` and `connector_provider`, with optional `credential` and `connector_settings`. Returns the mount without the credential.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_provider": {
-                "type": "string"
-              },
-              "connector_settings": {
-                "additionalProperties": true,
-                "properties": {},
-                "type": "object"
-              },
-              "credential": {
-                "description": "OAuth refresh token or API secret. Stored encrypted; omitted from every read.",
-                "type": "string"
-              },
-              "name": {
-                "description": "Unique slug for this connector mount within the company (not `company`).",
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_provider",
-              "name"
-            ],
-            "type": "object"
-          },
-          "method": {
+          "connector_provider": {
+            "description": "External storage provider for this mount.\n\n* `sharepoint` - SharePoint\n* `dropbox` - Dropbox\n* `google_drive` - Google Drive\n* `box` - Box\n* `s3` - S3\n* `generic` - Generic",
             "enum": [
-              "POST"
+              "sharepoint",
+              "dropbox",
+              "google_drive",
+              "box",
+              "s3",
+              "generic"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/connector",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
+          "connector_settings": {
+            "additionalProperties": true,
             "properties": {},
             "type": "object"
+          },
+          "credential": {
+            "description": "OAuth refresh token or API secret. Stored encrypted; omitted from every read.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Unique slug for this connector mount within the company (not `company`).",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method"
+          "connector_provider",
+          "name"
         ],
         "type": "object"
       },
@@ -707,47 +626,17 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Re-run local connector configuration check",
+      "description": "Re-runs the local configuration check for `connector_id` and returns status plus `connector_last_issue_code`. This does not call the provider.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}/configuration/check",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },
@@ -758,47 +647,17 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Retry local configuration check after backoff",
+      "description": "Re-runs the local configuration check for `connector_id` after backoff. Returns status and may clear `connector_retry_after`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}/configuration/retry",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },
@@ -809,47 +668,17 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Validate stored connector configuration locally",
+      "description": "Runs the same local configuration check as the check action for `connector_id`. Returns status and issue metadata.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}/configuration/validate",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },
@@ -860,63 +689,31 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Upload an object (POST)",
+      "description": "Creates a file at `bucket_id` and `object_path` from `content_base64`, with optional `content_type`. Returns `Id` and `Key`, and fails when the path already exists.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "content_base64": {
-                "description": "File bytes as standard base64 (padding required). MCP object upload and replace use this field.",
-                "type": "string"
-              },
-              "content_type": {
-                "description": "MIME type stored on the object. Defaults to application/octet-stream.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "content_base64"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+          "content_base64": {
+            "description": "File bytes as standard base64 (padding required). MCP object upload and replace use this field.",
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
+          "content_type": {
+            "description": "MIME type stored on the object. Defaults to application/octet-stream.",
+            "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path",
+          "content_base64"
         ],
         "type": "object"
       },
@@ -927,70 +724,57 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List objects in a bucket",
+      "description": "Lists files and folders in `bucket_id`, with optional `prefix`, `limit`, `offset`, `search`, and `sortBy`. Returns object rows.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "limit": {
-                "description": "Max rows to return (default 100).",
-                "type": "integer"
-              },
-              "offset": {
-                "description": "Skip this many rows before returning results.",
-                "type": "integer"
-              },
-              "prefix": {
-                "description": "Folder prefix to list (empty for bucket root).",
-                "type": "string"
-              },
-              "search": {
-                "description": "Case-insensitive name filter.",
-                "type": "string"
-              },
-              "sortBy": {
-                "additionalProperties": true,
-                "description": "Optional `{ \"column\": \"name\", \"order\": \"asc\" }` sort (default name ascending).",
-                "properties": {},
-                "type": "object"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/list/{bucket_id}",
+          "limit": {
+            "description": "Max rows to return (default 100).",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Skip this many rows before returning results.",
+            "type": "integer"
+          },
+          "prefix": {
+            "description": "Folder prefix to list (empty for bucket root).",
             "type": "string"
           },
-          "path_params": {
+          "search": {
+            "description": "Case-insensitive name filter.",
+            "type": "string"
+          },
+          "sortBy": {
             "additionalProperties": false,
+            "description": "Sort the page. Default is name ascending.",
             "properties": {
-              "bucket_id": {
+              "column": {
+                "description": "Sort column: name, updated_at, or created_at.\n\n* `name` - Name\n* `updated_at` - Updated at\n* `created_at` - Created at",
+                "enum": [
+                  "name",
+                  "updated_at",
+                  "created_at"
+                ],
+                "type": "string"
+              },
+              "order": {
+                "description": "Sort direction: asc or desc.\n\n* `asc` - Ascending\n* `desc` - Descending",
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "type": "string"
               }
             },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
             "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -1001,63 +785,37 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Rename a folder prefix",
+      "description": "Renames a folder in `bucket_id` from `from` (or `source` or `prefix`) to `to` (or `destination`). Returns how many objects and grants moved.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "destination": {
-                "type": "string"
-              },
-              "from": {
-                "type": "string"
-              },
-              "prefix": {
-                "type": "string"
-              },
-              "source": {
-                "type": "string"
-              },
-              "to": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/prefix/{bucket_id}",
+          "destination": {
+            "description": "Destination folder path. Alias of to.",
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
+          "from": {
+            "description": "Source folder path. Alias of source and prefix.",
+            "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "prefix": {
+            "description": "Source folder path. Alias of from and source.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source folder path. Alias of from and prefix.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Destination folder path. Alias of destination.",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -1065,82 +823,52 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Create a share link",
+      "description": "Creates an anonymous download link for `bucket_id` and `object_path`. Optional `expires_at` and `max_downloads`, and the call returns the token once.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresAt": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "expires_at": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "maxDownloads": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "max_downloads": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "notes": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/share/{bucket_id}/{object_path}",
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxDownloads": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_downloads": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "notes": {
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -1151,47 +879,18 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Revoke an access grant",
+      "description": "Deletes the access grant `grant_id`. Returns no content.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
+          "grant_id": {
+            "description": "Access grant id.",
+            "format": "uuid",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/access/grant/{grant_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "grant_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "grant_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "grant_id"
         ],
         "type": "object"
       },
@@ -1202,47 +901,17 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Delete a Shellui Actions webhook rule",
+      "description": "Deletes the Shellui Actions webhook rule `id`. Returns no content.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "id": {
+            "description": "Shellui Actions webhook rule id.",
+            "type": "integer"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "id"
         ],
         "type": "object"
       },
@@ -1253,47 +922,17 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Delete a connector mount",
+      "description": "Deletes the connector mount `connector_id`. Returns no content.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },
@@ -1304,47 +943,17 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Revoke a share link",
+      "description": "Revokes the share link `token` so anonymous downloads stop. Returns the link with the token redacted.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
+          "token": {
+            "description": "Share link token (secret).",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/share/link/{token}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "token": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "token"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "token"
         ],
         "type": "object"
       },
@@ -1355,60 +964,31 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Delete many objects",
+      "description": "Deletes the object paths in `prefixes` or `paths` under `bucket_id`. Returns the deleted names.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "paths": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "prefixes": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
+          "paths": {
+            "description": "Object paths to delete. Alias of prefixes.",
+            "items": {
+              "type": "string"
             },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
+            "type": "array"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "prefixes": {
+            "description": "Object paths to delete. Alias of paths.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -1419,51 +999,22 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Delete one object",
+      "description": "Deletes one file or folder at `bucket_id` and `object_path`. Returns true.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -1474,58 +1025,22 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Delete a folder prefix",
+      "description": "Deletes every object under `prefix` in `bucket_id`. `prefix` is required, and the call returns the deleted paths and count.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "prefix": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "prefix"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "DELETE"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/prefix/{bucket_id}",
+          "prefix": {
+            "description": "Folder prefix to delete. An empty prefix is refused.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "prefix": {
-                "type": "string"
-              }
-            },
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "prefix"
         ],
         "type": "object"
       },
@@ -1536,47 +1051,17 @@
         "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Empty a storage bucket",
+      "description": "Deletes every object you can write in `bucket_id` and returns true. The bucket row stays.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/bucket/{bucket_id}/empty",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -1587,47 +1072,18 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read one webhook delivery",
+      "description": "Reads one Shellui Actions webhook delivery by `delivery_id`. Returns attempts and the signed envelope.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "delivery_id": {
+            "description": "Webhook delivery id.",
+            "format": "uuid",
             "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/deliveries/{delivery_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "delivery_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "delivery_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "delivery_id"
         ],
         "type": "object"
       },
@@ -1638,55 +1094,25 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read one domain event log entry",
+      "description": "Reads one domain event by `id`. Optional `scope` is `company` or `platform`, and the call returns the event payload.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "id": {
+            "description": "Event log row id.",
+            "type": "integer"
           },
-          "method": {
+          "scope": {
+            "description": "company reads the token company. platform is staff-only and has no company.",
             "enum": [
-              "GET"
+              "company",
+              "platform"
             ],
             "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "scope": {
-                "enum": [
-                  "company",
-                  "platform"
-                ],
-                "type": "string"
-              }
-            },
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "id"
         ],
         "type": "object"
       },
@@ -1697,35 +1123,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read event log retention settings",
+      "description": "Reads event log retention. Returns the configured retention days and whether rows are past policy.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log/retention",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_get_action_event_log_retention"
@@ -1735,47 +1136,17 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read one Shellui Actions webhook rule",
+      "description": "Reads one Shellui Actions webhook rule by `id`. Returns metadata with the signing secret masked.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "id": {
+            "description": "Shellui Actions webhook rule id.",
+            "type": "integer"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "id"
         ],
         "type": "object"
       },
@@ -1786,47 +1157,17 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read one storage bucket",
+      "description": "Reads one bucket by `bucket_id`. Returns metadata and whether you can write.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/bucket/{bucket_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -1837,47 +1178,17 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read one connector mount",
+      "description": "Reads one connector mount by `connector_id`. Returns provider, settings, and `connector_last_issue_code`, and omits credentials.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },
@@ -1888,55 +1199,26 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Download an object (authenticated alias)",
+      "description": "Downloads bytes for `bucket_id` and `object_path` on the authenticated route, with optional `download` as the file name. Returns `content_base64`, `content_type`, and `size`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/authenticated/{bucket_id}/{object_path}",
+          "download": {
+            "description": "Omit to stream inline. `true` uses the object file name. Any other value is the download file name.",
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "download": {
-                "type": "string"
-              }
-            },
-            "type": "object"
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -1947,47 +1229,18 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Resolve object by stable id",
+      "description": "Resolves `object_id` to its bucket, path, and type (`file` or `folder`).",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "object_id": {
+            "description": "Stable object id from list or upload responses.",
+            "format": "uuid",
             "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/object/id/{object_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "object_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "object_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "object_id"
         ],
         "type": "object"
       },
@@ -1998,51 +1251,22 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read object metadata",
+      "description": "Reads metadata for `bucket_id` and `object_path`. Returns size, MIME type, and etag without the file bytes.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/info/authenticated/{bucket_id}/{object_path}",
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -2053,51 +1277,21 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Summarize a folder prefix",
+      "description": "Counts files, folders, and bytes under `prefix` in `bucket_id`. Returns `object_count`, `file_count`, `placeholder_count`, and `total_bytes`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/prefix/{bucket_id}",
+          "prefix": {
+            "description": "Folder prefix to summarize. Empty means the bucket root.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "prefix": {
-                "type": "string"
-              }
-            },
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -2108,55 +1302,26 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Download an object",
+      "description": "Downloads bytes for `bucket_id` and `object_path`, with optional `download` as the file name. Returns `content_base64`, `content_type`, and `size`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+          "download": {
+            "description": "Omit to stream inline. `true` uses the object file name. Any other value is the download file name.",
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "download": {
-                "type": "string"
-              }
-            },
-            "type": "object"
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -2167,35 +1332,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read quota usage",
+      "description": "Reads storage quota for your company and your user. Returns `max_bytes`, `used_bytes`, and `remaining_bytes`.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/quota",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_get_quota"
@@ -2205,39 +1345,17 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "Read storage statistics",
+      "description": "Reads upload and storage statistics for your company. Optional `days` is 1 to 90, and the default is 14.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/stats",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "days": {
-                "type": "integer"
-              }
-            },
-            "type": "object"
+          "days": {
+            "description": "Rolling window in days, from 1 to 90. Default 14.",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "integer"
           }
         },
-        "required": [
-          "path",
-          "method"
-        ],
         "type": "object"
       },
       "name": "storage_get_stats"
@@ -2247,48 +1365,36 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List access grants",
+      "description": "Lists access grants. Optional filters are `resource_type`, `resource_id`, `bucket`, and `include_effective`, and the call returns grant rows.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "bucket": {
+            "description": "Limit rows to this bucket slug.",
+            "type": "string"
           },
-          "method": {
+          "include_effective": {
+            "description": "`true` includes inherited grants for the path. `false` lists stored rows only.",
             "enum": [
-              "GET"
+              "true",
+              "false"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/access/grant",
+          "resource_id": {
+            "description": "Bucket slug, folder path, or object path the grant targets.",
             "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket": {
-                "type": "string"
-              },
-              "include_effective": {
-                "type": "string"
-              },
-              "resource_id": {
-                "type": "string"
-              },
-              "resource_type": {
-                "type": "string"
-              }
-            },
-            "type": "object"
+          "resource_type": {
+            "description": "Grant target: `bucket`, `folder`, or `object`.",
+            "enum": [
+              "bucket",
+              "folder",
+              "object"
+            ],
+            "type": "string"
           }
         },
-        "required": [
-          "path",
-          "method"
-        ],
         "type": "object"
       },
       "name": "storage_list_access_grant"
@@ -2298,63 +1404,52 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List recent webhook deliveries",
+      "description": "Lists recent Shellui Actions webhook deliveries. Optional `status`, `event_type`, and paging, and the call returns status, attempts, and errors.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "action_rule_id": {
+            "type": "integer"
           },
-          "method": {
+          "company_id": {
+            "type": "integer"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "event_type": {
+            "description": "Shellui Actions event id to filter on.",
             "enum": [
-              "GET"
+              "storage.bucket.created",
+              "storage.object.deleted",
+              "storage.object.uploaded"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/api/v1/actions/deliveries",
-            "type": "string"
+          "page": {
+            "type": "integer"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "action_rule_id": {
-                "type": "integer"
-              },
-              "company_id": {
-                "type": "integer"
-              },
-              "created_after": {
-                "type": "string"
-              },
-              "created_before": {
-                "type": "string"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "page": {
-                "type": "integer"
-              },
-              "page_size": {
-                "type": "integer"
-              },
-              "scheduled_job_run_id": {
-                "type": "integer"
-              },
-              "status": {
-                "type": "string"
-              }
-            },
-            "type": "object"
+          "page_size": {
+            "type": "integer"
+          },
+          "scheduled_job_run_id": {
+            "description": "Staff only (403 otherwise): deliveries with an attempt made by this scheduled job run (`GET /api/v1/scheduled-jobs/runs/<id>`).",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Delivery status: pending, delivered, failed, or dead.",
+            "enum": [
+              "pending",
+              "delivered",
+              "failed",
+              "dead"
+            ],
+            "type": "string"
           }
         },
-        "required": [
-          "path",
-          "method"
-        ],
         "type": "object"
       },
       "name": "storage_list_action_deliveries"
@@ -2364,64 +1459,44 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List recent domain events for the company",
+      "description": "Lists recent domain events for your company. Optional `event_type`, `user_id`, `scope`, and time bounds, and the call returns a page of events.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "created_after": {
+            "description": "ISO 8601 datetime (inclusive lower bound).",
+            "type": "string"
           },
-          "method": {
+          "created_before": {
+            "description": "ISO 8601 datetime (exclusive upper bound).",
+            "type": "string"
+          },
+          "event_type": {
+            "description": "One catalog event id, or several ids separated by commas. Company events: storage.bucket.created, storage.object.deleted, storage.object.uploaded. Staff platform events: storage.scheduled_job.failed, storage.scheduled_job.succeeded.",
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "scope": {
+            "description": "company reads the token company. platform is staff-only and has no company.",
             "enum": [
-              "GET"
+              "company",
+              "platform"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/api/v1/actions/event-log",
+          "user": {
+            "description": "Case-insensitive substring of the actor email.",
             "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {
-              "created_after": {
-                "type": "string"
-              },
-              "created_before": {
-                "type": "string"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "page": {
-                "type": "integer"
-              },
-              "page_size": {
-                "type": "integer"
-              },
-              "scope": {
-                "enum": [
-                  "company",
-                  "platform"
-                ],
-                "type": "string"
-              },
-              "user": {
-                "type": "string"
-              },
-              "user_id": {
-                "type": "integer"
-              }
-            },
-            "type": "object"
+          "user_id": {
+            "type": "integer"
           }
         },
-        "required": [
-          "path",
-          "method"
-        ],
         "type": "object"
       },
       "name": "storage_list_action_event_log"
@@ -2431,35 +1506,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List domain event type ids",
+      "description": "Lists domain event type ids for log filters and Shellui Actions rules. Returns the id strings.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/event-log/types",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_list_action_event_log_types"
@@ -2469,35 +1519,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List Shellui Actions event types",
+      "description": "Lists Shellui Actions event types you can attach to a webhook rule. Returns id, label, payload fields, and a sample envelope.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/events",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_list_action_events"
@@ -2507,35 +1532,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List Shellui Actions webhook rules",
+      "description": "Lists Shellui Actions webhook rules for your company. Returns rule rows with the signing secret masked.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_list_action_rules"
@@ -2545,35 +1545,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List storage buckets",
+      "description": "Lists buckets you can access, including the company bucket and connector mounts. Returns kind, write access, and connector metadata when a mount has it.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/bucket",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_list_bucket"
@@ -2583,35 +1558,10 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List external connector mounts",
+      "description": "Lists connector mounts for your company. Returns provider and settings, and omits credentials.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/storage/v1/connector",
-            "type": "string"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          }
-        },
-        "required": [
-          "path",
-          "method"
-        ],
+        "properties": {},
         "type": "object"
       },
       "name": "storage_list_connector"
@@ -2621,51 +1571,22 @@
         "destructiveHint": false,
         "readOnlyHint": true
       },
-      "description": "List share links for an object",
+      "description": "Lists share links for `bucket_id` and `object_path`. Returns link rows and omits the token.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "GET"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/share/{bucket_id}/{object_path}",
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -2676,118 +1597,75 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Move an object",
+      "description": "Moves one object. `sourceKey` and `destinationKey` use `bucket/path`, the call returns a confirmation, and it fails when the destination exists.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "destinationKey": {
-                "type": "string"
-              },
-              "from": {
-                "type": "string"
-              },
-              "sourceKey": {
-                "type": "string"
-              },
-              "to": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "destinationKey": {
+            "description": "Destination as bucket/path.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/move",
+          "from": {
+            "description": "Source as bucket/path. Alias of sourceKey.",
             "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "sourceKey": {
+            "description": "Source as bucket/path, such as company/notes/a.txt.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Destination as bucket/path. Alias of destinationKey.",
+            "type": "string"
           }
         },
-        "required": [
-          "path",
-          "method"
-        ],
         "type": "object"
       },
       "name": "storage_move_object"
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Replace connector configuration (PUT)",
+      "description": "Replaces connector settings for `connector_id`. Send `credential` only when rotating it, and the call returns the mount without the credential.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_provider": {
-                "type": "string"
-              },
-              "connector_settings": {
-                "additionalProperties": true,
-                "properties": {},
-                "type": "object"
-              },
-              "credential": {
-                "description": "Set a new credential, or null to clear.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "merge_settings": {
-                "description": "When true (default), body `connector_settings` merge into existing settings.",
-                "type": "boolean"
-              }
-            },
-            "type": "object"
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
+            "type": "string"
           },
-          "method": {
+          "connector_provider": {
+            "description": "External storage provider for this mount.\n\n* `sharepoint` - SharePoint\n* `dropbox` - Dropbox\n* `google_drive` - Google Drive\n* `box` - Box\n* `s3` - S3\n* `generic` - Generic",
             "enum": [
-              "PUT"
+              "sharepoint",
+              "dropbox",
+              "google_drive",
+              "box",
+              "s3",
+              "generic"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
+          "connector_settings": {
+            "additionalProperties": true,
             "properties": {},
             "type": "object"
+          },
+          "credential": {
+            "description": "Set a new credential, or null to clear.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "merge_settings": {
+            "description": "When true (default), body `connector_settings` merge into existing settings.",
+            "type": "boolean"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },
@@ -2798,63 +1676,31 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Upload or replace an object (PUT)",
+      "description": "Writes or overwrites the file at `bucket_id` and `object_path` from `content_base64`, with optional `content_type`. Returns `Id` and `Key`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "content_base64": {
-                "description": "File bytes as standard base64 (padding required). MCP object upload and replace use this field.",
-                "type": "string"
-              },
-              "content_type": {
-                "description": "MIME type stored on the object. Defaults to application/octet-stream.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "content_base64"
-            ],
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/object/{bucket_id}/{object_path}",
+          "content_base64": {
+            "description": "File bytes as standard base64 (padding required). MCP object upload and replace use this field.",
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
+          "content_type": {
+            "description": "MIME type stored on the object. Defaults to application/octet-stream.",
+            "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path",
+          "content_base64"
         ],
         "type": "object"
       },
@@ -2865,57 +1711,26 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Set company quota limits",
+      "description": "Overwrites quota limits for `company_id` using `max_bytes` and optional `max_bytes_per_user`. Returns the saved limits.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "max_bytes": {
-                "type": "integer"
-              },
-              "max_bytes_per_user": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              }
-            },
-            "type": "object"
+          "company_id": {
+            "description": "Company id. Owners may only pass the company id from the token.",
+            "type": "integer"
           },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
-            "type": "string"
+          "max_bytes": {
+            "type": "integer"
           },
-          "path": {
-            "const": "/storage/v1/quota/company/{company_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "company_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "company_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "max_bytes_per_user": {
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "company_id"
         ],
         "type": "object"
       },
@@ -2926,58 +1741,26 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Set per-user quota override",
+      "description": "Overwrites the quota for `user_id` in `company_id`. Requires `max_bytes` and returns the saved limit.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "max_bytes": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "max_bytes"
-            ],
-            "type": "object"
+          "company_id": {
+            "description": "Company id. Owners may only pass the company id from the token.",
+            "type": "integer"
           },
-          "method": {
-            "enum": [
-              "PUT"
-            ],
-            "type": "string"
+          "max_bytes": {
+            "type": "integer"
           },
-          "path": {
-            "const": "/storage/v1/quota/company/{company_id}/user/{user_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "company_id": {
-                "type": "string"
-              },
-              "user_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "company_id",
-              "user_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "user_id": {
+            "description": "Shellui user id within the company.",
+            "type": "integer"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "company_id",
+          "user_id",
+          "max_bytes"
         ],
         "type": "object"
       },
@@ -2985,50 +1768,21 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Requeue a failed webhook delivery",
+      "description": "Queues failed Shellui Actions delivery `delivery_id` for another attempt. Returns the delivery with status pending.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "delivery_id": {
+            "description": "Webhook delivery id.",
+            "format": "uuid",
             "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/deliveries/{delivery_id}/requeue",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "delivery_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "delivery_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "delivery_id"
         ],
         "type": "object"
       },
@@ -3036,50 +1790,20 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Rotate a webhook signing secret. The new secret is shown once in admin, not to the agent.",
+      "description": "Replaces the signing secret on Shellui Actions rule `id`. Returns the rule, and the new secret stays masked for agents.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}/rotate-secret",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "id": {
+            "description": "Shellui Actions webhook rule id.",
+            "type": "integer"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "id"
         ],
         "type": "object"
       },
@@ -3087,50 +1811,20 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Send a sample webhook for a rule",
+      "description": "Sends a sample webhook for Shellui Actions rule `id`. Returns whether the receiver accepted it.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
-            "type": "string"
-          },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}/send-test",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "id": {
+            "description": "Shellui Actions webhook rule id.",
+            "type": "integer"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "id"
         ],
         "type": "object"
       },
@@ -3138,63 +1832,32 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Create a signed download URL (path in body)",
+      "description": "Creates a time-limited anonymous download URL for `path` in `bucket_id`. Optional `expiresIn` is the lifetime in seconds, and the call returns `signedURL`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresIn": {
-                "description": "Lifetime in seconds (Supabase-style).",
-                "type": "integer"
-              },
-              "expires_in": {
-                "description": "Alias for `expiresIn`.",
-                "type": "integer"
-              },
-              "path": {
-                "description": "Object path when not in the URL.",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
             "type": "string"
+          },
+          "expiresIn": {
+            "description": "Lifetime in seconds (Supabase-style).",
+            "type": "integer"
+          },
+          "expires_in": {
+            "description": "Alias for `expiresIn`.",
+            "type": "integer"
           },
           "path": {
-            "const": "/storage/v1/object/sign/{bucket_id}",
+            "description": "Object path when the URL does not include object_path.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id"
         ],
         "type": "object"
       },
@@ -3202,67 +1865,37 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Create a signed download URL",
+      "description": "Creates a time-limited anonymous download URL for `bucket_id` and `object_path`. Optional `expiresIn` is the lifetime in seconds, and the call returns `signedURL`.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresIn": {
-                "description": "Lifetime in seconds (Supabase-style).",
-                "type": "integer"
-              },
-              "expires_in": {
-                "description": "Alias for `expiresIn`.",
-                "type": "integer"
-              },
-              "path": {
-                "description": "Object path when not in the URL.",
-                "type": "string"
-              }
-            },
-            "type": "object"
+          "bucket_id": {
+            "description": "Bucket slug, for example `company` or a connector mount id.",
+            "type": "string"
           },
-          "method": {
-            "enum": [
-              "POST"
-            ],
+          "expiresIn": {
+            "description": "Lifetime in seconds (Supabase-style).",
+            "type": "integer"
+          },
+          "expires_in": {
+            "description": "Alias for `expiresIn`.",
+            "type": "integer"
+          },
+          "object_path": {
+            "description": "Object path within the bucket. May include `/` for nested folders.",
             "type": "string"
           },
           "path": {
-            "const": "/storage/v1/object/sign/{bucket_id}/{object_path}",
+            "description": "Object path when the URL does not include object_path.",
             "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "bucket_id": {
-                "type": "string"
-              },
-              "object_path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "bucket_id",
-              "object_path"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "bucket_id",
+          "object_path"
         ],
         "type": "object"
       },
@@ -3273,73 +1906,48 @@
         "destructiveHint": false,
         "readOnlyHint": false
       },
-      "description": "Update a Shellui Actions webhook rule",
+      "description": "Updates a Shellui Actions webhook rule by `id` (`name`, `url`, `enabled`, `event_type`, or `secret`). Returns the rule with the secret masked.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "allow_private_urls": {
-                "type": "boolean"
-              },
-              "authorization_header": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "event_type": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "secret": {
-                "type": "string"
-              },
-              "url": {
-                "format": "uri",
-                "type": "string"
-              }
-            },
-            "type": "object"
+          "allow_private_urls": {
+            "type": "boolean"
           },
-          "method": {
+          "authorization_header": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "event_type": {
+            "description": "Shellui Actions event id for this rule.\n\n* `storage.bucket.created` - Company bucket provisioned\n* `storage.object.deleted` - Object deleted\n* `storage.object.uploaded` - Object uploaded",
             "enum": [
-              "PATCH"
+              "storage.bucket.created",
+              "storage.object.deleted",
+              "storage.object.uploaded"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/api/v1/actions/rules/{id}",
+          "id": {
+            "description": "Shellui Actions webhook rule id.",
+            "type": "integer"
+          },
+          "name": {
             "type": "string"
           },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "type": "object"
+          "secret": {
+            "type": "string"
           },
-          "query": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+          "url": {
+            "format": "uri",
+            "type": "string"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "id"
         ],
         "type": "object"
       },
@@ -3347,70 +1955,48 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "readOnlyHint": false
       },
-      "description": "Patch connector configuration",
+      "description": "Patches connector settings for `connector_id`. Send `credential` to rotate it, or null to clear it, and the call returns the updated mount.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "body": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_provider": {
-                "type": "string"
-              },
-              "connector_settings": {
-                "additionalProperties": true,
-                "properties": {},
-                "type": "object"
-              },
-              "credential": {
-                "description": "Set a new credential, or null to clear.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "merge_settings": {
-                "description": "When true (default), body `connector_settings` merge into existing settings.",
-                "type": "boolean"
-              }
-            },
-            "type": "object"
+          "connector_id": {
+            "description": "Connector mount slug. Not the reserved `company` bucket name.",
+            "type": "string"
           },
-          "method": {
+          "connector_provider": {
+            "description": "External storage provider for this mount.\n\n* `sharepoint` - SharePoint\n* `dropbox` - Dropbox\n* `google_drive` - Google Drive\n* `box` - Box\n* `s3` - S3\n* `generic` - Generic",
             "enum": [
-              "PATCH"
+              "sharepoint",
+              "dropbox",
+              "google_drive",
+              "box",
+              "s3",
+              "generic"
             ],
             "type": "string"
           },
-          "path": {
-            "const": "/storage/v1/connector/{connector_id}",
-            "type": "string"
-          },
-          "path_params": {
-            "additionalProperties": false,
-            "properties": {
-              "connector_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "connector_id"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "additionalProperties": false,
+          "connector_settings": {
+            "additionalProperties": true,
             "properties": {},
             "type": "object"
+          },
+          "credential": {
+            "description": "Set a new credential, or null to clear.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "merge_settings": {
+            "description": "When true (default), body `connector_settings` merge into existing settings.",
+            "type": "boolean"
           }
         },
         "required": [
-          "path",
-          "method",
-          "path_params"
+          "connector_id"
         ],
         "type": "object"
       },

@@ -10,6 +10,7 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 ### 🐛 Bug Fixes - for any bug fixes
 
+- MCP tool arguments are the operation fields in one object. `tools/list` no longer requires `method` or `path`. Path fields keep their OpenAPI type and description. Fixed-value fields publish `enum` plus a short description. Tool text names the action, the main arguments, and the return value. `destructiveHint` covers deletes, secrets that cannot be read back, public links, signed download URLs, test webhook sends, delivery re-sends, and signing-secret rotation. Creating or updating a Shellui Actions webhook rule stays a non-destructive write.
 - MCP: a destructive approval open sends `is_destructive: true`, so Identity can store the call log for that approval after it is consumed.
 - MCP `tools/call` JSON-encodes object bodies, allows `/` in `object_path`, and returns download bytes as base64. Uploads accept `content_base64`.
 - OpenAPI keeps the JSON body on delete-many and prefix delete, so those MCP tools accept `prefixes`, `paths`, and `prefix`.

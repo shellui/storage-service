@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 
 from apps.authapi.mcp_openapi import MCP_REQUIRED_OPERATION_IDS
@@ -15,81 +14,135 @@ PERMISSIONS_BLOCK = (
     'Service API keys (`esk_`) cannot call these routes.'
 )
 
-BUCKET_ID_PATH = OpenApiParameter(
-    name='bucket_id',
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.PATH,
-    description='Bucket slug (for example `company` or a connector mount id).',
+def _path_param(name: str, *, schema_type: str, description: str, schema_format: str = '') -> OpenApiParameter:
+    # ``type`` may be a schema object. Description stays inside that schema so
+    # tool builders that read ``parameter.schema`` keep it.
+    schema: dict = {'type': schema_type, 'description': description}
+    if schema_format:
+        schema['format'] = schema_format
+    return OpenApiParameter(
+        name=name,
+        type=schema,
+        location=OpenApiParameter.PATH,
+        required=True,
+        description=description,
+    )
+
+
+def mcp_query_param(
+    name: str,
+    *,
+    description: str,
+    schema_type: str = 'string',
+    enum: list | None = None,
+    schema_extra: dict | None = None,
+) -> OpenApiParameter:
+    """Query parameter whose schema carries the description and enum agents read."""
+    schema: dict = {'type': schema_type, 'description': description}
+    if enum is not None:
+        schema['enum'] = list(enum)
+    if schema_extra:
+        schema.update(schema_extra)
+    return OpenApiParameter(
+        name=name,
+        type=schema,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=description,
+    )
+
+
+BUCKET_ID_PATH = _path_param(
+    'bucket_id',
+    schema_type='string',
+    description='Bucket slug, for example `company` or a connector mount id.',
 )
 
-CONNECTOR_ID_PATH = OpenApiParameter(
-    name='connector_id',
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.PATH,
-    description='Connector mount slug (not the reserved `company` bucket name).',
+CONNECTOR_ID_PATH = _path_param(
+    'connector_id',
+    schema_type='string',
+    description='Connector mount slug. Not the reserved `company` bucket name.',
 )
 
-OBJECT_ID_PATH = OpenApiParameter(
-    name='object_id',
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    description='Stable object UUID from list or upload responses.',
+OBJECT_ID_PATH = _path_param(
+    'object_id',
+    schema_type='string',
+    schema_format='uuid',
+    description='Stable object id from list or upload responses.',
 )
 
-OBJECT_PATH_PARAM = OpenApiParameter(
-    name='object_path',
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.PATH,
-    description='Object path within the bucket (may include `/` for nested folders).',
+OBJECT_PATH_PARAM = _path_param(
+    'object_path',
+    schema_type='string',
+    description='Object path within the bucket. May include `/` for nested folders.',
 )
 
-GRANT_ID_PATH = OpenApiParameter(
-    name='grant_id',
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    description='Access grant UUID.',
+GRANT_ID_PATH = _path_param(
+    'grant_id',
+    schema_type='string',
+    schema_format='uuid',
+    description='Access grant id.',
 )
 
-COMPANY_ID_PATH = OpenApiParameter(
-    name='company_id',
-    type=OpenApiTypes.INT,
-    location=OpenApiParameter.PATH,
-    description='Target company id (owners may only use their JWT company).',
+COMPANY_ID_PATH = _path_param(
+    'company_id',
+    schema_type='integer',
+    description='Company id. Owners may only pass the company id from the token.',
 )
 
-USER_ID_PATH = OpenApiParameter(
-    name='user_id',
-    type=OpenApiTypes.INT,
-    location=OpenApiParameter.PATH,
+USER_ID_PATH = _path_param(
+    'user_id',
+    schema_type='integer',
     description='Shellui user id within the company.',
 )
 
-SHARE_TOKEN_PATH = OpenApiParameter(
-    name='token',
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.PATH,
-    description='Share link capability token (secret).',
+SHARE_TOKEN_PATH = _path_param(
+    'token',
+    schema_type='string',
+    description='Share link token (secret).',
 )
 
-ACTION_RULE_ID_PATH = OpenApiParameter(
-    name='id',
-    type=OpenApiTypes.INT,
-    location=OpenApiParameter.PATH,
+ACTION_RULE_ID_PATH = _path_param(
+    'id',
+    schema_type='integer',
     description='Shellui Actions webhook rule id.',
 )
 
-DELIVERY_ID_PATH = OpenApiParameter(
-    name='delivery_id',
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    description='Webhook delivery id (UUID string).',
+DELIVERY_ID_PATH = _path_param(
+    'delivery_id',
+    schema_type='string',
+    schema_format='uuid',
+    description='Webhook delivery id.',
 )
 
-EVENT_LOG_ID_PATH = OpenApiParameter(
-    name='id',
-    type=OpenApiTypes.INT,
-    location=OpenApiParameter.PATH,
+EVENT_LOG_ID_PATH = _path_param(
+    'id',
+    schema_type='integer',
     description='Event log row id.',
+)
+
+DOWNLOAD_QUERY = mcp_query_param(
+    'download',
+    description='Omit to stream inline. `true` uses the object file name. Any other value is the download file name.',
+)
+
+STATS_DAYS_QUERY = mcp_query_param(
+    'days',
+    schema_type='integer',
+    description='Rolling window in days, from 1 to 90. Default 14.',
+    schema_extra={'minimum': 1, 'maximum': 90},
+)
+
+GRANT_RESOURCE_TYPE_QUERY = mcp_query_param(
+    'resource_type',
+    description='Grant target: `bucket`, `folder`, or `object`.',
+    enum=['bucket', 'folder', 'object'],
+)
+
+GRANT_INCLUDE_EFFECTIVE_QUERY = mcp_query_param(
+    'include_effective',
+    description='`true` includes inherited grants for the path. `false` lists stored rows only.',
+    enum=['true', 'false'],
 )
 
 

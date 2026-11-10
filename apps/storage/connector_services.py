@@ -16,16 +16,16 @@ from .models import Bucket, BucketKind
 
 
 _SLUG_RE = re.compile(r'^[a-z][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z]$')
-_CONNECTOR_PROVIDERS = frozenset(
-    {
-        'sharepoint',
-        'dropbox',
-        'google_drive',
-        'box',
-        's3',
-        'generic',
-    }
+# Order is the OpenAPI enum order agents see.
+CONNECTOR_PROVIDER_CHOICES: tuple[tuple[str, str], ...] = (
+    ('sharepoint', 'SharePoint'),
+    ('dropbox', 'Dropbox'),
+    ('google_drive', 'Google Drive'),
+    ('box', 'Box'),
+    ('s3', 'S3'),
+    ('generic', 'Generic'),
 )
+_CONNECTOR_PROVIDERS = frozenset(choice[0] for choice in CONNECTOR_PROVIDER_CHOICES)
 
 # Public, non-secret connector metadata (stored JSON is scrubbed to these keys only).
 ALLOWED_CONNECTOR_SETTING_KEYS = frozenset(

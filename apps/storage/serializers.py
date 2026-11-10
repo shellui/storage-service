@@ -6,7 +6,10 @@ from rest_framework import serializers
 
 from apps.authapi.mcp_fields import McpSecretCharField, McpSensitiveCharField
 
+from .connector_services import CONNECTOR_PROVIDER_CHOICES
 from .models import BucketKind, StorageAccessGrant
+
+_PROVIDER_HELP = 'External storage provider for this mount.'
 
 
 class ErrorSerializer(serializers.Serializer):
@@ -77,7 +80,10 @@ class ConnectorBucketCreateSerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text='Unique slug for this connector mount within the company (not `company`).',
     )
-    connector_provider = serializers.CharField()
+    connector_provider = serializers.ChoiceField(
+        choices=CONNECTOR_PROVIDER_CHOICES,
+        help_text=_PROVIDER_HELP,
+    )
     connector_settings = serializers.DictField(required=False)
     credential = ConnectorBucketCredentialField(
         required=False,
@@ -86,7 +92,11 @@ class ConnectorBucketCreateSerializer(serializers.Serializer):
 
 
 class ConnectorBucketUpdateSerializer(serializers.Serializer):
-    connector_provider = serializers.CharField(required=False)
+    connector_provider = serializers.ChoiceField(
+        choices=CONNECTOR_PROVIDER_CHOICES,
+        required=False,
+        help_text=_PROVIDER_HELP,
+    )
     connector_settings = serializers.DictField(required=False)
     merge_settings = serializers.BooleanField(
         required=False,
@@ -157,6 +167,19 @@ class ObjectUploadJsonSerializer(serializers.Serializer):
     )
 
 
+class ObjectListSortSerializer(serializers.Serializer):
+    column = serializers.ChoiceField(
+        choices=(('name', 'Name'), ('updated_at', 'Updated at'), ('created_at', 'Created at')),
+        required=False,
+        help_text='Sort column: name, updated_at, or created_at.',
+    )
+    order = serializers.ChoiceField(
+        choices=(('asc', 'Ascending'), ('desc', 'Descending')),
+        required=False,
+        help_text='Sort direction: asc or desc.',
+    )
+
+
 class ObjectListRequestSerializer(serializers.Serializer):
     prefix = serializers.CharField(
         required=False,
@@ -166,9 +189,9 @@ class ObjectListRequestSerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, help_text='Max rows to return (default 100).')
     offset = serializers.IntegerField(required=False, help_text='Skip this many rows before returning results.')
     search = serializers.CharField(required=False, allow_blank=True, help_text='Case-insensitive name filter.')
-    sortBy = serializers.DictField(
+    sortBy = ObjectListSortSerializer(
         required=False,
-        help_text='Optional `{ "column": "name", "order": "asc" }` sort (default name ascending).',
+        help_text='Sort the page. Default is name ascending.',
     )
 
 
@@ -189,15 +212,18 @@ class PrefixSummarySerializer(serializers.Serializer):
 
 
 class PrefixRenameRequestSerializer(serializers.Serializer):
-    prefix = serializers.CharField(required=False)
-    source = serializers.CharField(required=False)
-    destination = serializers.CharField(required=False)
-    to = serializers.CharField(required=False)
+    prefix = serializers.CharField(required=False, help_text='Source folder path. Alias of from and source.')
+    source = serializers.CharField(required=False, help_text='Source folder path. Alias of from and prefix.')
+    destination = serializers.CharField(required=False, help_text='Destination folder path. Alias of to.')
+    to = serializers.CharField(required=False, help_text='Destination folder path. Alias of destination.')
 
     def get_fields(self):
         fields = super().get_fields()
         # JSON key matches the handler (`from` or `source`).
-        fields['from'] = serializers.CharField(required=False)
+        fields['from'] = serializers.CharField(
+            required=False,
+            help_text='Source folder path. Alias of source and prefix.',
+        )
         return fields
 
 
@@ -208,7 +234,7 @@ class PrefixRenameResponseSerializer(serializers.Serializer):
 
 
 class PrefixDeleteRequestSerializer(serializers.Serializer):
-    prefix = serializers.CharField()
+    prefix = serializers.CharField(help_text='Folder prefix to delete. An empty prefix is refused.')
 
 
 class PrefixDeleteResponseSerializer(serializers.Serializer):
@@ -222,18 +248,35 @@ class DeletedNameSerializer(serializers.Serializer):
 
 
 class ObjectDeleteManyRequestSerializer(serializers.Serializer):
-    prefixes = serializers.ListField(child=serializers.CharField(), required=False)
-    paths = serializers.ListField(child=serializers.CharField(), required=False)
+    prefixes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text='Object paths to delete. Alias of paths.',
+    )
+    paths = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text='Object paths to delete. Alias of prefixes.',
+    )
 
 
 class ObjectMoveRequestSerializer(serializers.Serializer):
-    sourceKey = serializers.CharField(required=False)
-    destinationKey = serializers.CharField(required=False)
-    to = serializers.CharField(required=False)
+    sourceKey = serializers.CharField(
+        required=False,
+        help_text='Source as bucket/path, such as company/notes/a.txt.',
+    )
+    destinationKey = serializers.CharField(
+        required=False,
+        help_text='Destination as bucket/path.',
+    )
+    to = serializers.CharField(required=False, help_text='Destination as bucket/path. Alias of destinationKey.')
 
     def get_fields(self):
         fields = super().get_fields()
-        fields['from'] = serializers.CharField(required=False)
+        fields['from'] = serializers.CharField(
+            required=False,
+            help_text='Source as bucket/path. Alias of sourceKey.',
+        )
         return fields
 
 
@@ -247,7 +290,10 @@ class ObjectCopyResponseSerializer(serializers.Serializer):
 
 
 class SignRequestSerializer(serializers.Serializer):
-    path = serializers.CharField(required=False, help_text='Object path when not in the URL.')
+    path = serializers.CharField(
+        required=False,
+        help_text='Object path when the URL does not include object_path.',
+    )
     expiresIn = serializers.IntegerField(required=False, help_text='Lifetime in seconds (Supabase-style).')
     expires_in = serializers.IntegerField(required=False, help_text='Alias for `expiresIn`.')
 
@@ -311,16 +357,27 @@ class AccessGrantSerializer(serializers.Serializer):
 
 
 class AccessGrantCreateSerializer(serializers.Serializer):
-    subject_type = serializers.ChoiceField(choices=StorageAccessGrant.SubjectType.choices)
+    subject_type = serializers.ChoiceField(
+        choices=StorageAccessGrant.SubjectType.choices,
+        help_text='Who the grant applies to: user, group, or company.',
+    )
     subject_id = serializers.CharField()
-    resource_type = serializers.ChoiceField(choices=StorageAccessGrant.ResourceType.choices)
+    resource_type = serializers.ChoiceField(
+        choices=StorageAccessGrant.ResourceType.choices,
+        help_text='What the grant covers: bucket, folder, or object.',
+    )
     resource_id = serializers.CharField()
     bucket = serializers.CharField(required=False)
     permission = serializers.ChoiceField(
         choices=StorageAccessGrant.Permission.choices,
         required=False,
+        help_text='Access level: read, write, or admin.',
     )
-    effect = serializers.ChoiceField(choices=StorageAccessGrant.Effect.choices, required=False)
+    effect = serializers.ChoiceField(
+        choices=StorageAccessGrant.Effect.choices,
+        required=False,
+        help_text='allow grants access. deny blocks it.',
+    )
     expires_at = serializers.CharField(required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True)
 

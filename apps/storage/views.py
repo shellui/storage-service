@@ -30,7 +30,12 @@ from .openapi_admin import (
     OBJECT_PATH_PARAM,
     SHARE_TOKEN_PATH,
     USER_ID_PATH,
+    DOWNLOAD_QUERY,
+    GRANT_INCLUDE_EFFECTIVE_QUERY,
+    GRANT_RESOURCE_TYPE_QUERY,
+    STATS_DAYS_QUERY,
     mcp_openapi_fields,
+    mcp_query_param,
 )
 from .access import (
     assert_can_access_path,
@@ -575,13 +580,7 @@ class ObjectResourceView(APIView):
         parameters=[
             BUCKET_ID_PATH,
             OBJECT_PATH_PARAM,
-            OpenApiParameter(
-                'download',
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                description='When set, sets Content-Disposition. Use `true` for filename from path, or a custom filename.',
-            ),
+            DOWNLOAD_QUERY,
         ],
         responses={200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'), **_API_ERRORS},
         **mcp_openapi_fields('storage_v1_object_retrieve'),
@@ -756,7 +755,7 @@ class ObjectDownloadView(ObjectResourceView):
         parameters=[
             BUCKET_ID_PATH,
             OBJECT_PATH_PARAM,
-            OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False),
+            DOWNLOAD_QUERY,
         ],
         responses={
             200: OpenApiResponse(response=OpenApiTypes.BINARY, description='File bytes'),
@@ -913,12 +912,9 @@ class ObjectPrefixView(APIView):
         operation_id='storage_v1_object_prefix_retrieve',
         parameters=[
             BUCKET_ID_PATH,
-            OpenApiParameter(
+            mcp_query_param(
                 'prefix',
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                description='Folder prefix to summarize (empty string for bucket root).',
+                description='Folder prefix to summarize. Empty means the bucket root.',
             ),
         ],
         responses={200: PrefixSummarySerializer, **_API_ERRORS},
@@ -970,12 +966,9 @@ class ObjectPrefixView(APIView):
         operation_id='storage_v1_object_prefix_destroy',
         parameters=[
             BUCKET_ID_PATH,
-            OpenApiParameter(
+            mcp_query_param(
                 'prefix',
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                description='Folder prefix to delete when the JSON body omits `prefix`.',
+                description='Folder prefix to delete when the JSON body omits prefix.',
             ),
         ],
         request=PrefixDeleteRequestSerializer,
@@ -1136,15 +1129,7 @@ class StatsView(APIView):
     @extend_schema(
         tags=['quotas'],
         operation_id='storage_v1_stats_retrieve',
-        parameters=[
-            OpenApiParameter(
-                'days',
-                int,
-                OpenApiParameter.QUERY,
-                required=False,
-                description='Rolling window length in days (1-90, default 14).',
-            ),
-        ],
+        parameters=[STATS_DAYS_QUERY],
         responses={200: OpenApiTypes.OBJECT, **_API_ERRORS},
         **mcp_openapi_fields('storage_v1_stats_retrieve'),
     )
@@ -1358,16 +1343,16 @@ class UserQuotaAdminView(APIView):
         tags=['access'],
         operation_id='storage_v1_access_grant_list',
         parameters=[
-            OpenApiParameter('resource_type', str, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter('resource_id', str, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter('bucket', str, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(
-                'include_effective',
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                description='Set to `true` to include inherited effective grants for a path.',
+            GRANT_RESOURCE_TYPE_QUERY,
+            mcp_query_param(
+                'resource_id',
+                description='Bucket slug, folder path, or object path the grant targets.',
             ),
+            mcp_query_param(
+                'bucket',
+                description='Limit rows to this bucket slug.',
+            ),
+            GRANT_INCLUDE_EFFECTIVE_QUERY,
         ],
         responses={200: AccessGrantSerializer(many=True), **_API_ERRORS},
         **mcp_openapi_fields('storage_v1_access_grant_list'),

@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+import apps.actions.storage_events  # noqa: F401
 from apps.actions.admin_auth import require_staff_or_company_owner
 from apps.actions.models import EventLog
 from apps.actions.registry import (
@@ -20,7 +21,24 @@ from apps.actions.registry import (
 from apps.actions.retention import retention_status
 from apps.actions.serializers import OpenAPISerializer
 from apps.authapi.permissions import IsAuthenticatedPrincipal, IsStaffOrCompanyOwner
-from apps.storage.openapi_admin import ADMIN_API_ERRORS, EVENT_LOG_ID_PATH, mcp_openapi_fields
+from apps.storage.openapi_admin import ADMIN_API_ERRORS, EVENT_LOG_ID_PATH, mcp_openapi_fields, mcp_query_param
+
+_SCOPE_DESCRIPTION = 'company reads the token company. platform is staff-only and has no company.'
+_SCOPE_QUERY = mcp_query_param(
+    'scope',
+    description=_SCOPE_DESCRIPTION,
+    enum=['company', 'platform'],
+)
+
+
+def _event_type_filter_parameter() -> OpenApiParameter:
+    company_ids = ', '.join(event.id for event in company_event_types())
+    staff_ids = ', '.join(event.id for event in staff_only_event_types())
+    description = (
+        'One catalog event id, or several ids separated by commas. '
+        f'Company events: {company_ids}. Staff platform events: {staff_ids}.'
+    )
+    return mcp_query_param('event_type', description=description)
 
 _API_ERRORS = ADMIN_API_ERRORS
 
@@ -96,18 +114,7 @@ class _EventLogBase(APIView):
         tags=['event-log'],
         operation_id='api_v1_actions_event_log_list',
         parameters=[
-            OpenApiParameter(
-                name='scope',
-                type=str,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                enum=['company', 'platform'],
-                description=(
-                    '`company` (default): events of the company in the token. `platform`: staff-only platform '
-                    'events without a company (`storage.scheduled_job.succeeded`, `storage.scheduled_job.failed`). '
-                    'Non-staff callers get 403.'
-                ),
-            ),
+            _SCOPE_QUERY,
             OpenApiParameter(name='user_id', type=int, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(
                 name='user',
@@ -116,13 +123,7 @@ class _EventLogBase(APIView):
                 required=False,
                 description='Case-insensitive substring of the actor email.',
             ),
-            OpenApiParameter(
-                name='event_type',
-                type=str,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description='Catalog event type; comma-separate several types.',
-            ),
+            _event_type_filter_parameter(),
             OpenApiParameter(
                 name='created_after',
                 type=str,
@@ -183,13 +184,7 @@ class ShellUIAdminEventLogListView(_EventLogBase):
         operation_id='api_v1_actions_event_log_retrieve',
         parameters=[
             EVENT_LOG_ID_PATH,
-            OpenApiParameter(
-                name='scope',
-                type=str,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                enum=['company', 'platform'],
-            ),
+            _SCOPE_QUERY,
         ],
         responses={200: OpenApiResponse(description='Event log row'), **_API_ERRORS},
         **mcp_openapi_fields('api_v1_actions_event_log_retrieve'),

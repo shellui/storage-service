@@ -7,6 +7,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+import apps.actions.storage_events  # noqa: F401
 from apps.actions.admin_auth import require_staff_or_company_owner
 from apps.actions.company import company_context_from_id
 from apps.actions.envelope import build_envelope
@@ -23,7 +24,11 @@ from apps.storage.openapi_admin import (
     ADMIN_API_ERRORS,
     DELIVERY_ID_PATH,
     mcp_openapi_fields,
+    mcp_query_param,
 )
+
+_WEBHOOK_EVENT_IDS = [event.id for event in webhook_event_types()]
+_DELIVERY_STATUS_VALUES = [choice[0] for choice in ActionOutbox.STATUS_CHOICES]
 
 _API_ERRORS = ADMIN_API_ERRORS
 
@@ -342,8 +347,16 @@ class ShellUIAdminActionRuleSendTestView(_ActionsAdminBase):
         tags=['actions'],
         parameters=[
             OpenApiParameter(name='company_id', type=int, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name='status', type=str, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name='event_type', type=str, location=OpenApiParameter.QUERY, required=False),
+            mcp_query_param(
+                'status',
+                description='Delivery status: pending, delivered, failed, or dead.',
+                enum=_DELIVERY_STATUS_VALUES,
+            ),
+            mcp_query_param(
+                'event_type',
+                description='Shellui Actions event id to filter on.',
+                enum=_WEBHOOK_EVENT_IDS,
+            ),
             OpenApiParameter(name='action_rule_id', type=int, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(
                 name='scheduled_job_run_id',
