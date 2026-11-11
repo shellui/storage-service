@@ -22,7 +22,7 @@ from apps.authapi.mcp_authority import clear_delegated_authority_cache
 from apps.storage.mcp_identity import (
     agent_is_revoked,
     approval_state,
-    clear_mcp_call_log_schema_cache,
+    clear_mcp_openapi_schema_cache,
     consume_approval,
     create_approval_request,
     grant_versions_compatible,
@@ -162,7 +162,7 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
         cache.delete('mcp:revoked_verified_claims')
-        clear_mcp_call_log_schema_cache()
+        clear_mcp_openapi_schema_cache()
 
     def test_identity_unavailable_when_revocation_returns_404(self):
         with patch('apps.storage.mcp_identity.requests.get') as mock_get:
@@ -584,177 +584,3 @@ class McpIdentityFailClosedTests(SimpleTestCase):
         self.assertEqual(meta.get('outcome'), 'denied')
         self.assertEqual(meta.get('status'), 409)
         self.assertEqual(meta.get('error_code'), 'expired')
-
-    def test_forward_call_log_drops_unapproved_keys(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'evil': 'payload',
-                    'arguments': {'secret': 'no'},
-                    'agent_id': _AGENT_A,
-                    'company_id': 1,
-                    'grant_version': 0,
-                    'scope': 'storage',
-                    'global_company_id': _SAMPLE_GLOBAL,
-                    'company_binding_version': 0,
-                    'service': 'storage',
-                    'operation_title': 'Evil title must be ignored',
-                    'http_method': 'GET',
-                    'resource_path': '/api/v1/actions/deliveries',
-                    'access_kind': 'read',
-                    'outcome': 'allowed',
-                    'status': 200,
-                    'duration_ms': 1,
-                    'error_code': 'upstream_error',
-                }
-            )
-        body = mock_post.call_args.kwargs['json']
-        self.assertNotIn('evil', body)
-        self.assertNotIn('arguments', body)
-        self.assertNotIn('operation_title', body)
-        self.assertNotIn('error_code', body)
-        self.assertEqual(body.get('scope'), 'storage')
-        self.assertEqual(body.get('method'), 'POST')
-        self.assertEqual(body.get('path'), '/mcp')
-        self.assertNotIn('http_method', body)
-        self.assertNotIn('resource_path', body)
-
-    def test_forward_call_log_drops_invalid_outcome(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'agent_id': _AGENT_A,
-                    'company_id': 1,
-                    'grant_version': 0,
-                    'scope': 'storage',
-                    'global_company_id': _SAMPLE_GLOBAL,
-                    'company_binding_version': 0,
-                    'service': 'storage',
-                    'http_method': 'GET',
-                    'resource_path': '/api/v1/actions/deliveries',
-                    'access_kind': 'read',
-                    'outcome': 'not_a_valid_outcome',
-                    'status': 200,
-                    'duration_ms': 1,
-                }
-            )
-        mock_post.assert_not_called()
-
-    def test_forward_call_log_rejects_path_mismatch(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'http_method': 'GET',
-                    'resource_path': '/wrong/path',
-                    'access_kind': 'read',
-                    'outcome': 'allowed',
-                    'status': 200,
-                    'duration_ms': 1,
-                }
-            )
-        mock_post.assert_not_called()
-
-    def test_forward_call_log_strips_query_from_resource_path(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'agent_id': _AGENT_A,
-                    'company_id': 1,
-                    'grant_version': 0,
-                    'scope': 'storage',
-                    'global_company_id': _SAMPLE_GLOBAL,
-                    'company_binding_version': 0,
-                    'service': 'storage',
-                    'http_method': 'GET',
-                    'resource_path': '/api/v1/actions/deliveries?x=1',
-                    'access_kind': 'read',
-                    'outcome': 'allowed',
-                    'status': 200,
-                    'duration_ms': 1,
-                }
-            )
-        body = mock_post.call_args.kwargs['json']
-        self.assertEqual(body.get('path'), '/mcp')
-        self.assertEqual(body.get('scope'), 'storage')
-
-    def test_forward_call_log_requires_grant_version(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'agent_id': _AGENT_A,
-                    'company_id': 1,
-                    'scope': 'storage',
-                    'global_company_id': _SAMPLE_GLOBAL,
-                    'company_binding_version': 0,
-                    'service': 'storage',
-                    'http_method': 'GET',
-                    'resource_path': '/api/v1/actions/deliveries',
-                    'access_kind': 'read',
-                    'outcome': 'allowed',
-                    'status': 200,
-                    'duration_ms': 1,
-                }
-            )
-        mock_post.assert_not_called()
-
-    def test_forward_call_log_delegated_requires_company_binding_version(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'agent_id': _AGENT_A,
-                    'company_id': 1,
-                    'grant_version': 0,
-                    'scope': 'storage',
-                    'global_company_id': _SAMPLE_GLOBAL,
-                    'service': 'storage',
-                    'http_method': 'GET',
-                    'resource_path': '/api/v1/actions/deliveries',
-                    'access_kind': 'read',
-                    'outcome': 'allowed',
-                    'status': 200,
-                    'duration_ms': 1,
-                }
-            )
-        mock_post.assert_not_called()
-
-    def test_forward_call_log_destructive_allowed_requires_approval_id(self):
-        from apps.storage.mcp_identity import forward_call_log
-
-        with patch('apps.storage.mcp_identity.requests.post') as mock_post:
-            forward_call_log(
-                {
-                    'tool': 'api_v1_actions_deliveries_list',
-                    'agent_id': _AGENT_A,
-                    'company_id': 1,
-                    'grant_version': 0,
-                    'scope': 'storage',
-                    'global_company_id': _SAMPLE_GLOBAL,
-                    'company_binding_version': 0,
-                    'service': 'storage',
-                    'http_method': 'GET',
-                    'resource_path': '/api/v1/actions/deliveries',
-                    'access_kind': 'destructive',
-                    'outcome': 'allowed',
-                    'status': 200,
-                    'duration_ms': 1,
-                }
-            )
-        mock_post.assert_not_called()

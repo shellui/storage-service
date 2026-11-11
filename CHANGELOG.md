@@ -21,6 +21,10 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 - Bump `shellui-django[mcp]` to the PyPI release 0.5.0.
 
+### 🗑 Removed
+
+- MCP: storage no longer posts tool-call logs to Identity. The ai-service gateway records each `tools/call`. Token checks, revocation polling, and approvals stay on this service.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
