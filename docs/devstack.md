@@ -43,7 +43,7 @@ Set these in `dev/.env.local` (prefixed names avoid clashes across services). Co
 | `IDENTITY_ISSUER` | `http://localhost:8001` | Public JWT `iss` (browser-facing identity port) |
 | `IDENTITY_AUDIENCE` | `shellui` | JWT `aud`; must match identity-service `JWT_AUDIENCE` |
 | `IDENTITY_JWKS_URL` | `http://identity:8000/.well-known/jwks.json` | Server-side JWKS fetch (Docker DNS, port 8000 inside the network) |
-| `IDENTITY_SERVICE_URL` | `http://identity:8000` | Server-side calls to identity MCP internal APIs (revocations, approvals, call logs) |
+| `IDENTITY_SERVICE_URL` | `http://identity:8000` | Server-side calls to identity MCP internal APIs (revocations and approvals) |
 | `EMAIL_SERVICE_URL` | `http://email:8000` | Forward storage events when `EMAIL_SERVICE_API_KEY` is set |
 | `EMAIL_SERVICE_ALLOW_PRIVATE` | `true` | Allow the internal email-service origin |
 | `STORAGE_BACKEND` | `filesystem` | Local blobs under `/app/data/media` (use a volume or bind mount for persistence) |

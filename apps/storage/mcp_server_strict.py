@@ -1,12 +1,10 @@
-"""Strict MCP HTTP handler: identity-bound approvals, grant checks, and audited call logs."""
+"""Strict MCP HTTP handler: identity-bound approvals and grant checks."""
 
 from __future__ import annotations
 
 import base64
 import hashlib
 import json
-import logging
-import time
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -27,21 +25,14 @@ from shellui_django.mcp.routing import (
 from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
 
 from apps.storage.mcp_tool_schema import coerce_mcp_call_arguments, published_mcp_tools
-from apps.storage.mcp_assertions import (
-    parse_company_binding_version,
-    parse_grant_version,
-    parse_global_company_id,
-)
+from apps.storage.mcp_assertions import parse_grant_version
 from apps.storage.mcp_identity import (
-    _UUID_RE,
-    _registry_operation_for_call_log,
     delegated_live_authority_gate,
     grant_versions_compatible,
     identity_revocation_unavailable,
     identity_token_ok,
+    _published_registry_operation_matches,
 )
-
-logger = logging.getLogger(__name__)
 
 _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
 
@@ -56,33 +47,6 @@ _REVEAL_ONCE_FIELDS = {
 }
 
 _STATS_FILENAME_KEYS = frozenset({'name', 'basename'})
-
-# AI gateway and Shellui Identity error taxonomy (audit ``error.code`` and MCP JSON-RPC layer).
-AUDIT_ERROR_CODES = frozenset(
-    {
-        'bad_request',
-        'unauthorized',
-        'forbidden',
-        'not_found',
-        'conflict',
-        'rate_limited',
-        'timeout',
-        'upstream_error',
-        'internal_error',
-        'denied',
-        'expired',
-        'out_of_sync',
-        'unknown',
-        'identity_unavailable',
-        'identity_invalid',
-        'invalid_json',
-        'method_not_allowed',
-        'agent_revoked',
-        'approval_unavailable',
-    }
-)
-
-_IDENTITY_RPC_ERRORS = frozenset({'identity_unavailable', 'identity_invalid', 'agent_revoked'})
 
 
 def _inner_response_failed(*, status_code: int, data: Any) -> bool:
@@ -102,36 +66,6 @@ def _inner_response_effective_status(*, status_code: int, data: Any) -> int:
     if _inner_response_failed(status_code=status_code, data=data):
         return max(status_code, 422)
     return status_code
-
-
-def _inner_http_error_code(status_code: int) -> str | None:
-    if status_code >= 400:
-        return _http_status_bucket(status_code)
-    return None
-
-
-def _http_status_bucket(status_code: int) -> str:
-    if status_code == 400:
-        return 'bad_request'
-    if status_code == 401:
-        return 'unauthorized'
-    if status_code == 403:
-        return 'forbidden'
-    if status_code == 404:
-        return 'not_found'
-    if status_code == 409:
-        return 'conflict'
-    if status_code == 422:
-        return 'bad_request'
-    if status_code == 408:
-        return 'timeout'
-    if status_code == 429:
-        return 'rate_limited'
-    if status_code == 503:
-        return 'upstream_error'
-    if status_code >= 500:
-        return 'internal_error'
-    return 'unknown'
 
 
 def public_mcp_tool(tool: dict[str, Any]) -> dict[str, Any]:
@@ -327,32 +261,6 @@ def _json_default(value: Any) -> Any:
     raise TypeError(f'Object of type {type(value).__name__} is not JSON serializable')
 
 
-def _tool_operation_summary(tool: dict[str, Any], schema: dict[str, Any]) -> str:
-    meta = tool.get('_meta') or {}
-    op_id = meta.get('operationId')
-    if op_id:
-        paths = schema.get('paths') or {}
-        for path_item in paths.values():
-            if not isinstance(path_item, dict):
-                continue
-            for op in path_item.values():
-                if isinstance(op, dict) and op.get('operationId') == op_id:
-                    s = (op.get('summary') or '').strip()
-                    if s:
-                        return s[:500]
-    return f"Operation {tool.get('name') or op_id or 'tool'}"[:500]
-
-
-def _map_write_gate_outcome(decision: Any, *, granted: bool) -> str:
-    if granted:
-        return 'allowed'
-    if getattr(decision, 'needs_approval', False):
-        return 'waiting_approval'
-    if not getattr(decision, 'allowed', False):
-        return 'denied'
-    return 'failed'
-
-
 class StrictMcpServer:
     """Same contract as ``shellui_django.mcp.server.McpServer`` with stricter identity binding."""
 
@@ -364,7 +272,6 @@ class StrictMcpServer:
         service_name: str,
         identity_revocation_check: Callable[..., bool],
         delegated_authority_gate: Callable[[dict[str, Any], dict[str, Any]], tuple[bool, bool]] | None = None,
-        on_call: Callable[[dict[str, Any]], None] | None = None,
         approval_handler: Callable[..., dict[str, Any] | None] | None = None,
         approval_state: Callable[..., str | None] | None = None,
         approval_consume: Callable[..., Any] | None = None,
@@ -374,7 +281,6 @@ class StrictMcpServer:
         self.service_name = service_name
         self.identity_revocation_check = identity_revocation_check
         self.delegated_authority_gate = delegated_authority_gate or delegated_live_authority_gate
-        self.on_call = on_call
         self.approval_handler = approval_handler
         self.approval_state = approval_state
         self.approval_consume = approval_consume
@@ -464,7 +370,6 @@ class StrictMcpServer:
         *,
         mcp_resource_audience: str | None,
     ) -> JsonResponse:
-        started = time.perf_counter()
         tool_name = str(params.get('name') or '')
         raw_arguments = params.get('arguments')
         if raw_arguments is None:
@@ -485,8 +390,7 @@ class StrictMcpServer:
         if path != path_template or method != meta.get('method'):
             return JsonResponse(self._error(req_id, -32602, 'Tool path mismatch'))
         registry_op_id = str(meta.get('operationId') or tool_name).strip()
-        registry_valid = _registry_operation_for_call_log(registry_op_id, path_template, method) is not None
-        if not registry_valid:
+        if not _published_registry_operation_matches(registry_op_id, path_template, method):
             return JsonResponse(self._error(req_id, -32602, 'Tool registry mismatch'))
         try:
             validate_mcp_tool_arguments(_library_validation_arguments(arguments), meta)
@@ -508,18 +412,9 @@ class StrictMcpServer:
             allow_destructive_without_asking=bool(agent_claims.get('mcp_destructive')),
             tool_read_only=tool_read_only,
         )
-        operation_title = _tool_operation_summary(tool, schema)
-        audit_inner_path = path_template
-        if destructive:
-            access_kind = 'destructive'
-        elif tool_read_only:
-            access_kind = 'read'
-        else:
-            access_kind = 'write'
         approval_payload: dict[str, Any] = {}
 
         approval_granted = False
-        consumed_approval_id: str | None = None
         approval_flow_state: str | None = None
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
@@ -530,7 +425,7 @@ class StrictMcpServer:
                 'service': self.service_name,
                 'action': tool_name,
                 'arguments_hash': args_hash,
-                'resource_path': audit_inner_path,
+                'resource_path': path_template,
                 'http_method': method,
                 'mcp_expected_resource': expected_res.strip() or None,
                 'is_destructive': destructive,
@@ -540,25 +435,6 @@ class StrictMcpServer:
                 approval_flow_state = self.approval_state(approval_payload, agent_claims)
                 state = approval_flow_state
                 if state == 'error':
-                    self._emit_audit(
-                        request=request,
-                        agent_claims=agent_claims,
-                        tool_name=tool_name,
-                        method='POST',
-                        audit_path=audit_inner_path,
-                        operation_title=operation_title,
-                        access_kind=access_kind,
-                        destructive=destructive,
-                        read_level=read_level,
-                        arguments=arguments,
-                        inner_http_method=method,
-                        tool_registry_valid=registry_valid,
-                        status_code=503,
-                        outcome='failed',
-                        error_code='upstream_error',
-                        approval_id=None,
-                        started=started,
-                    )
                     return JsonResponse(
                         self._result(
                             req_id,
@@ -566,25 +442,6 @@ class StrictMcpServer:
                         )
                     )
                 if state == 'expired':
-                    self._emit_audit(
-                        request=request,
-                        agent_claims=agent_claims,
-                        tool_name=tool_name,
-                        method='POST',
-                        audit_path=audit_inner_path,
-                        operation_title=operation_title,
-                        access_kind=access_kind,
-                        destructive=destructive,
-                        read_level=read_level,
-                        arguments=arguments,
-                        inner_http_method=method,
-                        tool_registry_valid=registry_valid,
-                        status_code=409,
-                        outcome='denied',
-                        error_code='expired',
-                        approval_id=None,
-                        started=started,
-                    )
                     return JsonResponse(
                         self._result(
                             req_id,
@@ -592,25 +449,6 @@ class StrictMcpServer:
                         )
                     )
                 if state == 'denied':
-                    self._emit_audit(
-                        request=request,
-                        agent_claims=agent_claims,
-                        tool_name=tool_name,
-                        method='POST',
-                        audit_path=audit_inner_path,
-                        operation_title=operation_title,
-                        access_kind=access_kind,
-                        destructive=destructive,
-                        read_level=read_level,
-                        arguments=arguments,
-                        inner_http_method=method,
-                        tool_registry_valid=registry_valid,
-                        status_code=403,
-                        outcome='denied',
-                        error_code='denied',
-                        approval_id=None,
-                        started=started,
-                    )
                     return JsonResponse(
                         self._result(
                             req_id,
@@ -630,43 +468,10 @@ class StrictMcpServer:
                         if consumed:
                             granted = True
                             approval_granted = True
-                            consumed_approval_id = str(approval_id)
                         else:
                             oc = str(consume_meta.get('outcome') or 'failed')
                             st = consume_meta.get('status')
                             sc = int(st) if isinstance(st, int) and not isinstance(st, bool) and st >= 0 else 503
-                            ec = consume_meta.get('error_code')
-                            ec_s = str(ec).strip()[:128] if ec is not None and str(ec).strip() else 'upstream_error'
-                            ec_audit = (
-                                ec_s
-                                if ec_s in AUDIT_ERROR_CODES or ec_s in _IDENTITY_RPC_ERRORS
-                                else 'unknown'
-                            )
-                            aid_log = consume_meta.get('approval_id')
-                            aid_final = (
-                                str(aid_log).strip()
-                                if aid_log is not None and _UUID_RE.match(str(aid_log).strip())
-                                else str(approval_id)
-                            )
-                            self._emit_audit(
-                                request=request,
-                                agent_claims=agent_claims,
-                                tool_name=tool_name,
-                                method='POST',
-                                audit_path=audit_inner_path,
-                                operation_title=operation_title,
-                                access_kind=access_kind,
-                                destructive=destructive,
-                                read_level=read_level,
-                                arguments=arguments,
-                                inner_http_method=method,
-                                tool_registry_valid=registry_valid,
-                                status_code=sc,
-                                outcome=oc if oc in ('failed', 'denied', 'waiting_approval') else 'failed',
-                                error_code=ec_audit,
-                                approval_id=aid_final,
-                                started=started,
-                            )
                             if oc == 'denied' and sc == 409:
                                 return JsonResponse(
                                     self._result(
@@ -681,25 +486,6 @@ class StrictMcpServer:
                                 )
                             )
                     else:
-                        self._emit_audit(
-                            request=request,
-                            agent_claims=agent_claims,
-                            tool_name=tool_name,
-                            method='POST',
-                            audit_path=audit_inner_path,
-                            operation_title=operation_title,
-                            access_kind=access_kind,
-                            destructive=destructive,
-                            read_level=read_level,
-                            arguments=arguments,
-                            inner_http_method=method,
-                            tool_registry_valid=registry_valid,
-                            status_code=503,
-                            outcome='failed',
-                            error_code='upstream_error',
-                            approval_id=str(approval_id) if approval_id else None,
-                            started=started,
-                        )
                         return JsonResponse(
                             self._result(
                                 req_id,
@@ -707,27 +493,6 @@ class StrictMcpServer:
                             )
                         )
                 if state == 'pending':
-                    self._emit_audit(
-                        request=request,
-                        agent_claims=agent_claims,
-                        tool_name=tool_name,
-                        method='POST',
-                        audit_path=audit_inner_path,
-                        operation_title=operation_title,
-                        access_kind=access_kind,
-                        destructive=destructive,
-                        read_level=read_level,
-                        arguments=arguments,
-                        inner_http_method=method,
-                        tool_registry_valid=registry_valid,
-                        status_code=202,
-                        outcome='waiting_approval',
-                        error_code=None,
-                        approval_id=str(approval_payload['approval_id'])
-                        if approval_payload.get('approval_id')
-                        else None,
-                        started=started,
-                    )
                     return JsonResponse(
                         self._result(
                             req_id,
@@ -741,26 +506,6 @@ class StrictMcpServer:
             if not granted and self.approval_handler and approval_flow_state is None:
                 pending = self.approval_handler(approval_payload, agent_claims)
                 if pending and pending.get('_approval_error'):
-                    ec = str(pending.get('error_code') or 'upstream_error')
-                    self._emit_audit(
-                        request=request,
-                        agent_claims=agent_claims,
-                        tool_name=tool_name,
-                        method='POST',
-                        audit_path=audit_inner_path,
-                        operation_title=operation_title,
-                        access_kind=access_kind,
-                        destructive=destructive,
-                        read_level=read_level,
-                        arguments=arguments,
-                        inner_http_method=method,
-                        tool_registry_valid=registry_valid,
-                        status_code=503,
-                        outcome='failed',
-                        error_code=ec if ec in AUDIT_ERROR_CODES else 'upstream_error',
-                        approval_id=None,
-                        started=started,
-                    )
                     msg = str(pending.get('message') or 'Approval unavailable.')
                     return JsonResponse(
                         self._result(
@@ -770,25 +515,6 @@ class StrictMcpServer:
                     )
                 if pending:
                     rid = pending.get('id')
-                    self._emit_audit(
-                        request=request,
-                        agent_claims=agent_claims,
-                        tool_name=tool_name,
-                        method='POST',
-                        audit_path=audit_inner_path,
-                        operation_title=operation_title,
-                        access_kind=access_kind,
-                        destructive=destructive,
-                        read_level=read_level,
-                        arguments=arguments,
-                        inner_http_method=method,
-                        tool_registry_valid=registry_valid,
-                        status_code=202,
-                        outcome='waiting_approval',
-                        error_code=None,
-                        approval_id=str(rid) if rid is not None else None,
-                        started=started,
-                    )
                     return JsonResponse(
                         self._result(
                             req_id,
@@ -800,26 +526,6 @@ class StrictMcpServer:
                         )
                     )
             if not granted and not approval_granted:
-                oc = _map_write_gate_outcome(decision, granted=False)
-                self._emit_audit(
-                    request=request,
-                    agent_claims=agent_claims,
-                    tool_name=tool_name,
-                    method='POST',
-                    audit_path=audit_inner_path,
-                    operation_title=operation_title,
-                    access_kind=access_kind,
-                    destructive=destructive,
-                    read_level=read_level,
-                    arguments=arguments,
-                    inner_http_method=method,
-                    tool_registry_valid=registry_valid,
-                    status_code=403,
-                    outcome=oc,
-                    error_code='denied',
-                    approval_id=None,
-                    started=started,
-                )
                 return JsonResponse(
                     self._result(
                         req_id,
@@ -827,26 +533,6 @@ class StrictMcpServer:
                     )
                 )
         if not approval_granted and not decision.allowed:
-            oc = _map_write_gate_outcome(decision, granted=False)
-            self._emit_audit(
-                request=request,
-                agent_claims=agent_claims,
-                tool_name=tool_name,
-                method='POST',
-                audit_path=audit_inner_path,
-                operation_title=operation_title,
-                access_kind=access_kind,
-                destructive=destructive,
-                read_level=read_level,
-                arguments=arguments,
-                inner_http_method=method,
-                tool_registry_valid=registry_valid,
-                status_code=403,
-                outcome=oc,
-                error_code='denied',
-                approval_id=None,
-                started=started,
-            )
             return JsonResponse(
                 self._result(
                     req_id,
@@ -892,30 +578,6 @@ class StrictMcpServer:
         )
         if eff_status < 400:
             redacted = _reveal_once_secrets(registry_op_id, data if isinstance(data, dict) else None, redacted)
-        inner_fail = _inner_response_failed(status_code=status_code, data=data)
-        http_outcome = 'failed' if eff_status >= 400 else 'allowed'
-        cons_approval_id = consumed_approval_id or (
-            str(approval_payload['approval_id']) if approval_payload.get('approval_id') else None
-        )
-        self._emit_audit(
-            request=request,
-            agent_claims=agent_claims,
-            tool_name=tool_name,
-            method='POST',
-            audit_path=audit_inner_path,
-            operation_title=operation_title,
-            access_kind=access_kind,
-            destructive=destructive,
-            read_level=read_level,
-            arguments=arguments,
-            inner_http_method=method,
-            tool_registry_valid=registry_valid,
-            status_code=eff_status,
-            outcome=http_outcome,
-            error_code=_inner_http_error_code(eff_status),
-            approval_id=cons_approval_id,
-            started=started,
-        )
         return JsonResponse(
             self._result(
                 req_id,
@@ -925,71 +587,6 @@ class StrictMcpServer:
                 },
             )
         )
-
-    def _emit_audit(
-        self,
-        *,
-        request: HttpRequest,
-        agent_claims: dict[str, Any],
-        tool_name: str,
-        method: str,
-        audit_path: str,
-        operation_title: str,
-        access_kind: str,
-        destructive: bool,
-        read_level: str,
-        arguments: dict[str, Any],
-        status_code: int,
-        outcome: str,
-        error_code: str | None,
-        approval_id: str | None,
-        started: float,
-        inner_http_method: str | None = None,
-        tool_registry_valid: bool | None = None,
-    ) -> None:
-        if not self.on_call:
-            return
-        duration_ms = int(round((time.perf_counter() - started) * 1000))
-        gcid = parse_global_company_id(agent_claims.get('global_company_id'))
-        gv = parse_grant_version(agent_claims.get('grant_version'))
-        if gv is None:
-            return
-        cb_raw = agent_claims.get('company_binding_version')
-        cbv = parse_company_binding_version(cb_raw) if cb_raw is not None else None
-        scope_s = str(agent_claims.get('scope') or '').strip()
-        if not scope_s:
-            return
-        entry: dict[str, Any] = {
-            'agent_id': agent_claims.get('agent_id'),
-            'company_id': agent_claims.get('company_id'),
-            'grant_version': gv,
-            'scope': scope_s[:512],
-            'service': self.service_name,
-            'tool': tool_name,
-            'operation_title': operation_title,
-            'http_method': inner_http_method if isinstance(inner_http_method, str) and inner_http_method.strip() else method,
-            'resource_path': audit_path,
-            'access_kind': access_kind,
-            'outcome': outcome,
-            'status': status_code,
-            'duration_ms': duration_ms,
-            'approval_id': approval_id,
-        }
-        if tool_registry_valid is not None:
-            entry['tool_registry_valid'] = bool(tool_registry_valid)
-        if gcid is not None:
-            entry['global_company_id'] = gcid
-            if cbv is not None:
-                entry['company_binding_version'] = cbv
-        if error_code:
-            if error_code in AUDIT_ERROR_CODES or error_code in _IDENTITY_RPC_ERRORS:
-                entry['error_code'] = error_code
-            else:
-                entry['error_code'] = 'unknown'
-        try:
-            self.on_call(entry)
-        except Exception:
-            logger.debug('MCP on_call hook failed', exc_info=True)
 
     @staticmethod
     def _attach_request_principal(

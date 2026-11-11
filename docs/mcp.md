@@ -73,6 +73,8 @@ Company AI clients usually connect through the ai-service gateway (`/c/<company_
 
 Clients can request the full list with `?tools=all`. `ai_call_tool` uses the same approvals as a direct call. A direct service `POST /mcp` still returns this service's full catalog.
 
+The ai-service gateway records every `tools/call`. This service does not post call logs to Identity. A client can call `POST /mcp` here directly, including with a personal regional token. That request does not pass through the gateway, so it is absent from the gateway call log.
+
 ## Required agent token claims
 
 Claims must use the types below. Types match Identity's regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
@@ -154,9 +156,11 @@ Webhook rules, deliveries, event types, and the company event log carry `x-mcp` 
 
 3. Use JSON-RPC methods `initialize`, `tools/list`, and `tools/call`.
 
+Before the inner REST handler runs, storage checks that the tool name, OpenAPI path template, and HTTP method match the published registry (`operationId`). A mismatch returns JSON-RPC `-32602` and the handler does not run.
+
 Successful tool execution in JSON-RPC means `result.isError` is false. The inner storage HTTP handler may still return a Supabase-shaped body with `error` or `statusCode` while using HTTP `200`; that case is treated as failure and surfaces as `result.isError` true (HTTP status on the MCP response may be `422` for observability). Do not treat HTTP status on the MCP response alone as success for `tools/call`; inspect `isError` and the text payload.
 
-Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity internal APIs (revocation, approvals, call logs).
+Use `IDENTITY_SERVICE_URL` and `IDENTITY_ISSUER` for OAuth metadata and Identity internal APIs (revocation and approvals).
 
 ### Example `tools/list` (excerpt)
 
@@ -246,21 +250,11 @@ Create share returns `token` once. Later reads omit it. Webhook signing secrets 
 
 ## Internal assertions to Identity
 
-Revocation polling, approvals, and call logs send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json` (same origin as this service). Identity must register that issuer; dynamic values such as `GITHUB_SHA` are not a substitute for the stable issuer string.
+Revocation polling and approvals send short-lived RS256 assertions signed with this service's key (`STORAGE_SERVICE_SIGNING_KEY`, issuer `STORAGE_SERVICE_ISSUER`). The public key is at `GET /.well-known/jwks.json` (same origin as this service). Identity must register that issuer; dynamic values such as `GITHUB_SHA` are not a substitute for the stable issuer string.
 
 Approval assertions use `shellui_django.mcp.internal.build_mcp_approval_assertion` with the same delegated fields as the agent token when the exchange triple is present (default assertion lifetime is the ordinary internal limit, 60 seconds). Personal tokens still pass `grant_version` when present on the JWT. Internal approval HTTP calls send an empty JSON body; authority is carried only in the signed assertion (including `arguments_hash`). Storage does not call Identity to create an approval for exchange-delegated agents (`global_company_id` with `mcp_authority: delegated`); those flows must use the AI gateway (MCP surfaces `out_of_sync` instead of probing Identity with `{}`).
 
 Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STORAGE_SERVICE_SIGNING_KEY_FILE`).
-
-### Call log payload to Identity
-
-Each tool attempt forwards a small JSON object. Before executing the inner REST handler, storage checks that the tool `name`, OpenAPI path template, and inner HTTP method match the published registry (`operationId` triple); mismatches answer JSON-RPC `-32602` and are not executed. When the caller marks the row trusted (`tool_registry_valid`), a rare OpenAPI triple mismatch is still forwarded with a warning log so owner-visible activity is not wiped. **Identity ingest** expects the downstream JSON-RPC surface only: wire `method` is always **`POST`**, and wire **`path` is always the literal `/mcp`** (public MCP activity route; not a host prefix derived from `STORAGE_PUBLIC_URL`). Identity maps that to a stable `resource_label` for the service.
-
-Storage does not forward `operation_title`, `resource_label`, `global_agent_id`, `result`, or raw MCP arguments. There is no raw MCP `arguments` map in the log payload.
-
-Fields on the wire include `agent_id`, `company_id`, `service`, `tool`, `scope` (exact string from the verified JWT, unchanged), `method`, `path`, `access_kind`, required `outcome`, `status` (non-negative int), `duration_ms`, `grant_version` (strict JSON int copied from the verified JWT), optional `error_code`. **Delegated** agents (regional token with `global_company_id`) send `global_company_id` and `company_binding_version` on the wire; **personal** agents omit both.
-
-For inner REST operations classified as **destructive**, successful `allowed` or `session_used` rows require a canonical `approval_id` (UUID). Other destructive outcomes keep `access_kind` **destructive** (for example waiting on approval or failure) so the log stays truthful. For successful `allowed` rows with HTTP status below 400, `error_code` is omitted even when an inner business error was redacted into the MCP result text (the legacy `result` field is not forwarded). Canonical outcomes are `waiting_approval`, `allowed`, `denied`, `failed`, and `session_used`; legacy `pending_approval` is normalized to `waiting_approval` before forward. **session_used** is reserved for valid session-permission reuse within TTL, not for consumed approvals. Error taxonomy for failures uses `error_code`, not nested objects; values outside Identity's allowlist map to `unknown`.
 
 Approval consume (Identity #136): storage uses **HTTP status at the boundary** (`409` means not reusable; `200` with `consumed: true` means consumed). For `200` with `consumed: false`, it maps to **denied** with `error_code` **expired** only when the response body text (for example `detail` / `message` / `error`) indicates the approval was already consumed; it does not trust guessed JSON fields such as `error_code` or `http_status` in the body.
 

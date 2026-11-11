@@ -1,4 +1,4 @@
-"""Calls to identity-service for MCP revocations, approvals, and call logs."""
+"""Calls to identity-service for MCP revocations and approvals."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from shellui_django.mcp.internal import (
     REVOCATION_CACHE_SECONDS,
     InternalAssertionError,
     build_mcp_approval_assertion,
-    build_mcp_call_log_assertion,
     build_mcp_revocation_assertion,
     verify_mcp_revocation_list_response,
 )
@@ -33,7 +32,6 @@ from apps.storage.mcp_assertions import (
     parse_global_agent_id,
     parse_global_company_id,
     parse_grant_version,
-    parse_regional_agent_id,
     parse_trusted_agent_claims,
 )
 from config.service_signing import signing_kwargs
@@ -45,50 +43,6 @@ _REVOKED_TRUST_KEY = 'mcp:revoked_list_trusted'
 _REVOKED_VERIFIED_KEY = 'mcp:revoked_verified_claims'
 _REVOKED_EPOCH_KEY = 'mcp:revoked_cache_epoch'
 _REVOKED_LOCK = threading.Lock()
-
-_CALL_LOG_OUTCOMES = frozenset(
-    {
-        'waiting_approval',
-        'allowed',
-        'denied',
-        'failed',
-        'session_used',
-    }
-)
-
-_CALL_LOG_ACCESS_KINDS = frozenset({'read', 'write', 'destructive', 'unknown'})
-
-_APPROVAL_HTTP_METHODS = frozenset({'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'})
-
-# Identity ingest error_code allowlist; values outside this set are mapped to ``unknown``.
-_CALL_LOG_WIRE_ERROR_CODES = frozenset(
-    {
-        'bad_request',
-        'unauthorized',
-        'forbidden',
-        'not_found',
-        'conflict',
-        'rate_limited',
-        'timeout',
-        'upstream_error',
-        'internal_error',
-        'denied',
-        'expired',
-        'out_of_sync',
-        'unknown',
-        'identity_unavailable',
-        'identity_invalid',
-        'invalid_json',
-        'method_not_allowed',
-        'agent_revoked',
-        'approval_unavailable',
-    }
-)
-
-
-def _public_mcp_path() -> str:
-    """Canonical public MCP activity path (JSON-RPC ``POST /mcp``)."""
-    return '/mcp'
 
 _APPROVAL_STATUS_OK = frozenset({'approved', 'pending', 'denied', 'expired'})
 _UUID_RE = re.compile(
@@ -710,39 +664,31 @@ def _cached_openapi_schema_public() -> dict[str, Any]:
     return SchemaGenerator().get_schema(request=None, public=True)
 
 
-def clear_mcp_call_log_schema_cache() -> None:
+def clear_mcp_openapi_schema_cache() -> None:
     """Drop the OpenAPI cache (for tests or after schema-changing reloads)."""
     _cached_openapi_schema_public.cache_clear()
 
 
-def _registry_operation_for_call_log(
-    tool_name: str, resource_path: str, http_method: str
-) -> tuple[str, str] | None:
-    """
-    Resolve OpenAPI ``summary`` and path template for a tool when the triple matches.
-
-    Rejects caller-supplied titles or paths that do not match the published operationId and template.
-    """
+def _published_registry_operation_matches(tool_name: str, resource_path: str, http_method: str) -> bool:
+    """True when the tool name, path template, and method match one published operation."""
     schema = _cached_openapi_schema_public()
     paths = schema.get('paths') or {}
     if not isinstance(paths, dict):
-        return None
+        return False
     p_item = paths.get(resource_path)
     if not isinstance(p_item, dict):
-        return None
+        return False
     op = p_item.get(str(http_method).lower())
     if not isinstance(op, dict):
-        return None
+        return False
     op_id = str(op.get('operationId') or '')
     published = MCP_PUBLISHED_TOOL_NAMES.get(op_id)
     if str(tool_name) not in {op_id, published}:
-        return None
-    summary = (op.get('summary') or '').strip()
-    title = (summary[:256] if summary else str(tool_name))[:256]
-    p = resource_path.split('?', 1)[0].strip()
-    if not p.startswith('/') or '\n' in p:
-        return None
-    return title, p[:2048]
+        return False
+    path = resource_path.split('?', 1)[0].strip()
+    if not path.startswith('/') or '\n' in path:
+        return False
+    return True
 
 
 def consume_approval(
@@ -796,165 +742,6 @@ def consume_approval(
     if 'already consumed' in detail or 'already been consumed' in detail:
         return False, {**meta, 'outcome': 'denied', 'status': 409, 'error_code': 'expired'}
     return False, {**meta, 'outcome': 'failed', 'status': 200, 'error_code': 'upstream_error'}
-
-
-def _canonical_call_log_outcome(raw: Any) -> str | None:
-    """Normalize to Identity ``call_log_outcome`` ingest (d7fe351): five canonical strings."""
-    if not isinstance(raw, str):
-        return None
-    s = raw.strip().lower()
-    if not s:
-        return None
-    if s == 'pending_approval':
-        return 'waiting_approval'
-    if s in _CALL_LOG_OUTCOMES:
-        return s
-    return None
-
-
-def _sanitize_call_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    tool = entry.get('tool')
-    resource_path = entry.get('resource_path')
-    http_method = entry.get('http_method')
-    if not isinstance(tool, str) or not tool.strip():
-        return {}
-    if not isinstance(resource_path, str) or not isinstance(http_method, str):
-        return {}
-    method_u = http_method.strip().upper()
-    if method_u not in _APPROVAL_HTTP_METHODS:
-        return {}
-    path_for_registry = resource_path.strip().split('#', 1)[0].split('?', 1)[0].strip()
-    registry_ok = entry.get('tool_registry_valid')
-    if registry_ok is True:
-        reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
-        if reg is None:
-            logger.warning(
-                'MCP call log OpenAPI registry mismatch for tool=%s path=%s method=%s; forwarding with trusted tool name',
-                tool.strip()[:255],
-                path_for_registry[:200],
-                method_u,
-            )
-    elif registry_ok is False:
-        pass
-    else:
-        reg = _registry_operation_for_call_log(tool.strip(), path_for_registry, method_u)
-        if reg is None:
-            return {}
-
-    agent_raw = entry.get('agent_id')
-    aid = parse_regional_agent_id(agent_raw)
-    if aid is None:
-        return {}
-
-    cid = entry.get('company_id')
-    if not isinstance(cid, int) or isinstance(cid, bool) or cid < 1:
-        return {}
-
-    svc = entry.get('service')
-    if not isinstance(svc, str) or not svc.strip():
-        return {}
-
-    oc = _canonical_call_log_outcome(entry.get('outcome'))
-    if oc is None:
-        return {}
-
-    st = entry.get('status')
-    if not (isinstance(st, int) and not isinstance(st, bool) and st >= 0):
-        return {}
-    dm = entry.get('duration_ms')
-    if not (isinstance(dm, int) and not isinstance(dm, bool) and dm >= 0):
-        return {}
-
-    pgv = parse_grant_version(entry.get('grant_version'))
-    if pgv is None:
-        return {}
-
-    ak = entry.get('access_kind')
-    if isinstance(ak, str) and ak.strip().lower() in _CALL_LOG_ACCESS_KINDS:
-        access_kind = ak.strip().lower()
-    else:
-        access_kind = 'unknown'
-
-    gcid_raw = entry.get('global_company_id')
-    gcid_parsed = parse_global_company_id(gcid_raw) if isinstance(gcid_raw, str) else None
-    delegated = gcid_parsed is not None
-    if delegated:
-        cbv_delegated = parse_company_binding_version(entry.get('company_binding_version'))
-        if cbv_delegated is None:
-            return {}
-    else:
-        if entry.get('company_binding_version') is not None:
-            return {}
-        cbv_delegated = None
-
-    if entry.get('global_agent_id') is not None:
-        return {}
-
-    appr_uuid: str | None = None
-    raw_appr = entry.get('approval_id')
-    if isinstance(raw_appr, str) and raw_appr.strip() and _UUID_RE.match(raw_appr.strip()):
-        appr_uuid = raw_appr.strip()
-
-    if access_kind == 'destructive' and oc in ('allowed', 'session_used') and appr_uuid is None:
-        return {}
-
-    wire_path = _public_mcp_path().split('?', 1)[0].split('#', 1)[0].strip()[:500]
-    scope_raw = entry.get('scope')
-    if not isinstance(scope_raw, str) or not scope_raw.strip():
-        return {}
-    scope_norm = ' '.join(p for p in scope_raw.split() if p)[:256]
-    if not scope_norm:
-        return {}
-
-    out: dict[str, Any] = {
-        'agent_id': aid,
-        'company_id': cid,
-        'service': svc.strip()[:32],
-        'tool': tool.strip()[:255],
-        'method': 'POST',
-        'path': wire_path,
-        'scope': scope_norm,
-        'outcome': oc,
-        'status': st,
-        'duration_ms': dm,
-        'grant_version': pgv,
-        'access_kind': access_kind,
-    }
-    if delegated:
-        out['global_company_id'] = gcid_parsed
-        out['company_binding_version'] = cbv_delegated
-    if appr_uuid is not None:
-        out['approval_id'] = appr_uuid
-    raw_ec = entry.get('error_code')
-    ec = raw_ec.strip()[:128] if isinstance(raw_ec, str) and raw_ec.strip() else None
-    if oc == 'allowed' and st < 400:
-        pass
-    elif ec:
-        out['error_code'] = ec if ec in _CALL_LOG_WIRE_ERROR_CODES else 'unknown'
-    return out
-
-
-def forward_call_log(entry: dict[str, Any]) -> None:
-    origin = _identity_origin()
-    if not origin:
-        return
-    safe = _sanitize_call_log_entry(entry)
-    if not safe:
-        return
-    try:
-        assertion = build_mcp_call_log_assertion(audience_url=_identity_audience(origin), **signing_kwargs())
-    except InternalAssertionError as exc:
-        logger.warning('MCP call log skipped: %s', exc.message)
-        return
-    try:
-        requests.post(
-            f'{origin}/api/v1/mcp/internal/mcp-call-logs',
-            json=safe,
-            headers={'Authorization': f'Bearer {assertion}'},
-            timeout=10,
-        )
-    except requests.RequestException as exc:
-        logger.debug('MCP call log forward failed: %s', type(exc).__name__)
 
 
 def warm_revocation_cache() -> None:

@@ -151,7 +151,8 @@ class McpToolContractTests(TestCase):
             meta = internal_tool['_meta']
             self.assertEqual(public['annotations']['readOnlyHint'], bool(meta['read_only']))
             self.assertEqual(public['annotations']['destructiveHint'], bool(meta['destructive']))
-            self.assertEqual(set(public), {'name', 'description', 'inputSchema', 'annotations'})
+            self.assertEqual(public['_meta'], meta)
+            self.assertEqual(set(public), {'name', 'description', 'inputSchema', 'annotations', '_meta'})
         document = _contract_document(public_tools, internal)
         self.assertTrue(_FIXTURE.is_file(), f'missing MCP contract snapshot {_FIXTURE}')
         expected = json.loads(_FIXTURE.read_text())
@@ -275,7 +276,7 @@ class McpToolHappyPathTests(TestCase):
         for item in self._patches:
             started.append(item.start())
             self.addCleanup(item.stop)
-        self.call_log = started[1]
+        self.identity_post = started[1]
         schema = SchemaGenerator().get_schema(request=None, public=True)
         self.tools = {
             tool['_meta']['operationId']: tool
@@ -760,14 +761,11 @@ class McpToolHappyPathTests(TestCase):
         self.assertIn('[redacted]', text)
         self.assertIn('object_count', text)
 
-    def test_bucket_list_forwards_a_call_log(self):
+    def test_bucket_list_does_not_post_a_call_log(self):
+        self.identity_post.reset_mock()
         self._exercise('storage_v1_bucket_list')
-        self.assertTrue(self.call_log.called)
-        posted = self.call_log.call_args.kwargs['json']
-        self.assertEqual(posted['tool'], 'storage_list_bucket')
-        self.assertEqual(posted['method'], 'POST')
-        self.assertEqual(posted['path'], '/mcp')
-        self.assertEqual(posted['outcome'], 'allowed')
+        urls = [str(call.args[0]) if call.args else '' for call in self.identity_post.call_args_list]
+        self.assertFalse(any('mcp-call-logs' in url for url in urls))
 
 
 def _bind_happy_path(name: str):

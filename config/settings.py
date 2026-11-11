@@ -285,7 +285,7 @@ SPECTACULAR_SETTINGS = {
     'POSTPROCESSING_HOOKS': ['apps.authapi.spectacular_hooks.postprocess_mcp_tool_tags'],
 }
 
-# Outbound signed assertions to identity-service MCP internal APIs (approvals, call logs).
+# Outbound signed assertions to identity-service MCP internal APIs (revocations and approvals).
 SIMPLE_JWT = {
     'SIGNING_KEY': _secret_key,
     'ALGORITHM': 'HS256',

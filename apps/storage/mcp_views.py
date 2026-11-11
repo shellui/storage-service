@@ -19,7 +19,6 @@ from apps.storage.mcp_identity import (
     approval_state,
     consume_approval,
     create_approval_request,
-    forward_call_log,
 )
 
 _server: StrictMcpServer | None = None
@@ -53,7 +52,6 @@ def _get_server() -> StrictMcpServer:
             urlconf=settings.ROOT_URLCONF,
             service_name='storage',
             identity_revocation_check=agent_is_revoked,
-            on_call=forward_call_log,
             approval_handler=create_approval_request,
             approval_state=_approval_state_for_mcp,
             approval_consume=consume_approval,
