@@ -135,13 +135,15 @@ def _http_status_bucket(status_code: int) -> str:
 
 
 def public_mcp_tool(tool: dict[str, Any]) -> dict[str, Any]:
-    """Tool object returned by ``tools/list`` (no private ``_meta``)."""
+    """Tool object returned by ``tools/list``. Keeps registry ``_meta`` for the AI gateway."""
     public = {k: v for k, v in tool.items() if not str(k).startswith('_')}
-    meta = tool.get('_meta') or {}
+    meta = tool.get('_meta') if isinstance(tool.get('_meta'), dict) else {}
     public['annotations'] = {
         'readOnlyHint': bool(meta.get('read_only')),
         'destructiveHint': bool(meta.get('destructive')),
     }
+    if meta:
+        public['_meta'] = meta
     return public
 
 
