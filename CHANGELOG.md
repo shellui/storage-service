@@ -2,10 +2,39 @@
 
 Notable changes to this project. Format: [Keep a Changelog](http://keepachangelog.com/). Versioning: [Semantic Versioning](http://semver.org/).
 
+## [Unreleased] - yyyy-mm-dd
+
+### ✨ Feature - for new features
+
+- REST and MCP: external connector lifecycle under `/storage/v1/connector` (list, get, create, update, patch, delete) plus local configuration actions `POST …/configuration/check`, `…/configuration/validate`, and `…/configuration/retry`. Credentials are encrypted at rest, marked `x-mcp-secret` in OpenAPI, and omitted from responses. Only allowlisted non-secret `connector_settings` keys are stored and returned. Responses use `connector_last_issue_code` and `connector_configuration_status`, not raw provider errors. Checks validate configuration locally; they do not call live providers. Optional `connector_settings._dev_simulation` applies only when DEBUG or `TEST_MODE` is on.
+
+### 🐛 Bug Fixes - for any bug fixes
+
+- MCP tool arguments are the operation fields in one object. `tools/list` no longer requires `method` or `path`. Path fields keep their OpenAPI type and description. Fixed-value fields publish `enum` plus a short description. Tool text names the action, the main arguments, and the return value. `destructiveHint` covers deletes, secrets that cannot be read back, public links, signed download URLs, test webhook sends, delivery re-sends, and signing-secret rotation. Creating or updating a Shellui Actions webhook rule stays a non-destructive write.
+- MCP: a destructive approval open sends `is_destructive: true`, so Identity can store the call log for that approval after it is consumed.
+- MCP `tools/call` JSON-encodes object bodies, allows `/` in `object_path`, and returns download bytes as base64. Uploads accept `content_base64`.
+- OpenAPI keeps the JSON body on delete-many and prefix delete, so those MCP tools accept `prefixes`, `paths`, and `prefix`.
+- MCP returns the share `token` once on create. Webhook signing secrets stay masked. `path_url` stays redacted. Signed URLs and recent stats filenames follow `mcp_read`.
+- MCP tool names are `storage_<verb>_<noun>` (the names the ai-service gateway publishes). OpenAPI `operationId` values are unchanged. This service does not store tool names, so there is no data migration.
+
+### 🏗 Chore
+
+- Bump `shellui-django[mcp]` to the PyPI release 0.5.0.
+
+### 🗑 Removed
+
+- MCP: storage no longer posts tool-call logs to Identity. The ai-service gateway records each `tools/call`. Token checks, revocation polling, and approvals stay on this service.
+
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
 ### ✨ Feature - for new features
+- Shellui MCP: `POST /mcp`, OpenAPI `x-mcp` markers for company-owner storage and Shellui Actions routes, OAuth protected-resource metadata, and handbook docs.
+
+### 🔒 Security
+
+- MCP: return `503 identity_unavailable` when the signed revocation list cannot be loaded; treat agents as revoked only on a trusted list.
+- MCP: refuse agent tokens that carry staff operator claims; approval consume requires an explicit `consumed: true` from identity.
 ### 🛠 Improvements - for general improvements
 ### 🚨 Changed - for changes in existing functionality
 ### ⚠️ Deprecated - for soon-to-be removed features
@@ -17,6 +46,23 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
+
+## [0.8.0] - 2026-11-01
+
+### 🏗 Chore
+
+- Bump `shellui-django[mcp]` to 0.4.0 and sign internal MCP assertions to Identity with this service's own RS256 key (`STORAGE_SERVICE_SIGNING_KEY`, `STORAGE_SERVICE_ISSUER`), public key at `/.well-known/jwks.json`.
+- Dockerfile `dev` target and handbook page for the Shellui local dev stack (env-driven JWKS and identity URLs).
+- Use the shared shellui-django package for MCP instead of a vendored copy.
+
+### ✨ Feature
+
+- Shellui MCP endpoint for agents (`POST /mcp`).
+- OpenAPI descriptions tuned for MCP agents.
+
+### 🐛 Bug Fixes
+
+- MCP agent tokens are checked against `{STORAGE_PUBLIC_URL}/mcp` when set, so the ai gateway can reach `/mcp` on an internal host.
 
 ## [0.7.1] - 2026-11-01
 
