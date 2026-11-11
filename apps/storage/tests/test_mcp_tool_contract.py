@@ -151,7 +151,8 @@ class McpToolContractTests(TestCase):
             meta = internal_tool['_meta']
             self.assertEqual(public['annotations']['readOnlyHint'], bool(meta['read_only']))
             self.assertEqual(public['annotations']['destructiveHint'], bool(meta['destructive']))
-            self.assertEqual(set(public), {'name', 'description', 'inputSchema', 'annotations'})
+            self.assertEqual(public['_meta'], meta)
+            self.assertEqual(set(public), {'name', 'description', 'inputSchema', 'annotations', '_meta'})
         document = _contract_document(public_tools, internal)
         self.assertTrue(_FIXTURE.is_file(), f'missing MCP contract snapshot {_FIXTURE}')
         expected = json.loads(_FIXTURE.read_text())

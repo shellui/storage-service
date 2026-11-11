@@ -427,6 +427,24 @@
   ],
   "tools": [
     {
+      "_meta": {
+        "body_fields": [
+          "destinationKey",
+          "from",
+          "sourceKey",
+          "to"
+        ],
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_copy_create",
+        "path": "/storage/v1/object/copy",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -457,6 +475,34 @@
       "name": "storage_copy_object"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "bucket",
+          "effect",
+          "expires_at",
+          "notes",
+          "permission",
+          "resource_id",
+          "resource_type",
+          "subject_id",
+          "subject_type"
+        ],
+        "body_required": [
+          "resource_id",
+          "resource_type",
+          "subject_id",
+          "subject_type"
+        ],
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_access_grant_create",
+        "path": "/storage/v1/access/grant",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -530,6 +576,31 @@
       "name": "storage_create_access_grant"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "allow_private_urls",
+          "authorization_header",
+          "description",
+          "enabled",
+          "event_type",
+          "name",
+          "secret",
+          "url"
+        ],
+        "body_required": [
+          "event_type",
+          "name"
+        ],
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "api_v1_actions_rules_create",
+        "path": "/api/v1/actions/rules",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -579,6 +650,27 @@
       "name": "storage_create_action_rules"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "connector_provider",
+          "connector_settings",
+          "credential",
+          "name"
+        ],
+        "body_required": [
+          "connector_provider",
+          "name"
+        ],
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_connector_create",
+        "path": "/storage/v1/connector",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -622,6 +714,21 @@
       "name": "storage_create_connector"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_connector_configuration_check_create",
+        "path": "/storage/v1/connector/{connector_id}/configuration/check",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -643,6 +750,21 @@
       "name": "storage_create_connector_configuration_check"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_connector_configuration_retry_create",
+        "path": "/storage/v1/connector/{connector_id}/configuration/retry",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -664,6 +786,21 @@
       "name": "storage_create_connector_configuration_retry"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_connector_configuration_validate_create",
+        "path": "/storage/v1/connector/{connector_id}/configuration/validate",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -685,6 +822,27 @@
       "name": "storage_create_connector_configuration_validate"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "content_base64",
+          "content_type"
+        ],
+        "body_required": [
+          "content_base64"
+        ],
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_create",
+        "path": "/storage/v1/object/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -720,6 +878,27 @@
       "name": "storage_create_object"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "limit",
+          "offset",
+          "prefix",
+          "search",
+          "sortBy"
+        ],
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_list_create",
+        "path": "/storage/v1/object/list/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -781,6 +960,27 @@
       "name": "storage_create_object_list"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "destination",
+          "from",
+          "prefix",
+          "source",
+          "to"
+        ],
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_prefix_create",
+        "path": "/storage/v1/object/prefix/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -822,6 +1022,28 @@
       "name": "storage_create_object_prefix"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "expiresAt",
+          "expires_at",
+          "maxDownloads",
+          "max_downloads",
+          "notes"
+        ],
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_share_create",
+        "path": "/storage/v1/share/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -875,6 +1097,21 @@
       "name": "storage_create_share"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "storage_v1_access_grant_destroy",
+        "path": "/storage/v1/access/grant/{grant_id}",
+        "path_params": [
+          "grant_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -897,6 +1134,21 @@
       "name": "storage_delete_access_grant"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "api_v1_actions_rules_destroy",
+        "path": "/api/v1/actions/rules/{id}",
+        "path_params": [
+          "id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -918,6 +1170,21 @@
       "name": "storage_delete_action_rules"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "storage_v1_connector_destroy",
+        "path": "/storage/v1/connector/{connector_id}",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -939,6 +1206,21 @@
       "name": "storage_delete_connector"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "storage_v1_share_link_destroy",
+        "path": "/storage/v1/share/link/{token}",
+        "path_params": [
+          "token"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -960,6 +1242,24 @@
       "name": "storage_delete_link_share"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "paths",
+          "prefixes"
+        ],
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "storage_v1_object_delete_many",
+        "path": "/storage/v1/object/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -995,6 +1295,22 @@
       "name": "storage_delete_many_object"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "storage_v1_object_destroy",
+        "path": "/storage/v1/object/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1021,6 +1337,27 @@
       "name": "storage_delete_object"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "prefix"
+        ],
+        "body_required": [
+          "prefix"
+        ],
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "DELETE",
+        "operationId": "storage_v1_object_prefix_destroy",
+        "path": "/storage/v1/object/prefix/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": [
+          "prefix"
+        ],
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1047,6 +1384,21 @@
       "name": "storage_delete_object_prefix"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_bucket_empty_create",
+        "path": "/storage/v1/bucket/{bucket_id}/empty",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1068,6 +1420,21 @@
       "name": "storage_empty_bucket"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_deliveries_retrieve",
+        "path": "/api/v1/actions/deliveries/{delivery_id}",
+        "path_params": [
+          "delivery_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1090,6 +1457,23 @@
       "name": "storage_get_action_deliveries"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_event_log_retrieve",
+        "path": "/api/v1/actions/event-log/{id}",
+        "path_params": [
+          "id"
+        ],
+        "query_fields": [
+          "scope"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1119,6 +1503,19 @@
       "name": "storage_get_action_event_log"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_event_log_retention_retrieve",
+        "path": "/api/v1/actions/event-log/retention",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1132,6 +1529,21 @@
       "name": "storage_get_action_event_log_retention"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_rules_retrieve",
+        "path": "/api/v1/actions/rules/{id}",
+        "path_params": [
+          "id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1153,6 +1565,21 @@
       "name": "storage_get_action_rules"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_bucket_retrieve",
+        "path": "/storage/v1/bucket/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1174,6 +1601,21 @@
       "name": "storage_get_bucket"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_connector_retrieve",
+        "path": "/storage/v1/connector/{connector_id}",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1195,6 +1637,24 @@
       "name": "storage_get_connector"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_object_authenticated_retrieve",
+        "path": "/storage/v1/object/authenticated/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": [
+          "download"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1225,6 +1685,21 @@
       "name": "storage_get_object"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_object_id_retrieve",
+        "path": "/storage/v1/object/id/{object_id}",
+        "path_params": [
+          "object_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1247,6 +1722,22 @@
       "name": "storage_get_object_id"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_object_info_authenticated_retrieve",
+        "path": "/storage/v1/object/info/authenticated/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1273,6 +1764,23 @@
       "name": "storage_get_object_info"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_object_prefix_retrieve",
+        "path": "/storage/v1/object/prefix/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": [
+          "prefix"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1298,6 +1806,24 @@
       "name": "storage_get_object_prefix"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_object_retrieve",
+        "path": "/storage/v1/object/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": [
+          "download"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1328,6 +1854,19 @@
       "name": "storage_get_public_object"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_quota_retrieve",
+        "path": "/storage/v1/quota",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1341,6 +1880,21 @@
       "name": "storage_get_quota"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_stats_retrieve",
+        "path": "/storage/v1/stats",
+        "path_params": [],
+        "query_fields": [
+          "days"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1361,6 +1915,24 @@
       "name": "storage_get_stats"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_access_grant_list",
+        "path": "/storage/v1/access/grant",
+        "path_params": [],
+        "query_fields": [
+          "bucket",
+          "include_effective",
+          "resource_id",
+          "resource_type"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1400,6 +1972,29 @@
       "name": "storage_list_access_grant"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_deliveries_list",
+        "path": "/api/v1/actions/deliveries",
+        "path_params": [],
+        "query_fields": [
+          "action_rule_id",
+          "company_id",
+          "created_after",
+          "created_before",
+          "event_type",
+          "page",
+          "page_size",
+          "scheduled_job_run_id",
+          "status"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1455,6 +2050,28 @@
       "name": "storage_list_action_deliveries"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_event_log_list",
+        "path": "/api/v1/actions/event-log",
+        "path_params": [],
+        "query_fields": [
+          "created_after",
+          "created_before",
+          "event_type",
+          "page",
+          "page_size",
+          "scope",
+          "user",
+          "user_id"
+        ],
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1502,6 +2119,19 @@
       "name": "storage_list_action_event_log"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_event_log_types_list",
+        "path": "/api/v1/actions/event-log/types",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1515,6 +2145,19 @@
       "name": "storage_list_action_event_log_types"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_events_list",
+        "path": "/api/v1/actions/events",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1528,6 +2171,19 @@
       "name": "storage_list_action_events"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "api_v1_actions_rules_list",
+        "path": "/api/v1/actions/rules",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1541,6 +2197,19 @@
       "name": "storage_list_action_rules"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_bucket_list",
+        "path": "/storage/v1/bucket",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1554,6 +2223,19 @@
       "name": "storage_list_bucket"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_connector_list",
+        "path": "/storage/v1/connector",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1567,6 +2249,22 @@
       "name": "storage_list_connector"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "GET",
+        "operationId": "storage_v1_share_list",
+        "path": "/storage/v1/share/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": true
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": true
@@ -1593,6 +2291,24 @@
       "name": "storage_list_share"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "destinationKey",
+          "from",
+          "sourceKey",
+          "to"
+        ],
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_move_create",
+        "path": "/storage/v1/object/move",
+        "path_params": [],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -1623,6 +2339,26 @@
       "name": "storage_move_object"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "connector_provider",
+          "connector_settings",
+          "credential",
+          "merge_settings"
+        ],
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "PUT",
+        "operationId": "storage_v1_connector_update",
+        "path": "/storage/v1/connector/{connector_id}",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1672,6 +2408,27 @@
       "name": "storage_replace_connector"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "content_base64",
+          "content_type"
+        ],
+        "body_required": [
+          "content_base64"
+        ],
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "PUT",
+        "operationId": "storage_v1_object_update",
+        "path": "/storage/v1/object/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -1707,6 +2464,24 @@
       "name": "storage_replace_object"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "max_bytes",
+          "max_bytes_per_user"
+        ],
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "PUT",
+        "operationId": "storage_v1_quota_company_update",
+        "path": "/storage/v1/quota/company/{company_id}",
+        "path_params": [
+          "company_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -1737,6 +2512,26 @@
       "name": "storage_replace_quota_company"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "max_bytes"
+        ],
+        "body_required": [
+          "max_bytes"
+        ],
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "PUT",
+        "operationId": "storage_v1_quota_company_user_update",
+        "path": "/storage/v1/quota/company/{company_id}/user/{user_id}",
+        "path_params": [
+          "company_id",
+          "user_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -1767,6 +2562,21 @@
       "name": "storage_replace_quota_company_user"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "api_v1_actions_deliveries_requeue",
+        "path": "/api/v1/actions/deliveries/{delivery_id}/requeue",
+        "path_params": [
+          "delivery_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1789,6 +2599,21 @@
       "name": "storage_requeue_action_deliveries"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "api_v1_actions_rules_rotate_secret",
+        "path": "/api/v1/actions/rules/{id}/rotate-secret",
+        "path_params": [
+          "id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1810,6 +2635,21 @@
       "name": "storage_rotate_rule_secret"
     },
     {
+      "_meta": {
+        "body_fields": null,
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "api_v1_actions_rules_send_test",
+        "path": "/api/v1/actions/rules/{id}/send-test",
+        "path_params": [
+          "id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1831,6 +2671,25 @@
       "name": "storage_send_test_rule"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "expiresIn",
+          "expires_in",
+          "path"
+        ],
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_sign_create",
+        "path": "/storage/v1/object/sign/{bucket_id}",
+        "path_params": [
+          "bucket_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1864,6 +2723,26 @@
       "name": "storage_sign_object"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "expiresIn",
+          "expires_in",
+          "path"
+        ],
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "POST",
+        "operationId": "storage_v1_object_sign_path_create",
+        "path": "/storage/v1/object/sign/{bucket_id}/{object_path}",
+        "path_params": [
+          "bucket_id",
+          "object_path"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
@@ -1902,6 +2781,30 @@
       "name": "storage_sign_object_path"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "allow_private_urls",
+          "authorization_header",
+          "description",
+          "enabled",
+          "event_type",
+          "name",
+          "secret",
+          "url"
+        ],
+        "body_required": null,
+        "destructive": false,
+        "mcp_tagged": true,
+        "method": "PATCH",
+        "operationId": "api_v1_actions_rules_partial_update",
+        "path": "/api/v1/actions/rules/{id}",
+        "path_params": [
+          "id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false
@@ -1954,6 +2857,26 @@
       "name": "storage_update_action_rules"
     },
     {
+      "_meta": {
+        "body_fields": [
+          "connector_provider",
+          "connector_settings",
+          "credential",
+          "merge_settings"
+        ],
+        "body_required": null,
+        "destructive": true,
+        "mcp_tagged": true,
+        "method": "PATCH",
+        "operationId": "storage_v1_connector_partial_update",
+        "path": "/storage/v1/connector/{connector_id}",
+        "path_params": [
+          "connector_id"
+        ],
+        "query_fields": null,
+        "query_required": null,
+        "read_only": false
+      },
       "annotations": {
         "destructiveHint": true,
         "readOnlyHint": false
