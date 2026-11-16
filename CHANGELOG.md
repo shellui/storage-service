@@ -17,6 +17,10 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 - MCP returns the share `token` once on create. Webhook signing secrets stay masked. `path_url` stays redacted. Signed URLs and recent stats filenames follow `mcp_read`.
 - MCP tool names are `storage_<verb>_<noun>` (the names the ai-service gateway publishes). OpenAPI `operationId` values are unchanged. This service does not store tool names, so there is no data migration.
 
+### 🔒 Security
+
+- Downloads, share links, and WebDAV serve HTML, SVG, script, XML, and other active or unknown types as attachments with `text/plain` or `application/octet-stream`. Raster images, PDF, plain text, audio, and video stay inline. Every stored-file response sets `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox; default-src 'none'`. `Content-Disposition` sends an ASCII `filename` and an RFC 6266 `filename*` value, with quotes and newlines encoded.
+
 ### 🏗 Chore
 
 - Bump `shellui-django[mcp]` to the PyPI release 0.5.0.
