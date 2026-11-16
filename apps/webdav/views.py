@@ -34,7 +34,7 @@ from apps.storage.access import (
     get_accessible_bucket,
     list_accessible_buckets,
 )
-from apps.storage.downloads import build_download_response
+from apps.storage.downloads import apply_stored_file_headers, build_download_response
 from apps.storage.mime import safe_object_path
 from apps.storage.models import StorageObject
 from apps.storage.services import (
@@ -289,7 +289,13 @@ class WebDAVView(View):
         except StorageError:
             return _dav_response(403, 'Forbidden', content_type='text/plain')
         if head:
-            response = HttpResponse(status=200, content_type=obj.mime_type)
+            response = HttpResponse(status=200)
+            apply_stored_file_headers(
+                response,
+                mime_type=obj.mime_type,
+                filename=obj.basename,
+                object_name=obj.name,
+            )
             response['Content-Length'] = str(obj.size)
             if obj.etag:
                 response['ETag'] = f'"{obj.etag}"'

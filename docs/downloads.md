@@ -16,13 +16,19 @@ The same bytes are available at `/storage/v1/object/authenticated/{bucket}/{path
 
 | Header | Value |
 | --- | --- |
-| `Content-Type` | Object MIME type |
-| `Content-Disposition` | `inline`, or `attachment` when the `download` query parameter is present |
+| `Content-Type` | Allowlisted type, or `text/plain` / `application/octet-stream` for every other type |
+| `Content-Disposition` | `inline` for an allowlisted type. `attachment` for every other type, and when `download` is set |
+| `X-Content-Type-Options` | `nosniff` |
+| `Content-Security-Policy` | `sandbox; default-src 'none'` |
 | `Content-Length` | Object size |
 | `ETag` | Quoted content hash when one is stored |
 | `Cache-Control` | `private, no-store` |
 
-`download` with an empty value, `true`, or `1` uses the object's file name. Any other `download` value is sent as the file name. The response also sets `last_accessed_at` on the row.
+Inline types are common raster images, PDF, `text/plain`, audio, and video. HTML, SVG, script, XML, and any other type are attachments. The stored bytes stay the same. The browser on the storage host does not run them as a page. Raster images and PDF use that same CSP. The viewer displays the response body and does not need extra sources.
+
+`Content-Disposition` sends an ASCII `filename` and `filename*=UTF-8''…`. Quotes, backslashes, and newlines in the name stay inside that header.
+
+`download` with an empty value, `true`, or `1` uses the object's file name. Any other `download` value is sent as the file name. The parameter does not change the content type. The response also sets `last_accessed_at` on the row.
 
 `GET /storage/v1/object/public/…` does not serve bytes. It returns 403 `public_download_disabled`.
 
