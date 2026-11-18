@@ -169,6 +169,7 @@ jobs:
             --verbose
             --no-progress
             README.md
+            DOCKERHUB.md
             CHANGELOG.md
             PUBLISH.md
             docs
@@ -212,13 +213,15 @@ jobs:
         working-directory: shellui
         run: pnpm install --frozen-lockfile
 
-      # Builds docs.shellui.com with only the storage docs, read from this checkout.
+      # Storage docs come from this checkout. Shellui pages also link to the
+      # identity, hosting, and email handbooks, so those are fetched from GitHub.
       # onBrokenLinks is 'throw', so a broken link or an invalid page fails the job.
-      - name: Build docs (storage only)
+      - name: Build docs
         working-directory: shellui
         env:
-          DOCS_SOURCE: local
-          DOCS_SERVICES: storage
+          DOCS_SOURCE: remote
+          DOCS_SERVICES: identity,storage,hosting,email
+          STORAGE_DOCS_SOURCE: local
           DOCS_SERVICES_DIR: ${{ github.workspace }}
         run: pnpm docs:build
 
