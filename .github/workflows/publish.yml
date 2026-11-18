@@ -20,6 +20,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      HAS_DESC: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME != '' && secrets.DOCKERHUB_DESCRIPTION_TOKEN != '' }}
     steps:
       - name: Check Docker Hub secrets
         env:
@@ -90,12 +92,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # DOCKERHUB_TOKEN needs Read, Write, Delete scope for description updates.
+      # Needs a personal Docker Hub access token with Read, Write, Delete
+      # scope from a user with Admin on the repo.
       - name: Update Docker Hub description
+        if: env.HAS_DESC == 'true'
         uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
           repository: shellui/storage-service
           readme-filepath: ./DOCKERHUB.md
           short-description: 'Storage service for Shellui, the web app development platform.'
