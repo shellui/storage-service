@@ -35,7 +35,7 @@ jobs:
         run: uv sync --frozen --no-dev
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Run pre-release checklist
         run: |
