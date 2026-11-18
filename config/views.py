@@ -149,6 +149,9 @@ def root(request):
             'SHELLUI_IDENTITY_DOCS_URL',
             'https://docs.shellui.com/identity',
         ),
+        'mcp_url': reverse('mcp'),
+        'mcp_oauth_metadata_url': reverse('mcp-oauth-protected-resource'),
+        'mcp_docs_url': f'{storage_docs_url}/mcp',
         'github_url': getattr(
             settings,
             'SHELLUI_GITHUB_STORAGE_URL',

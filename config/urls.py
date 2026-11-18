@@ -10,6 +10,8 @@ from drf_spectacular.views import (
 )
 
 from apps.actions.company_deletion_views import CompanyDeletionView
+from apps.storage.mcp_oauth import OAuthProtectedResourceMetadataView
+from apps.storage.mcp_views import mcp_endpoint
 from apps.actions.scheduled_job_views import (
     ScheduledJobRunDetailView,
     ScheduledJobRunsView,
@@ -18,9 +20,17 @@ from apps.actions.scheduled_job_views import (
 from apps.storage.admin import storage_admin_site
 
 from . import views
+from .service_signing import jwks_view
 
 urlpatterns = [
     path('', views.root, name='root'),
+    path('.well-known/jwks.json', jwks_view, name='jwks'),
+    path(
+        '.well-known/oauth-protected-resource',
+        OAuthProtectedResourceMetadataView.as_view(),
+        name='mcp-oauth-protected-resource',
+    ),
+    path('mcp', mcp_endpoint, name='mcp'),
     path('api/v1/scheduled-jobs', ScheduledJobsView.as_view(), name='storage-scheduled-jobs'),
     path(
         'api/v1/scheduled-jobs/runs/<int:pk>',

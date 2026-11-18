@@ -16,6 +16,8 @@ It is a Django app, published as the `shellui/storage-service` Docker image. It 
 
 Routes follow the Supabase Storage path shape (`/storage/v1/object/…`, `/storage/v1/bucket`). The optional `apikey` header is accepted and ignored. The Bearer JWT is what authorizes the call.
 
+Company-owner routes that Shellui MCP agents may call are listed in [Shellui MCP](mcp.md). The OpenAPI schema marks them with an `x-mcp` extension.
+
 ## Who it is for
 
 Use it when a Shellui app needs company files: the Files UI, a script, or a WebDAV client. Company owners set quotas and Shellui Actions webhook rules. Operators run the process, the database, the blob store, and Redis.
@@ -24,7 +26,7 @@ Your product stays in the shell. storage-service does not replace identity-servi
 
 ## What it stores and serves
 
-Each company has one system bucket named `company`. The first request that needs it creates that bucket. You do not create extra buckets through the API.
+Each company has one system bucket named `company`. The first request that needs it creates that bucket. Arbitrary bucket names are still disabled on `POST /storage/v1/bucket`; company owners register external read-only connector mounts with `POST /storage/v1/connector` instead.
 
 A file is a `StorageObject`: a path such as `docs/report.pdf`, a size, a MIME type, an owner, and a blob key in the backend. Folders are prefixes. An empty folder is a marker object named `.emptyFolderPlaceholder`.
 
@@ -67,7 +69,7 @@ The event log keeps those events for `EVENT_LOG_RETENTION_DAYS` (default 7).
 
 ## Configure and run
 
-Copy [`.env.example`](../.env.example) to `.env`, set `SECRET_KEY`, point `IDENTITY_SERVICE_URL` at identity-service, and run migrations. Docker Compose is the local path in [Run storage-service](getting-started.md).
+Copy [`.env.example`](../.env.example) to `.env`, set `SECRET_KEY`, point `IDENTITY_SERVICE_URL` at identity-service, and run migrations. Docker Compose is the local path in [Run storage-service](getting-started.md). For the full Shellui sibling-repo stack, use the `dev` Docker target and [Local dev stack](devstack.md).
 
 The container runs database migrations, then Gunicorn and a Celery worker with beat. That worker runs `retry_webhooks` every minute and `purge_expired_data` every hour. `REDIS_URL` is required when `DEBUG=false`. With `DEBUG=true` and no Redis, the web app still starts and the jobs do not run.
 

@@ -22,7 +22,15 @@ A bucket may set `file_size_limit` and `allowed_mime_types`. An empty MIME list 
 
 ## Connector buckets
 
-`kind=connector` is reserved for a read-only mount such as SharePoint or Dropbox. No sync client ships in this service. If a connector row exists, company members can read it and cannot write it. Create and delete of buckets through the API stay disabled, so a connector row is an operator record in Django admin, not an API call.
+`kind=connector` is for a read-only external mount such as SharePoint or Dropbox. **Company owners and Shellui staff** register mounts under `/storage/v1/connector` with a unique slug (not `company`). The body includes `connector_provider`, optional `connector_settings`, and an optional `credential` field that is stored encrypted and is **never** returned on `GET`.
+
+- `GET /storage/v1/connector` lists mounts for the JWT company. Responses include allowlisted `connector_settings` only on `GET /storage/v1/connector/{id}`. Issue detail uses stable `connector_last_issue_code` when present, not raw provider text.
+- `POST /storage/v1/connector` creates the row and runs a **local** configuration and credential check (decrypt stored secret when present). It does **not** call the provider or prove remote connectivity. With a credential configured, status is `adapter_unavailable` until a real adapter exists. In DEBUG or automated tests, optional `connector_settings._dev_simulation.mode` may be `ok`, `error`, or `unavailable` for deterministic checks only.
+- `PUT` and `PATCH /storage/v1/connector/{id}` update provider settings; `merge_settings` defaults to false on `PUT` and true on `PATCH`. Only allowlisted non-secret keys are stored; `credential` is write-only (`x-mcp-secret`). Sending `credential` rotates the secret; omit it to keep the previous value; send `null` to clear.
+- `POST …/configuration/check`, `…/configuration/validate`, and `…/configuration/retry` re-run the same local check and update timestamps and `connector_last_issue_code`. Names differ for client ergonomics; they do not return secrets and are not live provider tests.
+- `DELETE /storage/v1/connector/{id}` removes the mount row.
+
+Other members see connector buckets on `GET /storage/v1/bucket`. Connector mounts are read-only Shellui-side; remote files are not listed or synced here unless a separate sync populates objects. Writes stay denied by bucket kind. `POST /storage/v1/bucket` is still disabled for arbitrary bucket names; use `/storage/v1/connector` instead.
 
 ## Folders
 

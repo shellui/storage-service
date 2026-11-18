@@ -26,6 +26,7 @@ const sidebars = {
     doc('index', 'Overview'),
     category('Get started', [
       doc('getting-started', 'Run storage-service'),
+      doc('devstack', 'Local dev stack'),
       doc('configuration', 'Configuration'),
     ]),
     category('Core concepts', [
@@ -39,6 +40,7 @@ const sidebars = {
     category('Authentication', [
       doc('authentication', 'JWT and claim trust'),
     ]),
+    category('MCP', [doc('mcp', 'Shellui MCP')]),
     category('Webhooks', [
       doc('actions', 'Webhooks'),
       doc('n8n', 'n8n'),

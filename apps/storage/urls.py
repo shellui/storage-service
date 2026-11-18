@@ -7,6 +7,23 @@ urlpatterns = [
     path('bucket', views.BucketListCreateView.as_view(), name='bucket-list'),
     path('bucket/<slug:bucket_id>', views.BucketDetailView.as_view(), name='bucket-detail'),
     path('bucket/<slug:bucket_id>/empty', views.BucketEmptyView.as_view(), name='bucket-empty'),
+    path('connector', views.ConnectorListCreateView.as_view(), name='connector-list'),
+    path('connector/<slug:connector_id>', views.ConnectorDetailView.as_view(), name='connector-detail'),
+    path(
+        'connector/<slug:connector_id>/configuration/check',
+        views.ConnectorConfigurationCheckView.as_view(),
+        name='connector-configuration-check',
+    ),
+    path(
+        'connector/<slug:connector_id>/configuration/validate',
+        views.ConnectorConfigurationValidateView.as_view(),
+        name='connector-configuration-validate',
+    ),
+    path(
+        'connector/<slug:connector_id>/configuration/retry',
+        views.ConnectorConfigurationRetryView.as_view(),
+        name='connector-configuration-retry',
+    ),
     path('access/grant', views.AccessGrantListCreateView.as_view(), name='access-grant-list'),
     path(
         'access/grant/<uuid:grant_id>',
@@ -33,12 +50,12 @@ urlpatterns = [
     path('object/sign/<slug:bucket_id>', views.ObjectSignBodyView.as_view(), name='object-sign-body'),
     re_path(
         r'^object/info/authenticated/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
-        views.ObjectInfoView.as_view(),
+        views.ObjectAuthenticatedInfoView.as_view(),
         name='object-info-auth',
     ),
     re_path(
         r'^object/info/public/(?P<bucket_id>[^/]+)/(?P<object_path>.+)$',
-        views.ObjectInfoView.as_view(),
+        views.ObjectPublicInfoView.as_view(),
         name='object-info-public',
     ),
     re_path(

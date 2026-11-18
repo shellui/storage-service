@@ -174,6 +174,8 @@ if not _secret_key:
 SECRET_KEY = _secret_key
 
 DEBUG = os.getenv('DEBUG', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
+# True during Django test runs (see manage.py). Used for connector dev simulation in tests only.
+TEST_MODE = os.getenv('TEST_MODE', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 # One-time web bootstrap token for creating the first superuser when DEBUG=false.
 # When unset, use `manage.py createsuperuser` instead of the public form at `/`.
 SETUP_TOKEN = os.getenv('SETUP_TOKEN', '').strip()
@@ -187,6 +189,8 @@ CSRF_TRUSTED_ORIGINS = _env_csv(
     (
         'http://localhost:8001',
         'http://127.0.0.1:8001',
+        'http://localhost:8002',
+        'http://127.0.0.1:8002',
         'http://localhost:4000',
         'http://127.0.0.1:4000',
         'http://localhost:5174',
@@ -231,7 +235,7 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_SCHEMA_CLASS': 'apps.authapi.mcp_schema.McpAutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'apps.authapi.authentication.IdentityJWKSAuthentication',
     ],
@@ -266,13 +270,31 @@ SPECTACULAR_SETTINGS = {
     },
     'TAGS': [
         {'name': 'buckets', 'description': 'Create and manage storage buckets.'},
+        {'name': 'connectors', 'description': 'External read-only connector mounts (company owner).'},
         {'name': 'objects', 'description': 'Upload, download, list, move, copy, and delete objects.'},
         {'name': 'access', 'description': 'Path-level access grants (invite / restrict / block).'},
         {'name': 'share', 'description': 'Capability share links for anonymous downloads.'},
         {'name': 'quotas', 'description': 'Company and per-user storage quotas.'},
+        {'name': 'actions', 'description': 'Shellui Actions webhook rules and deliveries.'},
+        {'name': 'event-log', 'description': 'Company domain event log for auditing.'},
         {'name': 'platform-metrics', 'description': 'Prometheus metrics endpoints.'},
         {'name': 'health', 'description': 'Service health checks.'},
+        {'name': 'mcp-tools', 'description': 'Operations exposed to Shellui MCP agents.'},
     ],
+    'PREPROCESSING_HOOKS': ['apps.authapi.spectacular_hooks.preprocessing_exclude_internal_endpoints'],
+    'POSTPROCESSING_HOOKS': ['apps.authapi.spectacular_hooks.postprocess_mcp_tool_tags'],
+}
+
+# Outbound signed assertions to identity-service MCP internal APIs (revocations and approvals).
+SIMPLE_JWT = {
+    'SIGNING_KEY': _secret_key,
+    'ALGORITHM': 'HS256',
+    'ISSUER': os.getenv('IDENTITY_ISSUER', '').strip() or None,
+}
+
+MCP_RATE_LIMITS = {
+    'default': {'limit': 120, 'window': 60},
+    'mcp_agent': {'limit': _env_int('MCP_RATE_LIMIT_AGENT', 120), 'window': 60},
 }
 
 MIDDLEWARE = [
@@ -534,6 +556,8 @@ else:
         )
 IDENTITY_ISSUER = os.getenv('IDENTITY_ISSUER', '').strip() or None
 IDENTITY_AUDIENCE = os.getenv('IDENTITY_AUDIENCE', '').strip() or None
+# Path or absolute URL for delegated regional agent authority (Identity internal API).
+IDENTITY_MCP_DELEGATED_AUTHORITY_PATH = os.getenv('IDENTITY_MCP_DELEGATED_AUTHORITY_PATH', '').strip() or None
 JWKS_CACHE_TTL = _env_int('JWKS_CACHE_TTL', 900)
 JWKS_TIMEOUT = _env_float('JWKS_TIMEOUT', 15)
 JWKS_RETRIES = _env_int('JWKS_RETRIES', 2)
@@ -830,3 +854,18 @@ COMPANY_DELETION_BLOB_HOOK = 'apps.storage.company_deletion.delete_company_files
 
 # A failing log call must never print its arguments (headers, tokens) to stderr.
 logging.raiseExceptions = False
+
+# RS256 key this service signs internal MCP assertions to Identity with (config/service_signing.py).
+# Identity trusts it from STORAGE_SERVICE_ISSUER and reads the public key at /.well-known/jwks.json.
+from config.service_signing import read_signing_pem  # noqa: E402
+
+MCP_SIGNING_KEY_PEM = read_signing_pem(
+    value=os.getenv('STORAGE_SERVICE_SIGNING_KEY', ''),
+    file_path=os.getenv('STORAGE_SERVICE_SIGNING_KEY_FILE', '').strip(),
+    base_dir=BASE_DIR,
+)
+MCP_SIGNING_ISSUER = os.getenv('STORAGE_SERVICE_ISSUER', '').strip().rstrip('/')
+
+# Public origin of this service. Agent tokens must target {STORAGE_PUBLIC_URL}/mcp (RFC 8707), even when
+# the ai gateway reaches /mcp on an internal host. Empty falls back to the request host (ALLOWED_HOSTS).
+STORAGE_PUBLIC_URL = os.getenv('STORAGE_PUBLIC_URL', '').strip().rstrip('/')

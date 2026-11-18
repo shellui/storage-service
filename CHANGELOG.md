@@ -3,7 +3,7 @@
 Notable changes to this project. Format: [Keep a Changelog](http://keepachangelog.com/). Versioning: [Semantic Versioning](http://semver.org/).
 
 <!---
-## [Unreleased] - yyyy-mm-dd
+## [x.y.z] - yyyy-mm-dd
 
 ### ✨ Feature - for new features
 ### 🛠 Improvements - for general improvements
@@ -17,6 +17,64 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
+
+## [0.8.0] - 2026-11-18
+
+### ✨ Feature
+
+- Shellui MCP endpoint for agents at `POST /mcp`.
+- OpenAPI descriptions and markers so MCP agents can discover storage tools.
+- REST and MCP APIs for external connector lifecycle and local configuration checks. Credentials are encrypted at rest and omitted from responses.
+
+### 🛠 Improvements
+
+- MCP tool names match the ai-service gateway (`storage_<verb>_<noun>`). OpenAPI operation ids are unchanged.
+- Tool arguments are the operation fields in one object, with enums for fixed values. Method and path are not inputs.
+- `tools/call` accepts base64 upload content, allows `/` in object paths, and returns download bytes as base64.
+- A new share link returns the token once. Signing secrets, path URLs, and signed URLs stay masked or follow read rules.
+- Destructive tools (deletes, public links, signed URLs, webhook tests, secret rotation) ask for approval even in full access. Creating or updating a Shellui Actions rule stays a non-destructive write.
+- `tools/list` keeps each tool's registry hints for the ai-service gateway.
+- `POST /mcp` allows 120 requests a minute per agent. Set `MCP_RATE_LIMIT_AGENT` to change that cap.
+
+### 🚨 Changed
+
+- Dependabot version updates now open against develop.
+
+### 🐛 Bug Fixes
+
+- Agent tokens are checked against the public MCP URL when set, so the ai gateway can reach `/mcp` on an internal host.
+- Delete-many and prefix-delete tools accept their JSON body fields (`prefixes`, `paths`, `prefix`).
+- A destructive approval open sends `is_destructive: true`, so identity can store the matching call log after consume.
+- ReDoc and Swagger UI render before the Shellui SDK finishes loading.
+- `POST /mcp` serves a cached OpenAPI tool list under a lock.
+
+### 🔒 Security
+
+- **Breaking for inline previews:** downloads, share links, and WebDAV serve HTML, SVG, scripts, XML, and unknown types as attachments. Images, PDF, plain text, audio, and video stay inline. Clients that rendered those types in the browser now receive a file download. Every stored-file response sets `nosniff` and a sandbox content security policy, and filenames follow RFC 6266.
+- Delegated agent tokens are checked with identity before a tool runs, and a second consume of the same approval is denied.
+- `POST /mcp` returns `503 identity_unavailable` when the signed revocation list cannot be loaded, and agents are revoked only from that trusted list.
+- Agent tokens with staff operator claims are refused, and approval consume requires `consumed: true` from identity.
+
+### 🗑 Removed
+
+- Storage no longer posts tool-call logs to identity. The ai-service gateway records each `tools/call`. Token checks, revocation, and approvals stay on this service.
+
+### 📚 Documentation
+
+- The publish workflow writes the Docker Hub overview from `DOCKERHUB.md` after it pushes an image.
+- That step needs GitHub Actions secrets `DOCKERHUB_DESCRIPTION_USERNAME` and `DOCKERHUB_DESCRIPTION_TOKEN`: a Docker Hub personal access token with Read, Write, and Delete, from a user with Admin on the repository. The image still publishes when those secrets are unset, and the overview step is skipped.
+
+### 🏗 Chore
+
+- Use `shellui-django[mcp]==0.5.1` and sign internal MCP assertions with this service's RS256 key.
+- Docker dev target and handbook notes for the Shellui local dev stack.
+- Docs CI fetches the identity, hosting, and email handbooks so Shellui pages that link to them still build. Storage docs stay from this checkout.
+
+### ⬆️ Upgrade notes
+
+- Apply migrations `0006_connector_bucket_lifecycle` and `0007_connector_safe_settings_and_issues`. The image entrypoint applies them on start.
+- MCP revocation checks and approvals need `STORAGE_SERVICE_SIGNING_KEY` or `STORAGE_SERVICE_SIGNING_KEY_FILE` (RSA PEM, 2048 bits or more) and `STORAGE_SERVICE_ISSUER`. Register that same issuer on identity-service. If either value is missing, those identity-service calls fail closed (`503`).
+- Set `STORAGE_PUBLIC_URL` to this service's public origin when the ai gateway calls an internal host. Agent tokens must target `{url}/mcp`. Leave it empty to use the request host.
 
 ## [0.7.1] - 2026-11-01
 

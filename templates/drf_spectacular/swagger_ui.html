@@ -33,12 +33,17 @@
         window.__applyShellUIAccessToken?.(token);
       };
 
-      await init();
-      applyDocsColorMode(shellui.initialSettings?.appearance ?? null);
-      window.__shelluiAccessToken = shellui.initialSettings?.accessToken ?? null;
-      window.__applyShellUIAccessToken?.(window.__shelluiAccessToken);
-      shellui.addMessageListener("SHELLUI_SETTINGS", handleSettingsMessage);
-      shellui.addMessageListener("SHELLUI_SETTINGS_UPDATED", handleSettingsMessage);
+      applyDocsColorMode(null);
+
+      void init()
+        .then(() => {
+          applyDocsColorMode(shellui.initialSettings?.appearance ?? null);
+          window.__shelluiAccessToken = shellui.initialSettings?.accessToken ?? null;
+          window.__applyShellUIAccessToken?.(window.__shelluiAccessToken);
+          shellui.addMessageListener("SHELLUI_SETTINGS", handleSettingsMessage);
+          shellui.addMessageListener("SHELLUI_SETTINGS_UPDATED", handleSettingsMessage);
+        })
+        .catch(() => {});
     </script>
     <script src="{{ swagger_ui_bundle }}"></script>
     <script src="{{ swagger_ui_standalone }}"></script>

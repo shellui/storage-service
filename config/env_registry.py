@@ -33,7 +33,10 @@ REQUIRED = (
     Required('DEBUG', 'Production mode.'),
     Required('ALLOWED_HOSTS', 'Public host names, comma-separated, no scheme.'),
     Required('CSRF_TRUSTED_ORIGINS', 'Full HTTPS origin, for Django admin form posts.'),
-    Required('IDENTITY_SERVICE_URL', 'identity-service origin. JWKS is read from {url}/.well-known/jwks.json.'),
+    Required(
+        'IDENTITY_SERVICE_URL',
+        'identity-service origin for server-side calls. JWKS defaults to {url}/.well-known/jwks.json unless IDENTITY_JWKS_URL is set.',
+    ),
     Required('IDENTITY_ISSUER', 'Must match identity-service JWT_ISSUER.'),
     Required('IDENTITY_AUDIENCE', 'Must match identity-service JWT_AUDIENCE.'),
     Required('REDIS_URL', 'Shared cache and job broker.'),
@@ -42,6 +45,7 @@ REQUIRED = (
 
 OPTIONAL = (
     Var('LOG_LEVEL', 'INFO', 'Runtime'),
+    Var('TEST_MODE', 'false', 'Runtime'),
     Var('SETUP_TOKEN', ''),
     Var('DJANGO_ADMIN_ENABLED', 'true'),
     Var('STORAGE_SERVICE_PORT', '8001'),
@@ -51,6 +55,15 @@ OPTIONAL = (
     Var('IDENTITY_JWKS_FILE', '', 'Identity and JWT. Pin the JWKS with a file or JSON in production.'),
     Var('IDENTITY_JWKS', ''),
     Var('IDENTITY_JWKS_URL', ''),
+    Var(
+        'IDENTITY_MCP_DELEGATED_AUTHORITY_PATH',
+        '',
+        'Identity internal path for live delegated agent row checks (default /api/v1/mcp/internal/mcp-agent-delegated-authority)',
+    ),
+    Var('STORAGE_SERVICE_ISSUER', '', ''),
+    Var('STORAGE_PUBLIC_URL', '', 'Public origin; agent tokens must target {url}/mcp. Empty uses the request host'),
+    Var('STORAGE_SERVICE_SIGNING_KEY', ''),
+    Var('STORAGE_SERVICE_SIGNING_KEY_FILE', ''),
     Var('JWKS_CACHE_TTL', '900'),
     Var('JWKS_TIMEOUT', '15'),
     Var('JWKS_RETRIES', '2'),
@@ -99,6 +112,7 @@ OPTIONAL = (
     Var('EMAIL_SERVICE_API_KEY', '', 'Email notifications: nothing is forwarded while EMAIL_SERVICE_API_KEY is empty'),
     Var('EMAIL_SERVICE_URL', 'https://email.shellui.com'),
     Var('EMAIL_SERVICE_ALLOW_PRIVATE', 'false'),
+    Var('MCP_RATE_LIMIT_AGENT', '120', 'Shellui MCP per-agent rate limit (requests per minute).'),
     Var('SENTRY_DSN', '', 'Sentry'),
     Var('SENTRY_ENVIRONMENT', 'production'),
     Var('SENTRY_RELEASE', ''),
@@ -145,7 +159,8 @@ SECRET_KEY=
 DEBUG=true
 # Public host names, comma-separated, no scheme.
 ALLOWED_HOSTS=localhost,127.0.0.1
-# Local identity-service. JWKS is read from {url}/.well-known/jwks.json.
+# Local identity-service (standalone). In the Shellui dev stack use http://identity:8000
+# and set IDENTITY_JWKS_URL to the internal JWKS URL; see docs/devstack.md.
 IDENTITY_SERVICE_URL=http://localhost:8000
 
 # Required when DEBUG=false (production)

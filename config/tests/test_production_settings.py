@@ -54,6 +54,19 @@ print('has_admin=' + str(has_admin))
 
 def _merged_env(env: dict[str, str]) -> dict[str, str]:
     merged = os.environ.copy()
+    # Cloud agent and CI often export IDENTITY_*; subprocess checks must not inherit them unless
+    # the case sets them explicitly (otherwise production validation tests see a false pass).
+    for key in (
+        'IDENTITY_ISSUER',
+        'IDENTITY_AUDIENCE',
+        'IDENTITY_SERVICE_URL',
+        'IDENTITY_JWKS',
+        'IDENTITY_JWKS_URL',
+        'IDENTITY_JWKS_FILE',
+        'IDENTITY_MCP_DELEGATED_AUTHORITY_PATH',
+    ):
+        if key not in env:
+            merged.pop(key, None)
     merged.update(env)
     # Not setdefault: the CI SECRET_KEY is shorter than the 50 characters DEBUG=false requires.
     merged['SECRET_KEY'] = env.get('SECRET_KEY', LONG_SECRET_KEY)

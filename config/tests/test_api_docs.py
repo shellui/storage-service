@@ -30,3 +30,15 @@ class ApiDocsPagesTests(TestCase):
             'swagger-ui-dist/swagger-ui-standalone-preset.js',
             'swagger-ui-dist/swagger-ui.css',
         )
+
+    def test_redoc_renders_before_shellui_init(self):
+        body = self.client.get(reverse('redoc')).content.decode()
+        self.assertIn('renderRedoc(null)', body)
+        self.assertNotIn('await init()', body)
+        self.assertIn('void init()', body)
+
+    def test_swagger_does_not_block_on_shellui_init(self):
+        body = self.client.get(reverse('swagger-ui')).content.decode()
+        self.assertIn('applyDocsColorMode(null)', body)
+        self.assertNotIn('await init()', body)
+        self.assertIn('void init()', body)
