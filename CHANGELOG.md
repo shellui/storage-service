@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- The publish workflow writes the Docker Hub overview from `DOCKERHUB.md` after it pushes an image.
+
 ## [0.8.0] - 2026-11-18
 
 ### ✨ Feature

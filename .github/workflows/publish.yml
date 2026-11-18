@@ -89,3 +89,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # DOCKERHUB_TOKEN needs Read, Write, Delete scope for description updates.
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: shellui/storage-service
+          readme-filepath: ./DOCKERHUB.md
+          short-description: 'Storage service for Shellui, the web app development platform.'

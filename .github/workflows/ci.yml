@@ -169,6 +169,7 @@ jobs:
             --verbose
             --no-progress
             README.md
+            DOCKERHUB.md
             CHANGELOG.md
             PUBLISH.md
             docs
