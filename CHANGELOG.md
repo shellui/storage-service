@@ -36,6 +36,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - `tools/list` keeps each tool's registry hints for the ai-service gateway.
 - `POST /mcp` allows 120 requests a minute per agent. Set `MCP_RATE_LIMIT_AGENT` to change that cap.
 
+### 🚨 Changed
+
+- Dependabot version updates now open against develop.
+
 ### 🐛 Bug Fixes
 
 - Agent tokens are checked against the public MCP URL when set, so the ai gateway can reach `/mcp` on an internal host.
