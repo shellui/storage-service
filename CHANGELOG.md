@@ -2,43 +2,10 @@
 
 Notable changes to this project. Format: [Keep a Changelog](http://keepachangelog.com/). Versioning: [Semantic Versioning](http://semver.org/).
 
-## [Unreleased] - yyyy-mm-dd
-
-### ✨ Feature - for new features
-
-- REST and MCP: external connector lifecycle under `/storage/v1/connector` (list, get, create, update, patch, delete) plus local configuration actions `POST …/configuration/check`, `…/configuration/validate`, and `…/configuration/retry`. Credentials are encrypted at rest, marked `x-mcp-secret` in OpenAPI, and omitted from responses. Only allowlisted non-secret `connector_settings` keys are stored and returned. Responses use `connector_last_issue_code` and `connector_configuration_status`, not raw provider errors. Checks validate configuration locally; they do not call live providers. Optional `connector_settings._dev_simulation` applies only when DEBUG or `TEST_MODE` is on.
-
-### 🐛 Bug Fixes - for any bug fixes
-
-- MCP tool arguments are the operation fields in one object. `tools/list` no longer requires `method` or `path`. Path fields keep their OpenAPI type and description. Fixed-value fields publish `enum` plus a short description. Tool text names the action, the main arguments, and the return value. `destructiveHint` covers deletes, secrets that cannot be read back, public links, signed download URLs, test webhook sends, delivery re-sends, and signing-secret rotation. Creating or updating a Shellui Actions webhook rule stays a non-destructive write.
-- MCP: a destructive approval open sends `is_destructive: true`, so Identity can store the call log for that approval after it is consumed.
-- MCP `tools/call` JSON-encodes object bodies, allows `/` in `object_path`, and returns download bytes as base64. Uploads accept `content_base64`.
-- OpenAPI keeps the JSON body on delete-many and prefix delete, so those MCP tools accept `prefixes`, `paths`, and `prefix`.
-- MCP returns the share `token` once on create. Webhook signing secrets stay masked. `path_url` stays redacted. Signed URLs and recent stats filenames follow `mcp_read`.
-- MCP tool names are `storage_<verb>_<noun>` (the names the ai-service gateway publishes). OpenAPI `operationId` values are unchanged. This service does not store tool names, so there is no data migration.
-
-### 🔒 Security
-
-- Downloads, share links, and WebDAV serve HTML, SVG, script, XML, and other active or unknown types as attachments with `text/plain` or `application/octet-stream`. Raster images, PDF, plain text, audio, and video stay inline. Every stored-file response sets `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox; default-src 'none'`. `Content-Disposition` sends an ASCII `filename` and an RFC 6266 `filename*` value, with quotes and newlines encoded.
-
-### 🏗 Chore
-
-- Bump `shellui-django[mcp]` to the PyPI release 0.5.0.
-
-### 🗑 Removed
-
-- MCP: storage no longer posts tool-call logs to Identity. The ai-service gateway records each `tools/call`. Token checks, revocation polling, and approvals stay on this service.
-
 <!---
 ## [Unreleased] - yyyy-mm-dd
 
 ### ✨ Feature - for new features
-- Shellui MCP: `POST /mcp`, OpenAPI `x-mcp` markers for company-owner storage and Shellui Actions routes, OAuth protected-resource metadata, and handbook docs.
-
-### 🔒 Security
-
-- MCP: return `503 identity_unavailable` when the signed revocation list cannot be loaded; treat agents as revoked only on a trusted list.
-- MCP: refuse agent tokens that carry staff operator claims; approval consume requires an explicit `consumed: true` from identity.
 ### 🛠 Improvements - for general improvements
 ### 🚨 Changed - for changes in existing functionality
 ### ⚠️ Deprecated - for soon-to-be removed features
@@ -51,22 +18,46 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
-## [0.8.0] - 2026-11-01
-
-### 🏗 Chore
-
-- Bump `shellui-django[mcp]` to 0.4.0 and sign internal MCP assertions to Identity with this service's own RS256 key (`STORAGE_SERVICE_SIGNING_KEY`, `STORAGE_SERVICE_ISSUER`), public key at `/.well-known/jwks.json`.
-- Dockerfile `dev` target and handbook page for the Shellui local dev stack (env-driven JWKS and identity URLs).
-- Use the shared shellui-django package for MCP instead of a vendored copy.
+## [0.8.0] - 2026-11-18
 
 ### ✨ Feature
 
-- Shellui MCP endpoint for agents (`POST /mcp`).
-- OpenAPI descriptions tuned for MCP agents.
+- Shellui MCP endpoint for agents at `POST /mcp`.
+- OpenAPI descriptions and markers so MCP agents can discover storage tools.
+- REST and MCP APIs for external connector lifecycle and local configuration checks. Credentials are encrypted at rest and omitted from responses.
+
+### 🛠 Improvements
+
+- MCP tool names match the ai-service gateway (`storage_<verb>_<noun>`). OpenAPI operation ids are unchanged.
+- Tool arguments are the operation fields in one object, with enums for fixed values. Method and path are not inputs.
+- `tools/call` accepts base64 upload content, allows `/` in object paths, and returns download bytes as base64.
+- A new share link returns the token once. Signing secrets, path URLs, and signed URLs stay masked or follow read rules.
+- Destructive tools (deletes, public links, signed URLs, webhook tests, secret rotation) ask for approval even in full access. Creating or updating a Shellui Actions rule stays a non-destructive write.
+- `tools/list` keeps each tool's registry hints for the ai-service gateway.
 
 ### 🐛 Bug Fixes
 
-- MCP agent tokens are checked against `{STORAGE_PUBLIC_URL}/mcp` when set, so the ai gateway can reach `/mcp` on an internal host.
+- Agent tokens are checked against the public MCP URL when set, so the ai gateway can reach `/mcp` on an internal host.
+- Delete-many and prefix-delete tools accept their JSON body fields (`prefixes`, `paths`, `prefix`).
+- A destructive approval open sends `is_destructive: true`, so identity can store the matching call log after consume.
+- ReDoc and Swagger UI render before the Shellui SDK finishes loading.
+- `POST /mcp` serves a cached OpenAPI tool list under a lock.
+
+### 🔒 Security
+
+- Downloads, share links, and WebDAV serve HTML, SVG, scripts, XML, and unknown types as attachments. Images, PDF, plain text, audio, and video stay inline. Every stored-file response sets `nosniff` and a sandbox content security policy, and filenames follow RFC 6266.
+- Delegated agent tokens are checked with identity before a tool runs, and a second consume of the same approval is denied.
+- `POST /mcp` returns `503 identity_unavailable` when the signed revocation list cannot be loaded, and agents are revoked only from that trusted list.
+- Agent tokens with staff operator claims are refused, and approval consume requires `consumed: true` from identity.
+
+### 🗑 Removed
+
+- Storage no longer posts tool-call logs to identity. The ai-service gateway records each `tools/call`. Token checks, revocation, and approvals stay on this service.
+
+### 🏗 Chore
+
+- Use `shellui-django[mcp]==0.5.1` and sign internal MCP assertions with this service's RS256 key.
+- Docker dev target and handbook notes for the Shellui local dev stack.
 
 ## [0.7.1] - 2026-11-01
 
