@@ -220,8 +220,32 @@ def build_download_response(
     return response
 
 
+def signed_url_response_params(obj: StorageObject) -> dict[str, str]:
+    """S3 response overrides for a signed download.
+
+    Active types (HTML, SVG, XML, scripts, and anything outside the inline
+    allowlist) are attachments with a safe content type. Raster images other
+    than SVG, PDF, plain text, audio, and video stay inline.
+    """
+    filename = obj.basename or 'download'
+    content_type, disposition = resolve_stored_file_response(
+        obj.mime_type,
+        filename=filename,
+        object_name=obj.name,
+    )
+    return {
+        'ResponseContentType': content_type,
+        'ResponseContentDisposition': disposition,
+    }
+
+
 def build_signed_url(obj: StorageObject, expires_in: int | None = None) -> str:
-    """Return a URL clients can use to fetch the object (signed when using S3)."""
+    """Return a URL clients can use to fetch the object (signed when using S3).
+
+    S3 URLs include ``ResponseContentType`` and ``ResponseContentDisposition``
+    so the object store uses the same inline allowlist as Django downloads.
+    The filesystem backend returns a ``/media/`` path and cannot set those headers.
+    """
     max_expires = settings.SIGNED_URL_EXPIRES
     if expires_in is None:
         expires_in = max_expires
@@ -229,10 +253,18 @@ def build_signed_url(obj: StorageObject, expires_in: int | None = None) -> str:
         expires_in = max(1, min(int(expires_in), max_expires))
     try:
         if is_s3_backend() and hasattr(default_storage, 'url'):
+            parameters = signed_url_response_params(obj)
             try:
-                return default_storage.url(obj.storage_key, expire=expires_in)
+                return default_storage.url(
+                    obj.storage_key,
+                    expire=expires_in,
+                    parameters=parameters,
+                )
             except TypeError:
-                return default_storage.url(obj.storage_key)
+                try:
+                    return default_storage.url(obj.storage_key, expire=expires_in)
+                except TypeError:
+                    return default_storage.url(obj.storage_key)
         return default_storage.url(obj.storage_key)
     except Exception:
         return ''

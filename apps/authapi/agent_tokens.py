@@ -82,19 +82,66 @@ def agent_scope_allows_storage(claims: dict) -> bool:
     return 'storage' in parts
 
 
+def is_refresh_token(claims: dict) -> bool:
+    """True when the JWT is a refresh token and must not be used as a bearer."""
+    return str(claims.get('token_type') or '').strip().lower() == 'refresh'
+
+
+def is_agent_access_claims(claims: dict) -> bool:
+    """True for an MCP agent access token (``agent_id`` or ``sub`` ``agent:…``)."""
+    if claims.get('agent_id'):
+        return True
+    return str(claims.get('sub') or '').startswith('agent:')
+
+
+def is_agent_principal(user) -> bool:
+    """True when ``user`` was built from an MCP agent token."""
+    if user is None:
+        return False
+    claims = getattr(user, 'claims', None) or {}
+    if isinstance(claims, dict) and is_agent_access_claims(claims):
+        return True
+    username = str(getattr(user, 'username', '') or '')
+    return username.startswith('agent:')
+
+
+def _owner_user_id(claims: dict) -> int:
+    """Regional user id of the human who created the agent, or 0 when absent.
+
+    Only a positive JSON integer is accepted. Bool and other types are ignored.
+    """
+    raw = claims.get('owner_user_id')
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return 0
+    if raw < 1:
+        return 0
+    return raw
+
+
 def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
+    """Build a principal for an MCP agent access token.
+
+    The user id is ``owner_user_id`` when Identity sent one. The agent is never
+    a company owner and never staff, including when the creating user is.
+    """
     company_id = claims.get('company_id')
     try:
         cid = int(company_id)
     except (TypeError, ValueError) as exc:
         raise ValueError('Agent token is missing a numeric company_id.') from exc
+    user_meta = claims.get('user_metadata')
+    if not isinstance(user_meta, dict):
+        user_meta = {}
+    username = str(claims.get('username') or user_meta.get('username') or '')
+    if not username:
+        username = f"agent:{claims.get('agent_id')}"
     return StoragePrincipal(
-        user_id=0,
+        user_id=_owner_user_id(claims),
         company_id=cid,
-        email='',
-        username=f"agent:{claims.get('agent_id')}",
+        email=str(claims.get('email') or user_meta.get('email') or ''),
+        username=username,
         is_staff=False,
-        is_company_owner=True,
+        is_company_owner=False,
         claims=claims,
     )
 
@@ -117,6 +164,8 @@ def authenticate_agent_bearer(
 ) -> tuple[StoragePrincipal, dict] | None:
     claims = _decode_agent_claims(raw_token, expected_resource=expected_resource)
     if claims is None:
+        return None
+    if is_refresh_token(claims):
         return None
     if _agent_staff_refused(claims):
         return None

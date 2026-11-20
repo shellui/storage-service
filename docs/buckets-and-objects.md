@@ -18,7 +18,7 @@ The bucket name is `company`. The first request that needs it creates the row an
 
 Each bucket response includes an `access` object (`audience`, `shareable`, `grants_enabled`, `can_write`) for the Files UI.
 
-A bucket may set `file_size_limit` and `allowed_mime_types`. An empty MIME list allows every type. Otherwise the list is exact types or prefixes such as `image/*`. A rejected type returns 415 `invalid_mime_type`. The per-bucket size cannot exceed `MAX_UPLOAD_BYTES` (default `5G`).
+A bucket may set `file_size_limit` and `allowed_mime_types`. An empty MIME list allows every type. Otherwise the list is exact types or prefixes such as `image/*`. A rejected type returns 415 `invalid_mime_type`. The per-bucket size cannot exceed `MAX_UPLOAD_BYTES` (default `5G`). A `Content-Length` above that cap is rejected before the body is read. The bytes are streamed to storage. Multipart form uploads may declare up to 1 MiB above the cap for form framing.
 
 ## Connector buckets
 

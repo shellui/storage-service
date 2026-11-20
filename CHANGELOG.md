@@ -18,6 +18,18 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### 🔒 Security
+
+- Agent access tokens are accepted only on `POST /mcp`. A refresh token is not a bearer. The agent principal uses `owner_user_id` when the token includes it, and `is_company_owner` is always false. Global metrics and scheduled-job routes (`global_refused`) refuse agent callers.
+- S3 signed URLs set `ResponseContentDisposition` and `ResponseContentType`. HTML, SVG, XML, scripts, and other active types are attachments with a safe content type. Raster images other than SVG, PDF, plain text, audio, and video stay inline.
+- Uploads stream to storage in 1 MiB chunks. `Content-Length` above the cap is rejected before the body is read. The cap is the lower of the bucket `file_size_limit` and `MAX_UPLOAD_BYTES` (default 5 GiB). Multipart form uploads may declare up to 1 MiB above that cap for form framing.
+
+### 🚨 Changed
+
+- MCP agents are not company owners. Connector writes, quota changes, and Shellui Actions admin calls from an agent return 403. A human company-owner JWT is unchanged.
+
 ## [0.9.1] - 2026-11-24
 
 ### 🐛 Bug Fixes

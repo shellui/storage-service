@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
 import jwt
@@ -10,7 +11,11 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.storage.access import COMPANY_BUCKET_NAME
-from apps.storage.downloads import content_disposition_value, resolve_stored_file_response
+from apps.storage.downloads import (
+    build_signed_url,
+    content_disposition_value,
+    resolve_stored_file_response,
+)
 
 SANDBOX_CSP = "sandbox; default-src 'none'"
 
@@ -320,3 +325,54 @@ class StoredFileResponseTests(TestCase):
         self.assertEqual(head['X-Content-Type-Options'], 'nosniff')
         self.assertEqual(head['Content-Security-Policy'], SANDBOX_CSP)
         self.assertNotIn('html', head['Content-Type'])
+
+
+@override_settings(SIGNED_URL_EXPIRES=3600, STORAGE_BACKEND='s3')
+class SignedUrlDispositionTests(SimpleTestCase):
+    def _url(self, mime: str, name: str) -> dict:
+        obj = SimpleNamespace(
+            storage_key='company/1/obj/' + name,
+            mime_type=mime,
+            basename=name,
+            name=name,
+        )
+        with patch('apps.storage.downloads.default_storage') as storage:
+            storage.url = MagicMock(return_value='https://signed.example/object')
+            url = build_signed_url(obj, expires_in=60)
+        self.assertEqual(url, 'https://signed.example/object')
+        return storage.url.call_args.kwargs
+
+    def test_html_and_svg_are_attachments_with_a_safe_type(self):
+        for mime, name in (
+            ('text/html', 'page.html'),
+            ('image/svg+xml', 'icon.svg'),
+            ('application/xml', 'data.xml'),
+            ('text/xml', 'data.xml'),
+            ('application/javascript', 'app.js'),
+        ):
+            kwargs = self._url(mime, name)
+            params = kwargs['parameters']
+            self.assertEqual(kwargs['expire'], 60, mime)
+            self.assertTrue(params['ResponseContentDisposition'].startswith('attachment;'), mime)
+            self.assertNotIn('html', params['ResponseContentType'])
+            self.assertNotIn('svg', params['ResponseContentType'])
+            self.assertNotIn('xml', params['ResponseContentType'])
+            self.assertNotIn('javascript', params['ResponseContentType'])
+            self.assertIn(
+                params['ResponseContentType'],
+                {'text/plain; charset=utf-8', 'application/octet-stream'},
+                mime,
+            )
+
+    def test_allowlisted_types_stay_inline(self):
+        for mime, served in (
+            ('image/png', 'image/png'),
+            ('image/jpeg', 'image/jpeg'),
+            ('application/pdf', 'application/pdf'),
+            ('text/plain', 'text/plain'),
+            ('audio/mpeg', 'audio/mpeg'),
+            ('video/mp4', 'video/mp4'),
+        ):
+            params = self._url(mime, 'file.bin')['parameters']
+            self.assertEqual(params['ResponseContentType'], served, mime)
+            self.assertTrue(params['ResponseContentDisposition'].startswith('inline;'), mime)

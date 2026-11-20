@@ -109,8 +109,8 @@ S3 settings apply when `STORAGE_BACKEND=s3`. `AWS_STORAGE_BUCKET_NAME` is requir
 | --- | --- | --- |
 | `DEFAULT_COMPANY_QUOTA_BYTES` | `10G` | Company cap applied when the quota row is created |
 | `DEFAULT_USER_QUOTA_BYTES` | `0` | Default per-user cap. `0` leaves the per-user cap off |
-| `MAX_UPLOAD_BYTES` | `5G` | Hard cap for one upload. A bucket `file_size_limit` cannot raise it |
-| `DATA_UPLOAD_MAX_MEMORY_SIZE` | `12M` | Django in-memory request limit. The object is still capped by `MAX_UPLOAD_BYTES` |
+| `MAX_UPLOAD_BYTES` | `5G` | Hard cap for one upload. The service checks `Content-Length` before reading the body and streams the bytes to storage. A bucket `file_size_limit` cannot raise it. Multipart form uploads may declare up to 1 MiB above the cap for form framing |
+| `DATA_UPLOAD_MAX_MEMORY_SIZE` | `12M` | Django in-memory request limit for non-file fields. Upload bytes are streamed to storage and are not held up to `MAX_UPLOAD_BYTES` in the worker |
 
 Staff and company owners can replace the company and per-user caps over the API. See [Quotas](quotas.md).
 

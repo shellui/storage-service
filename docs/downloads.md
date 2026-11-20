@@ -43,6 +43,8 @@ The body field is `expiresIn` or `expires_in`, in seconds. The value is capped a
 | `STORAGE_BACKEND=s3` | Pre-signed URL with query-string authentication | Clients that should fetch from object storage |
 | `filesystem` | Plain `/media/objects/…` path. Not signed | Local development. Do not publish `/media/` |
 
+On S3, the signed URL also sets `ResponseContentType` and `ResponseContentDisposition`. The allowlist matches a download that streams through Django: raster images other than SVG, PDF, plain text, audio, and video stay inline. HTML, SVG, XML, scripts, and every other type are attachments, with content type `text/plain` or `application/octet-stream`. The filesystem backend returns a `/media/` path and cannot set those headers.
+
 On S3, anyone who holds the URL can fetch the object until it expires. There is no download counter and no revoke short of waiting for expiry. For a link you can revoke, use [Share links](sharing.md).
 
 Filesystem signed URLs are ordinary media paths. If that path is reachable, knowing or guessing it is enough. Production installs that need signed URLs set `STORAGE_BACKEND=s3` and leave `/media/` off the public host. See [Security hardening](security.md).
