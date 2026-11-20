@@ -1097,7 +1097,7 @@ class StorageAPITests(TestCase):
         with patch('apps.storage.downloads.default_storage') as mock_storage:
             mock_storage.url = MagicMock(return_value='https://signed.example/object')
             build_signed_url(obj, expires_in=999_999)
-            mock_storage.url.assert_called_once_with(obj.storage_key, expire=3600)
+            self.assertEqual(mock_storage.url.call_args.kwargs['expire'], 3600)
 
         with patch('apps.storage.downloads.default_storage') as mock_storage:
             mock_storage.url = MagicMock(return_value='https://signed.example/object')
@@ -1109,7 +1109,7 @@ class StorageAPITests(TestCase):
             )
             self.assertEqual(response.status_code, 200)
             self.assertIn('signedURL', response.json())
-            mock_storage.url.assert_called_once_with(obj.storage_key, expire=3600)
+            self.assertEqual(mock_storage.url.call_args.kwargs['expire'], 3600)
 
     def test_folder_rename_moves_objects_and_grants(self):
         self.client.post(

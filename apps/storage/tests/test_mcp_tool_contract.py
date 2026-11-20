@@ -418,9 +418,23 @@ class McpToolHappyPathTests(TestCase):
     def _b64(self, content: bytes) -> str:
         return base64.b64encode(content).decode('ascii')
 
+    def _forbidden(self, response, name: str):
+        self.assertEqual(response.status_code, 200, response.content[:800])
+        body = response.json()
+        result = body['result']
+        self.assertTrue(result.get('isError'), f'{name}: {result}')
+        text = result['content'][0]['text']
+        self.assertTrue(
+            '403' in text or 'permission' in text or 'owner' in text,
+            text,
+        )
+
     def _exercise(self, name: str):
         case = self._cases()[name]
         response = self._call(name, **case.get('call', {}))
+        if name in _AGENT_FORBIDDEN_TOOLS:
+            self._forbidden(response, name)
+            return
         payload = self._ok(response, name)
         case['check'](payload)
 
@@ -766,6 +780,37 @@ class McpToolHappyPathTests(TestCase):
         self._exercise('storage_v1_bucket_list')
         urls = [str(call.args[0]) if call.args else '' for call in self.identity_post.call_args_list]
         self.assertFalse(any('mcp-call-logs' in url for url in urls))
+
+
+# Agent callers are not company owners. These tools stay published, and a call is refused.
+_AGENT_FORBIDDEN_TOOLS = frozenset(
+    {
+        'storage_v1_connector_create',
+        'storage_v1_connector_update',
+        'storage_v1_connector_partial_update',
+        'storage_v1_connector_destroy',
+        'storage_v1_connector_configuration_check_create',
+        'storage_v1_connector_configuration_validate_create',
+        'storage_v1_connector_configuration_retry_create',
+        'storage_v1_quota_company_update',
+        'storage_v1_quota_company_user_update',
+        'api_v1_actions_events_list',
+        'api_v1_actions_rules_list',
+        'api_v1_actions_rules_create',
+        'api_v1_actions_rules_retrieve',
+        'api_v1_actions_rules_partial_update',
+        'api_v1_actions_rules_destroy',
+        'api_v1_actions_rules_rotate_secret',
+        'api_v1_actions_rules_send_test',
+        'api_v1_actions_deliveries_list',
+        'api_v1_actions_deliveries_retrieve',
+        'api_v1_actions_deliveries_requeue',
+        'api_v1_actions_event_log_list',
+        'api_v1_actions_event_log_retrieve',
+        'api_v1_actions_event_log_types_list',
+        'api_v1_actions_event_log_retention_retrieve',
+    }
+)
 
 
 def _bind_happy_path(name: str):

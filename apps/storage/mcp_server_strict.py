@@ -558,6 +558,14 @@ class StrictMcpServer:
         from django.urls import resolve
 
         match = resolve(resolved_path, urlconf=self.urlconf)
+        view_cls = getattr(match.func, 'view_class', None)
+        if view_cls is not None and getattr(view_cls, 'global_refused', False):
+            return JsonResponse(
+                self._result(
+                    req_id,
+                    {'content': [{'type': 'text', 'text': 'Forbidden'}], 'isError': True},
+                )
+            )
         response = match.func(drf_request, *match.args, **match.kwargs)
         status_code = getattr(response, 'status_code', 500)
         if hasattr(response, 'data'):

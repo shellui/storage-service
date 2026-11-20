@@ -16,7 +16,7 @@ It is a Django app, published as the `shellui/storage-service` Docker image. It 
 
 Routes follow the Supabase Storage path shape (`/storage/v1/object/…`, `/storage/v1/bucket`). The optional `apikey` header is accepted and ignored. The Bearer JWT is what authorizes the call.
 
-Company-owner routes that Shellui MCP agents may call are listed in [Shellui MCP](mcp.md). The OpenAPI schema marks them with an `x-mcp` extension.
+Shellui MCP tools are listed in [Shellui MCP](mcp.md). The OpenAPI schema marks them with an `x-mcp` extension. Agent callers are not company owners.
 
 ## Who it is for
 

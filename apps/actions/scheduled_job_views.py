@@ -56,6 +56,8 @@ def _require_platform_staff(request) -> Response | None:
 class ScheduledJobsView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
     serializer_class = OpenAPISerializer
+    # Platform scheduler. MCP agent callers are refused.
+    global_refused = True
 
     def get(self, request):
         err = _require_platform_staff(request)
@@ -99,6 +101,7 @@ class ScheduledJobsView(APIView):
 class ScheduledJobRunsView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
     serializer_class = OpenAPISerializer
+    global_refused = True
 
     def get(self, request, job):
         err = _require_platform_staff(request)
@@ -137,6 +140,7 @@ class ScheduledJobRunsView(APIView):
 class ScheduledJobRunDetailView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
     serializer_class = OpenAPISerializer
+    global_refused = True
 
     def get(self, request, pk):
         err = _require_platform_staff(request)
