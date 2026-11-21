@@ -54,7 +54,11 @@ OPTIONAL = (
     Var('POSTGRES_SSL_REQUIRE', 'true'),
     Var('IDENTITY_JWKS_FILE', '', 'Identity and JWT. Pin the JWKS with a file or JSON in production.'),
     Var('IDENTITY_JWKS', ''),
-    Var('IDENTITY_JWKS_URL', ''),
+    Var(
+        'IDENTITY_JWKS_URL',
+        '',
+        'MCP bearer checks use the pinned JWKS document, or this URL when it is empty. https unless DEBUG=true. Redirects are not followed.',
+    ),
     Var(
         'IDENTITY_MCP_DELEGATED_AUTHORITY_PATH',
         '',

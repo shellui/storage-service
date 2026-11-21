@@ -19,6 +19,7 @@ from apps.storage.tests.rs256_helpers import (
     signed_revocation_poll_response_body,
 )
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
+from apps.storage.mcp_server_strict import gateway_delegated_covers
 from apps.storage.mcp_tool_names import apply_published_tool_names
 from shellui_django.mcp.openapi_tools import tools_from_schema
 from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
@@ -195,6 +196,52 @@ class McpEndpointTests(TestCase):
             for path in schema.get('paths', {}):
                 self.assertFalse(path.startswith(prefix), path)
         validate_mcp_schema(schema)
+
+    def test_gateway_delegated_object_covers_one_tool(self):
+        future = 2**31 - 1
+        self.assertFalse(gateway_delegated_covers({'mcp_gateway_delegated': True}, 'storage_upload'))
+        self.assertFalse(
+            gateway_delegated_covers(
+                {'mcp_gateway_delegated': {'action': 'other', 'exp': future}},
+                'storage_upload',
+            )
+        )
+        self.assertFalse(
+            gateway_delegated_covers(
+                {'mcp_gateway_delegated': {'action': 'storage_upload', 'exp': 1}},
+                'storage_upload',
+            )
+        )
+        self.assertTrue(
+            gateway_delegated_covers(
+                {'mcp_gateway_delegated': {'action': 'storage_upload', 'exp': future}},
+                'storage_upload',
+            )
+        )
+
+    def test_missing_revocation_hook_is_forbidden(self):
+        from django.test import RequestFactory
+
+        from apps.storage.mcp_server_strict import StrictMcpServer
+
+        server = StrictMcpServer(
+            schema_provider=lambda: {},
+            urlconf='config.urls',
+            service_name='storage',
+            identity_revocation_check=None,
+            identity_issuer='https://identity.test',
+            identity_jwks=_TEST_JWKS,
+        )
+        request = RequestFactory().post(
+            '/mcp',
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {_agent_token()}',
+            HTTP_HOST='127.0.0.1',
+        )
+        response = server.handle(request, agent_claims={'agent_id': 'forged', 'company_id': 1})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(json.loads(response.content)['error'], 'revocation_unavailable')
 
     def test_mcp_requires_agent_token(self):
         response = self.client.post(

@@ -61,7 +61,7 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `IDENTITY_SERVICE_URL` | empty | identity-service origin for server-side HTTP (MCP internal APIs). JWKS defaults to `{url}/.well-known/jwks.json` when no document is pinned |
-| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. In Docker Compose, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
+| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. `POST /mcp` uses this URL only when `IDENTITY_JWKS` and `IDENTITY_JWKS_FILE` are empty. The URL must be `https` unless `DEBUG` is true, and redirects are not followed. In Docker Compose with `DEBUG=true`, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
 | `IDENTITY_JWKS_FILE` | empty | Path to a JWKS file. Relative paths are from the repository root. Wins over `IDENTITY_JWKS` |
 | `IDENTITY_JWKS` | empty | JWKS JSON in the environment, used when no file is set |
 | `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` | empty | Optional path or absolute URL for Identity live delegated-agent checks. Empty uses `/api/v1/mcp/internal/mcp-agent-delegated-authority` under `IDENTITY_SERVICE_URL` |

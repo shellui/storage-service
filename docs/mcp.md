@@ -8,7 +8,9 @@ description: Storage APIs that Shellui MCP agents may call, and how they are mar
 
 Shellui MCP exposes company-scoped storage HTTP APIs as tools. storage-service implements `POST /mcp` (Streamable HTTP JSON-RPC). Identity issues OAuth tokens; this service publishes OpenAPI with `x-mcp` extensions and OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`.
 
-Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions.
+Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). `POST /mcp` verifies that bearer (RS256 against `IDENTITY_ISSUER` and the JWKS). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions. The inner view sees `request.user` as the agent principal (`owner_user_id` when present, never a company owner) and `request.auth` as the verified claims.
+
+`mcp_gateway_delegated` skips a second approval only when it is `{"action": "<tool name>", "exp": <unix seconds>}` and `exp` is still in the future. A boolean does not skip approval.
 
 **Personal vs delegated:** A **personal** regional agent token has no `global_company_id` (and no `global_agent_id`). It is intended for direct use against this service with the storage MCP resource as `aud`. A **delegated** regional token includes `global_company_id` (and usually `global_agent_id` from the SaaS subject); it is the shape you get after the AI gateway or another regional exchange turns a global credential into a storage-scoped regional JWT. Do not point a global Shellui access JWT from the SaaS product directly at storage-service (`aud` will not match). This handbook covers only what storage-service enforces; it does not document separate storage integration or secrets MCP servers.
 

@@ -29,6 +29,11 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 ### 🚨 Changed
 
 - MCP agents are not company owners. Connector writes, quota changes, and Shellui Actions admin calls from an agent return 403. A human company-owner JWT is unchanged.
+- `POST /mcp` verifies the bearer itself. `mcp_gateway_delegated` skips a second approval only as `{"action": "<tool name>", "exp": <unix seconds>}`. A boolean does not. Use `shellui-django[mcp]==0.6.0`.
+
+### 🏗 Chore
+
+- Pin `shellui-django[mcp]==0.6.0`. MCP RS256 checks use `IDENTITY_ISSUER` and the pinned JWKS (`IDENTITY_JWKS` or `IDENTITY_JWKS_FILE`) or `IDENTITY_JWKS_URL`. That URL must be `https` unless `DEBUG` is true, and redirects are not followed. No new environment variable.
 
 ## [0.8.0] - 2026-11-18
 
