@@ -5,14 +5,37 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
+import time
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 from collections.abc import Callable
 from typing import Any
+
+import jwt
+from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from apps.authapi.agent_tokens import (
+    _agent_staff_refused,
+    agent_scope_allows_storage,
+    authenticate_agent_bearer,
+    is_refresh_token,
+    mcp_resource_audience,
+    principal_from_agent_claims,
+)
+from apps.authapi.mcp_authority import (
+    DelegatedAuthorityDenied,
+    DelegatedAuthorityUnavailable,
+    delegated_regional_authority_live_ok,
+)
+from shellui_django.mcp.identity_jwks import (
+    IdentityJwksError,
+    decode_identity_rs256_jwt,
+    jwt_unix_timestamp_claim_strict,
+)
 from shellui_django.mcp.masking import redact_mapping
 from shellui_django.mcp.openapi_mcp import marker_tree_for_operation_response, marker_tree_for_schema
 from shellui_django.mcp.rate_limit import check_agent_rate_limit
@@ -20,9 +43,12 @@ from shellui_django.mcp.routing import (
     McpToolArgumentError,
     materialize_openapi_path,
     path_parameter_names,
+    tool_arguments_match_company,
     validate_mcp_tool_arguments,
 )
-from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
+from shellui_django.mcp.write_gate import WriteGateDecision, decide_write, is_destructive_operation
+
+logger = logging.getLogger(__name__)
 
 from apps.storage.mcp_tool_schema import coerce_mcp_call_arguments, published_mcp_tools
 from apps.storage.mcp_assertions import parse_grant_version
@@ -261,8 +287,37 @@ def _json_default(value: Any) -> Any:
     raise TypeError(f'Object of type {type(value).__name__} is not JSON serializable')
 
 
+def gateway_delegated_covers(agent_claims: dict[str, Any], tool_name: str) -> bool:
+    """True when ``mcp_gateway_delegated`` names this tool and has not expired.
+
+    The claim must be ``{"action": "<tool name>", "exp": <unix seconds>}``.
+    A boolean does not skip approval.
+    """
+    claim = agent_claims.get('mcp_gateway_delegated')
+    if not isinstance(claim, dict):
+        return False
+    action = claim.get('action')
+    if not isinstance(action, str) or not action or action != tool_name:
+        return False
+    try:
+        exp = jwt_unix_timestamp_claim_strict(claim.get('exp'), field='exp')
+    except IdentityJwksError:
+        return False
+    return exp > int(time.time())
+
+
+def _hs256_mcp_fallback_allowed() -> bool:
+    secret = getattr(settings, 'JWT_HS256_FALLBACK_SECRET', None)
+    return bool(secret) and (
+        settings.DEBUG or getattr(settings, 'ALLOW_JWT_HS256_FALLBACK', False)
+    )
+
+
 class StrictMcpServer:
-    """Same contract as ``shellui_django.mcp.server.McpServer`` with stricter identity binding."""
+    """Same contract as ``shellui_django.mcp.server.McpServer`` with stricter identity binding.
+
+    ``handle`` verifies the bearer token. The ``agent_claims`` argument is ignored.
+    """
 
     def __init__(
         self,
@@ -270,11 +325,15 @@ class StrictMcpServer:
         schema_provider: Callable[[], dict[str, Any]],
         urlconf: str,
         service_name: str,
-        identity_revocation_check: Callable[..., bool],
+        identity_revocation_check: Callable[..., bool] | None = None,
         delegated_authority_gate: Callable[[dict[str, Any], dict[str, Any]], tuple[bool, bool]] | None = None,
         approval_handler: Callable[..., dict[str, Any] | None] | None = None,
         approval_state: Callable[..., str | None] | None = None,
         approval_consume: Callable[..., Any] | None = None,
+        identity_issuer: str | None = None,
+        identity_jwks_url: str | None = None,
+        identity_jwks: dict[str, Any] | None = None,
+        mcp_audience: str | None = None,
     ):
         self.schema_provider = schema_provider
         self.urlconf = urlconf
@@ -284,21 +343,27 @@ class StrictMcpServer:
         self.approval_handler = approval_handler
         self.approval_state = approval_state
         self.approval_consume = approval_consume
+        self.identity_issuer = identity_issuer
+        self.identity_jwks_url = identity_jwks_url
+        self.identity_jwks = identity_jwks
+        self.mcp_audience = mcp_audience
         self._factory = APIRequestFactory()
 
     def handle(
         self,
         request: HttpRequest,
         *,
-        agent_claims: dict[str, Any] | None,
+        agent_claims: dict[str, Any] | None = None,
         mcp_resource_audience: str | None = None,
     ) -> JsonResponse:
+        # Authorization uses the verified bearer only.
+        del agent_claims, mcp_resource_audience
         if request.method != 'POST':
             return JsonResponse({'error': 'method_not_allowed'}, status=405)
-        if agent_claims is None:
-            return JsonResponse({'error': 'unauthorized'}, status=401)
-        if agent_claims.get('_mcp_delegated_authority_denied'):
-            return JsonResponse({'error': 'forbidden'}, status=403)
+        verified = self._verify_bearer(request)
+        if isinstance(verified, JsonResponse):
+            return verified
+        _principal, agent_claims = verified
         agent_id = str(agent_claims.get('agent_id') or '')
         if not agent_id:
             return JsonResponse({'error': 'unauthorized'}, status=401)
@@ -317,9 +382,20 @@ class StrictMcpServer:
             return JsonResponse({'error': 'identity_invalid'}, status=401)
         company_id_int = company_id
 
+        if self.identity_revocation_check is None:
+            return JsonResponse({'error': 'revocation_unavailable'}, status=403)
         if identity_revocation_unavailable():
             return JsonResponse({'error': 'identity_unavailable'}, status=503)
-        if self.identity_revocation_check(agent_id, company_id_int, agent_claims):
+        try:
+            revoked = bool(self.identity_revocation_check(agent_id, company_id_int, agent_claims))
+        except Exception as exc:
+            logger.warning(
+                'MCP revocation check failed agent_id=%s err=%s',
+                agent_id,
+                type(exc).__name__,
+            )
+            return JsonResponse({'error': 'revocation_unavailable'}, status=403)
+        if revoked:
             return JsonResponse({'error': 'agent_revoked'}, status=403)
 
         gv_ok = grant_versions_compatible(agent_claims)
@@ -331,7 +407,7 @@ class StrictMcpServer:
         if not self._service_allowed(agent_claims, self.service_name):
             return JsonResponse({'error': 'forbidden'}, status=403)
 
-        expected_res = (mcp_resource_audience if isinstance(mcp_resource_audience, str) else '') or ''
+        expected_res = self._expected_audience(request)
         gate_payload: dict[str, Any] = {
             'mcp_expected_resource': expected_res.strip() or None,
             'agent_id': agent_claims.get('agent_id'),
@@ -358,7 +434,7 @@ class StrictMcpServer:
             tools = [public_mcp_tool(t) for t in published_mcp_tools(schema)]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
-            return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
+            return self._tools_call(request, req_id, params, agent_claims)
         return JsonResponse(self._error(req_id, -32601, 'Method not found'))
 
     def _tools_call(
@@ -367,8 +443,6 @@ class StrictMcpServer:
         req_id: Any,
         params: dict[str, Any],
         agent_claims: dict[str, Any],
-        *,
-        mcp_resource_audience: str | None,
     ) -> JsonResponse:
         tool_name = str(params.get('name') or '')
         raw_arguments = params.get('arguments')
@@ -398,6 +472,9 @@ class StrictMcpServer:
             resolved_path = materialize_storage_mcp_path(path_template, path_params)
         except McpToolArgumentError as exc:
             return JsonResponse(self._error(req_id, -32602, str(exc)))
+        company_id = agent_claims.get('company_id')
+        if not tool_arguments_match_company(arguments, company_id if isinstance(company_id, int) else None):
+            return JsonResponse(self._error(req_id, -32602, 'company_id does not match the authenticated company'))
 
         access = str(agent_claims.get('mcp_access') or 'read_only')
         read_level = str(agent_claims.get('mcp_read') or 'safe')
@@ -412,13 +489,15 @@ class StrictMcpServer:
             allow_destructive_without_asking=bool(agent_claims.get('mcp_destructive')),
             tool_read_only=tool_read_only,
         )
+        if decision.needs_approval and gateway_delegated_covers(agent_claims, tool_name):
+            decision = WriteGateDecision(allowed=True)
         approval_payload: dict[str, Any] = {}
 
         approval_granted = False
         approval_flow_state: str | None = None
         if decision.needs_approval:
             args_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
-            expected_res = (mcp_resource_audience if isinstance(mcp_resource_audience, str) else '') or ''
+            expected_res = self._expected_audience(request)
             approval_payload = {
                 'agent_id': agent_claims.get('agent_id'),
                 'company_id': agent_claims.get('company_id'),
@@ -554,10 +633,18 @@ class StrictMcpServer:
             inner_kwargs['data'] = json.dumps(body).encode('utf-8')
             inner_kwargs['content_type'] = 'application/json'
         drf_request = self._factory.generic(method, resolved_path, **inner_kwargs)
-        self._attach_request_principal(drf_request, request, agent_claims)
+        self._attach_request_principal(drf_request, agent_claims)
         from django.urls import resolve
 
         match = resolve(resolved_path, urlconf=self.urlconf)
+        view_cls = getattr(match.func, 'view_class', None)
+        if view_cls is not None and getattr(view_cls, 'global_refused', False):
+            return JsonResponse(
+                self._result(
+                    req_id,
+                    {'content': [{'type': 'text', 'text': 'Forbidden'}], 'isError': True},
+                )
+            )
         response = match.func(drf_request, *match.args, **match.kwargs)
         status_code = getattr(response, 'status_code', 500)
         if hasattr(response, 'data'):
@@ -588,20 +675,96 @@ class StrictMcpServer:
             )
         )
 
+    def _expected_audience(self, request: HttpRequest) -> str:
+        configured = (self.mcp_audience or '').strip()
+        if configured:
+            return configured
+        return mcp_resource_audience(request)
+
+    def _verify_bearer(self, request: HttpRequest) -> tuple[Any, dict[str, Any]] | JsonResponse:
+        """Verify the bearer and return ``(principal, claims)`` or an error response."""
+        audience = self._expected_audience(request)
+        issuer = (self.identity_issuer or '').strip().rstrip('/')
+        header = str(request.META.get('HTTP_AUTHORIZATION') or '')
+        if not header.lower().startswith('bearer '):
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        raw = header.split(' ', 1)[1].strip()
+        if not raw or not audience:
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        try:
+            alg = jwt.get_unverified_header(raw).get('alg')
+        except jwt.PyJWTError:
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        if alg == 'RS256':
+            return self._verify_rs256_bearer(raw, audience=audience, issuer=issuer)
+        if alg == 'HS256' and _hs256_mcp_fallback_allowed():
+            return self._verify_hs256_bearer(raw, audience=audience)
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+
+    def _verify_rs256_bearer(
+        self,
+        raw: str,
+        *,
+        audience: str,
+        issuer: str,
+    ) -> tuple[Any, dict[str, Any]] | JsonResponse:
+        if not issuer:
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        if self.identity_jwks is None and not (self.identity_jwks_url or '').strip():
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        try:
+            claims = decode_identity_rs256_jwt(
+                raw,
+                audience=audience,
+                issuer=issuer,
+                jwks_url=(self.identity_jwks_url or '').strip() or None,
+                jwks=self.identity_jwks,
+                require_claims=('agent_id',),
+            )
+        except IdentityJwksError:
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        if is_refresh_token(claims) or _agent_staff_refused(claims):
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        if not agent_scope_allows_storage(claims):
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        try:
+            delegated_regional_authority_live_ok(claims, expected_resource=audience)
+        except DelegatedAuthorityUnavailable:
+            return JsonResponse({'error': 'identity_unavailable'}, status=503)
+        except DelegatedAuthorityDenied:
+            return JsonResponse({'error': 'forbidden'}, status=403)
+        try:
+            principal = principal_from_agent_claims(claims)
+        except ValueError:
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        return principal, claims
+
+    def _verify_hs256_bearer(
+        self,
+        raw: str,
+        *,
+        audience: str,
+    ) -> tuple[Any, dict[str, Any]] | JsonResponse:
+        """Local identity debug tokens. Production bearers use RS256."""
+        try:
+            result = authenticate_agent_bearer(raw, expected_resource=audience)
+        except DelegatedAuthorityUnavailable:
+            return JsonResponse({'error': 'identity_unavailable'}, status=503)
+        except DelegatedAuthorityDenied:
+            return JsonResponse({'error': 'forbidden'}, status=403)
+        if not result:
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        return result
+
     @staticmethod
-    def _attach_request_principal(
-        target_request,
-        source_request: HttpRequest,
-        agent_claims: dict[str, Any],
-    ) -> None:
-        user = getattr(source_request, 'user', None)
-        auth = getattr(source_request, 'auth', None)
-        if auth is None and agent_claims:
-            auth = agent_claims
-        if user is not None or auth is not None:
-            force_authenticate(target_request, user=user, token=auth)
-        if auth is not None:
-            target_request.auth = auth
+    def _attach_request_principal(target_request, agent_claims: dict[str, Any]) -> None:
+        """Inner ``request.user`` is the verified agent principal. ``request.auth`` is the claims."""
+        try:
+            user = principal_from_agent_claims(agent_claims)
+        except ValueError:
+            user = None
+        force_authenticate(target_request, user=user, token=agent_claims)
+        target_request.auth = agent_claims
 
     @staticmethod
     def _service_allowed(agent_claims: dict[str, Any], service_name: str) -> bool:

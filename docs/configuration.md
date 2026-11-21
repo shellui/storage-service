@@ -61,7 +61,7 @@ Pin a JSON Web Key Set (JWKS) with `IDENTITY_JWKS_FILE` or `IDENTITY_JWKS` in pr
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `IDENTITY_SERVICE_URL` | empty | identity-service origin for server-side HTTP (MCP internal APIs). JWKS defaults to `{url}/.well-known/jwks.json` when no document is pinned |
-| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. In Docker Compose, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
+| `IDENTITY_JWKS_URL` | derived, or `http://localhost:8000/.well-known/jwks.json` | JWKS fetch URL when no document is pinned. `POST /mcp` uses this URL only when `IDENTITY_JWKS` and `IDENTITY_JWKS_FILE` are empty. The URL must be `https` unless `DEBUG` is true, and redirects are not followed. In Docker Compose with `DEBUG=true`, set this to the internal URL (for example `http://identity:8000/.well-known/jwks.json`) while `IDENTITY_ISSUER` stays the public browser URL |
 | `IDENTITY_JWKS_FILE` | empty | Path to a JWKS file. Relative paths are from the repository root. Wins over `IDENTITY_JWKS` |
 | `IDENTITY_JWKS` | empty | JWKS JSON in the environment, used when no file is set |
 | `IDENTITY_MCP_DELEGATED_AUTHORITY_PATH` | empty | Optional path or absolute URL for Identity live delegated-agent checks. Empty uses `/api/v1/mcp/internal/mcp-agent-delegated-authority` under `IDENTITY_SERVICE_URL` |
@@ -109,8 +109,8 @@ S3 settings apply when `STORAGE_BACKEND=s3`. `AWS_STORAGE_BUCKET_NAME` is requir
 | --- | --- | --- |
 | `DEFAULT_COMPANY_QUOTA_BYTES` | `10G` | Company cap applied when the quota row is created |
 | `DEFAULT_USER_QUOTA_BYTES` | `0` | Default per-user cap. `0` leaves the per-user cap off |
-| `MAX_UPLOAD_BYTES` | `5G` | Hard cap for one upload. A bucket `file_size_limit` cannot raise it |
-| `DATA_UPLOAD_MAX_MEMORY_SIZE` | `12M` | Django in-memory request limit. The object is still capped by `MAX_UPLOAD_BYTES` |
+| `MAX_UPLOAD_BYTES` | `5G` | Hard cap for one upload. The service checks `Content-Length` before reading the body and streams the bytes to storage. A bucket `file_size_limit` cannot raise it. Multipart form uploads may declare up to 1 MiB above the cap for form framing |
+| `DATA_UPLOAD_MAX_MEMORY_SIZE` | `12M` | Django in-memory request limit for non-file fields. Upload bytes are streamed to storage and are not held up to `MAX_UPLOAD_BYTES` in the worker |
 
 Staff and company owners can replace the company and per-user caps over the API. See [Quotas](quotas.md).
 

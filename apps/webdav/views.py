@@ -40,16 +40,35 @@ from apps.storage.models import StorageObject
 from apps.storage.services import (
     FOLDER_PLACEHOLDER_NAME,
     StorageError,
+    content_length_exceeds_limit,
     copy_object,
+    declared_content_length,
     delete_object,
     move_object,
     require_company_id,
+    upload_limit_bytes,
     upload_object,
 )
 
 DAV_NS = 'DAV:'
 NSMAP = {'d': DAV_NS}
 logger = logging.getLogger(__name__)
+
+
+class _RequestBody:
+    """Read the Django request stream in chunks. Does not call ``request.body``."""
+
+    def __init__(self, request):
+        self._request = request
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = 1024 * 1024
+        return self._request.read(size)
+
+
+def _request_body(request) -> _RequestBody:
+    return _RequestBody(request)
 
 
 def _dav_response(status: int = 200, body: bytes | str | None = None, content_type: str = 'text/xml; charset=utf-8'):
@@ -316,12 +335,18 @@ class WebDAVView(View):
         except StorageError:
             return _dav_response(403, 'Forbidden', content_type='text/plain')
         content_type = request.headers.get('Content-Type')
-        body = BytesIO(request.body)
+        max_bytes = upload_limit_bytes(bucket)
+        if content_length_exceeds_limit(
+            declared_content_length(request),
+            max_bytes,
+            content_type=content_type,
+        ):
+            return _dav_response(413, 'Payload too large', content_type='text/plain')
         created = not StorageObject.objects.filter(bucket=bucket, name=name).exists()
         upload_object(
             bucket=bucket,
             path=object_path,
-            fileobj=body,
+            fileobj=_request_body(request),
             owner_id=principal.user_id,
             content_type=content_type,
             upsert=True,

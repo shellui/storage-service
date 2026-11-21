@@ -115,6 +115,9 @@ from .services import (
     serialize_bucket,
     serialize_object,
     summarize_prefix,
+    content_length_exceeds_limit,
+    declared_content_length,
+    upload_limit_bytes,
     upload_object,
     resolve_item_by_id,
 )
@@ -664,6 +667,17 @@ class ObjectResourceView(APIView):
             upsert = default_upsert or upsert_header in {'true', '1', 'yes'}
 
             content_type = request.content_type
+            max_bytes = upload_limit_bytes(bucket)
+            if content_length_exceeds_limit(
+                declared_content_length(request),
+                max_bytes,
+                content_type=content_type,
+            ):
+                raise StorageError(
+                    f'Upload exceeds maximum size of {max_bytes} bytes.',
+                    status=413,
+                    code='payload_too_large',
+                )
             metadata = None
             cache_control = None
             fileobj = None
@@ -1222,6 +1236,8 @@ class StorageMetricsView(APIView):
 class StorageGlobalMetricsView(APIView):
     permission_classes = [IsAuthenticatedPrincipal]
     renderer_classes = [PrometheusTextRenderer]
+    # Platform-wide metrics. MCP agent callers are refused.
+    global_refused = True
 
     def get(self, request):
         user = request.user

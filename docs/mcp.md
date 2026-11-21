@@ -1,14 +1,16 @@
 ---
 title: Shellui MCP
 sidebar_label: Shellui MCP
-description: Company-owner storage APIs that Shellui MCP agents may call, and how they are marked in OpenAPI.
+description: Storage APIs that Shellui MCP agents may call, and how they are marked in OpenAPI.
 ---
 
 # Shellui MCP
 
 Shellui MCP exposes company-scoped storage HTTP APIs as tools. storage-service implements `POST /mcp` (Streamable HTTP JSON-RPC). Identity issues OAuth tokens; this service publishes OpenAPI with `x-mcp` extensions and OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`.
 
-Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions.
+Agents send a JWT whose `aud` is this service's MCP resource URL (`…/mcp`, RFC 8707). `POST /mcp` verifies that bearer (RS256 against `IDENTITY_ISSUER` and the JWKS). The `scope` claim must include `storage`. Tool bodies do not grant authority: storage reads only verified JWT claims for gates and assertions. The inner view sees `request.user` as the agent principal (`owner_user_id` when present, never a company owner) and `request.auth` as the verified claims.
+
+`mcp_gateway_delegated` skips a second approval only when it is `{"action": "<tool name>", "exp": <unix seconds>}` and `exp` is still in the future. A boolean does not skip approval.
 
 **Personal vs delegated:** A **personal** regional agent token has no `global_company_id` (and no `global_agent_id`). It is intended for direct use against this service with the storage MCP resource as `aud`. A **delegated** regional token includes `global_company_id` (and usually `global_agent_id` from the SaaS subject); it is the shape you get after the AI gateway or another regional exchange turns a global credential into a storage-scoped regional JWT. Do not point a global Shellui access JWT from the SaaS product directly at storage-service (`aud` will not match). This handbook covers only what storage-service enforces; it does not document separate storage integration or secrets MCP servers.
 
@@ -73,6 +75,14 @@ Clients can request the full list with `?tools=all`. `ai_call_tool` uses the sam
 
 The ai-service gateway records every `tools/call`. This service does not post call logs to Identity. A client can call `POST /mcp` here directly, including with a personal regional token. That request does not pass through the gateway, so it is absent from the gateway call log.
 
+## Agent role
+
+Agent access tokens are accepted only on `POST /mcp`. A refresh token presented as a bearer is rejected, on `/mcp` and on the rest of the API. The principal's user id is `owner_user_id` when that claim is a positive integer. `is_company_owner` and `is_staff` stay false, including when the creating user is a company owner.
+
+Routes marked `global_refused` refuse agent callers. That mark is on global metrics (`GET /storage/v1/metrics/all`) and the scheduled-job routes.
+
+Connector writes, quota changes, and Shellui Actions admin routes still require a company owner or staff user. An agent call to those routes returns 403. Listing and reading objects follows the same company-bucket rules as a member.
+
 ## Required agent token claims
 
 Claims must use the types below. Types match Identity's regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
@@ -123,7 +133,7 @@ The published schema excludes `/api/v1/internal/*` and `/api/v1/scheduled-jobs*`
 | Area | Examples |
 | --- | --- |
 | Buckets | List and read the company bucket; empty a bucket (destructive). |
-| Connectors | List, read, create, update, delete connector mounts; re-run local configuration checks (`configuration/check`, `configuration/validate`, `configuration/retry`; company owner; `credential` is `x-mcp-secret`). |
+| Connectors | List and read mounts. Create, update, delete, and configuration checks need a company owner or staff JWT (`credential` is `x-mcp-secret`). Agent callers receive 403 on those writes. |
 | Objects | List, upload, download, move, copy, delete, folder prefix stats, rename, delete, signed URLs. |
 | Access | List, create, and revoke path-level access grants. |
 | Share links | Create and list links for an object; revoke by token (not anonymous redeem). |
