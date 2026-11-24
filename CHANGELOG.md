@@ -18,6 +18,12 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.9.1] - 2026-11-24
+
+### 🐛 Bug Fixes
+
+- With `OTEL_EXPORTER_OTLP_ENDPOINT` set, `manage.py` (and so the container start) failed with `AppRegistryNotReady`, because telemetry registered the storage metrics before Django loaded its apps. Telemetry now loads the apps first.
+
 ## [0.9.0] - 2026-11-24
 
 ### ✨ Feature

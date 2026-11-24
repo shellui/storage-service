@@ -160,3 +160,24 @@ class TelemetryTests(TestCase):
         self.assertNotIn(key, blob)
         self.assertNotIn('report.pdf', blob)
         self.assertNotIn('Key', attributes)
+
+
+class TelemetryStartupTests(TestCase):
+    def test_setup_before_django_loads_apps(self):
+        """manage.py calls setup_telemetry before django.setup(); metrics must not import models too early."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        env = {**os.environ, 'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_METRIC_EXPORT_INTERVAL': '600000'}
+        env.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+        code = 'from config.telemetry import setup_telemetry; import sys; sys.exit(0 if setup_telemetry() else 1)'
+        result = subprocess.run(
+            [sys.executable, '-c', code],
+            cwd=Path(__file__).resolve().parents[2],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])

@@ -60,8 +60,18 @@ def setup_telemetry(
     if not enabled:
         return False
     _instrument_s3()
+    _ensure_apps_ready()
     _register_metrics()
     return True
+
+
+def _ensure_apps_ready() -> None:
+    # manage.py calls setup before Django loads apps; the metric callbacks import models.
+    import django
+    from django.apps import apps
+
+    if not apps.ready:
+        django.setup()
 
 
 def _active() -> bool:
