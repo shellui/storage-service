@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
+from shellui_django.telemetry import set_shellui_attributes
 
 from apps.actions.email_service import (
     deliver_email_event,
@@ -228,6 +229,7 @@ def deliver_outbox_row(
         )
         if row is None:
             return None
+        set_shellui_attributes(company_id=row.company_id)
         if row.status == ActionOutbox.STATUS_DELIVERED:
             return row
         if row.status == ActionOutbox.STATUS_DEAD:

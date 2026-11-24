@@ -213,58 +213,37 @@ A failed run:
 - is stored with `status=failed` and its `error_key`
 - logs one ERROR line with the job, run id, trigger and sanitized error, plus the traceback
 - is reported to Sentry when `SENTRY_DSN` is set, tagged `scheduled_job`, `scheduled_job_trigger` and `scheduled_job_run_id`
-- increments `shellui_storage_scheduled_job_runs_total{status="failed"}`
+- counts a failed run on `shellui.storage.scheduled.job.runs` with `status` `failed`
 - makes the command exit with status 1, so an external scheduler that alerts on failed jobs still works
 
 If Redis is down when a Celery run tries to take its lock, that run is recorded as `failed` with `error_key=redis_error`.
 
 Each finished run also writes a staff-only platform event, `storage.scheduled_job.succeeded` or `storage.scheduled_job.failed`. Those events have no company, are not webhook rules, and are listed only with `scope=platform`.
 
-### Prometheus metrics
+### OpenTelemetry metrics
 
-`GET /storage/v1/metrics/all` includes the scheduled job metrics. It needs Django staff or a personal access token with `access_global_metrics`. The company endpoint `GET /storage/v1/metrics` never includes them, and it never includes another company's series. Values come from the database, so they are the same whichever gunicorn worker answers and survive restarts.
+`GET /storage/v1/metrics` and `GET /storage/v1/metrics/all` are removed. The same figures are OpenTelemetry instruments, read from the database when the process exports, so a Gunicorn worker and the Celery worker report the same values. They are not on `GET /storage/v1/stats`. Staff still read job health at `GET /api/v1/scheduled-jobs`.
 
-| Metric | Type | Labels | Meaning |
-| --- | --- | --- | --- |
-| `shellui_storage_scheduled_job_runs_total` | counter | `job`, `status` | Finished runs: `succeeded`, `failed`, `skipped_locked` |
-| `shellui_storage_scheduled_job_items_total` | counter | `job`, `kind` | Items processed, `kind` is a `counts` name |
-| `shellui_storage_scheduled_job_last_success_timestamp_seconds` | gauge | `job` | Unix time of the last successful run (0 before the first one) |
-| `shellui_storage_scheduled_job_last_run_timestamp_seconds` | gauge | `job` | Unix time the last run started (0 before the first one) |
-| `shellui_storage_scheduled_job_last_run_duration_seconds` | gauge | `job` | Duration of the last finished run |
-| `shellui_storage_scheduled_job_overdue` | gauge | `job` | 1 when overdue (see the table above) |
-| `shellui_storage_scheduler_enabled` | gauge | none | 1 when `SCHEDULER_ENABLED` is true |
-| `shellui_storage_scheduler_redis_up` | gauge | none | 1 when the broker answers `PING`. Absent without a broker |
-| `shellui_storage_scheduler_beat_last_seen_timestamp_seconds` | gauge | none | Unix time beat last published a job. Absent before the first one |
+| Was | Instrument | Type | Labels | Meaning |
+| --- | --- | --- | --- | --- |
+| `shellui_storage_scheduled_job_runs_total` | `shellui.storage.scheduled.job.runs` | counter | `job`, `status` | Finished runs: `succeeded`, `failed`, `skipped_locked` |
+| `shellui_storage_scheduled_job_items_total` | `shellui.storage.scheduled.job.items` | counter | `job`, `kind` | Items processed, `kind` is a `counts` name |
+| `shellui_storage_scheduled_job_last_success_timestamp_seconds` | `shellui.storage.scheduled.job.last.success.timestamp.seconds` | gauge | `job` | Unix time of the last successful run (0 before the first one) |
+| `shellui_storage_scheduled_job_last_run_timestamp_seconds` | `shellui.storage.scheduled.job.last.run.timestamp.seconds` | gauge | `job` | Unix time the last run started (0 before the first one) |
+| `shellui_storage_scheduled_job_last_run_duration_seconds` | `shellui.storage.scheduled.job.last.run.duration.seconds` | gauge | `job` | Duration of the last finished run. Absent before a run finishes |
+| `shellui_storage_scheduled_job_overdue` | `shellui.storage.scheduled.job.overdue` | gauge | `job` | 1 when overdue (see the table above) |
+| `shellui_storage_scheduler_enabled` | `shellui.storage.scheduler.enabled` | gauge | none | 1 when `SCHEDULER_ENABLED` is true |
+| `shellui_storage_scheduler_redis_up` | `shellui.storage.scheduler.redis.up` | gauge | none | 1 when the broker answers `PING`. Absent without a broker |
+| `shellui_storage_scheduler_beat_last_seen_timestamp_seconds` | `shellui.storage.scheduler.beat.last.seen.timestamp.seconds` | gauge | none | Unix time beat last published a job. Absent before the first one |
 
-Suggested alert rules:
+Worth alerting on:
 
-```yaml
-groups:
-  - name: storage-scheduled-jobs
-    rules:
-      - alert: StorageScheduledJobOverdue
-        expr: shellui_storage_scheduled_job_overdue == 1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "storage-service job {{ $labels.job }} has no recent successful run"
-      - alert: StorageScheduledJobFailing
-        expr: increase(shellui_storage_scheduled_job_runs_total{status="failed"}[15m]) >= 3
-        labels:
-          severity: warning
-      - alert: StorageSchedulerRedisDown
-        expr: shellui_storage_scheduler_redis_up == 0
-        for: 2m
-        labels:
-          severity: critical
-      - alert: StorageWebhooksGivenUp
-        expr: increase(shellui_storage_scheduled_job_items_total{kind="webhook_deliveries_given_up"}[1h]) > 0
-        labels:
-          severity: info
-```
+- `shellui.storage.scheduled.job.overdue` is 1 (stopped beat, stuck worker, or a missing external schedule)
+- `shellui.storage.scheduled.job.runs` with `status` `failed` rises several times in a short window
+- `shellui.storage.scheduler.redis.up` is 0
+- `shellui.storage.scheduled.job.items` with `kind` `webhook_deliveries_given_up` increases
 
-The overdue alert covers a stopped beat, a stuck worker and a missing external schedule alike.
+Export is described in [Configuration](configuration.md).
 
 ## Related
 

@@ -277,7 +277,6 @@ SPECTACULAR_SETTINGS = {
         {'name': 'quotas', 'description': 'Company and per-user storage quotas.'},
         {'name': 'actions', 'description': 'Shellui Actions webhook rules and deliveries.'},
         {'name': 'event-log', 'description': 'Company domain event log for auditing.'},
-        {'name': 'platform-metrics', 'description': 'Prometheus metrics endpoints.'},
         {'name': 'health', 'description': 'Service health checks.'},
         {'name': 'mcp-tools', 'description': 'Operations exposed to Shellui MCP agents.'},
     ],
@@ -309,6 +308,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'config.telemetry.ShelluiSpanMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -741,7 +741,7 @@ LOGGING = {
     'formatters': {
         'console': {
             '()': 'apps.actions.email_service.RedactEmailServiceApiKeyFormatter',
-            'format': '{asctime} {levelname} [{name}] [req={request_id}] {message}',
+            'format': '{asctime} {levelname} [{name}] [req={request_id}] trace_id={trace_id} span_id={span_id} {message}',
             'style': '{',
             'datefmt': '%Y-%m-%d %H:%M:%S',
         },

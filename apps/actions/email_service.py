@@ -20,6 +20,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from shellui_django.telemetry import TraceContextFormatter
 
 from apps.actions.secret_redaction import redact_secrets
 from apps.actions.webhook_retry import is_permanent_http_status
@@ -92,8 +93,12 @@ class RedactEmailServiceApiKeyFilter(logging.Filter):
         return True
 
 
-class RedactEmailServiceApiKeyFormatter(logging.Formatter):
-    """Redact the API key from the formatted line, including tracebacks."""
+class RedactEmailServiceApiKeyFormatter(TraceContextFormatter):
+    """Redact the API key from the formatted line, including tracebacks.
+
+    Trace ids default to ``0`` when telemetry is off, so the log format can
+    always include ``trace_id`` and ``span_id``.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
         return redact_email_service_secret(super().format(record))

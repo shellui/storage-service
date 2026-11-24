@@ -56,9 +56,9 @@ class ExpiredTokenAuthenticationTests(SimpleTestCase):
         self.assertEqual(principal.user_id, 1)
         self.assertEqual(principal.company_id, 10)
         self.assertTrue(principal.is_authenticated)
-        self.assertFalse(principal.access_global_metrics)
+        self.assertFalse(hasattr(principal, 'access_global_metrics'))
 
-    def test_pat_agm_claim_sets_access_global_metrics(self):
+    def test_pat_agm_claim_is_ignored(self):
         raw = jwt.encode(
             {
                 'sub': '1',
@@ -73,7 +73,7 @@ class ExpiredTokenAuthenticationTests(SimpleTestCase):
             algorithm='HS256',
         )
         principal = self.auth.authenticate_credentials(raw)
-        self.assertTrue(principal.access_global_metrics)
+        self.assertFalse(hasattr(principal, 'access_global_metrics'))
         self.assertTrue(principal.is_company_owner)
 
     def test_missing_exp_rejected(self):
