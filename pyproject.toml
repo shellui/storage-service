@@ -14,7 +14,7 @@ dependencies = [
     "python-dotenv==1.2.2",
     "dj-database-url==3.1.2",
     "psycopg[binary]==3.3.4",
-    "gunicorn==26.0.0",
+    "gunicorn==27.0.1",
     "whitenoise==6.12.0",
     "sentry-sdk==2.63.0",
     "cryptography==50.0.0",
