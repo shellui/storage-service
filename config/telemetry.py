@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -60,8 +61,26 @@ def setup_telemetry(
     if not enabled:
         return False
     _instrument_s3()
+    if _in_celery_worker():
+        return True
+    _ensure_apps_ready()
     _register_metrics()
     return True
+
+
+def _in_celery_worker() -> bool:
+    # The Celery thread pool shares one Django DB connection across threads, so the
+    # metric reader thread must not query there. Gunicorn publishes the gauges.
+    return bool(sys.argv) and os.path.basename(sys.argv[0]) == 'celery'
+
+
+def _ensure_apps_ready() -> None:
+    # manage.py calls setup before Django loads apps; the metric callbacks import models.
+    import django
+    from django.apps import apps
+
+    if not apps.ready:
+        django.setup()
 
 
 def _active() -> bool:

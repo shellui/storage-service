@@ -18,6 +18,13 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [0.9.1] - 2026-11-24
+
+### 🐛 Bug Fixes
+
+- With `OTEL_EXPORTER_OTLP_ENDPOINT` set, `manage.py` (and so the container start) failed with `AppRegistryNotReady`, because telemetry registered the storage metrics before Django loaded its apps. Telemetry now loads the apps first.
+- The Celery worker no longer registers the storage and scheduled-job gauges. Its thread pool shares one database connection, so the metric reader thread could fail with `another command is already in progress`. Gunicorn still publishes the gauges.
+
 ## [0.9.0] - 2026-11-24
 
 ### ✨ Feature
