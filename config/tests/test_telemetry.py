@@ -181,3 +181,16 @@ class TelemetryStartupTests(TestCase):
             timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
+    def test_celery_worker_does_not_register_gauges(self):
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        self.addCleanup(_reset_for_tests)
+        with patch('sys.argv', ['/app/.venv/bin/celery', '-A', 'config', 'worker']), patch(
+            'config.telemetry._register_metrics'
+        ) as register:
+            self.assertTrue(
+                setup_telemetry(span_exporter=InMemorySpanExporter(), metric_reader=InMemoryMetricReader())
+            )
+        register.assert_not_called()
