@@ -12,13 +12,29 @@ This module only depends on Django settings named ``CELERY_*`` and
 import os
 
 from celery import Celery
-from celery.signals import before_task_publish, setup_logging
+from celery.signals import beat_init, before_task_publish, setup_logging, worker_init
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 app = Celery('config')
 app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
+
+
+@worker_init.connect
+def _telemetry_on_worker(**kwargs):
+    """Celery worker (thread pool, with or without embedded beat)."""
+    from config.telemetry import setup_telemetry
+
+    setup_telemetry()
+
+
+@beat_init.connect
+def _telemetry_on_beat(**kwargs):
+    """Standalone beat. Embedded beat also starts the worker signal above."""
+    from config.telemetry import setup_telemetry
+
+    setup_telemetry()
 
 
 @setup_logging.connect

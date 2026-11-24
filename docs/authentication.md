@@ -45,9 +45,8 @@ These claims are taken from the verified payload. storage-service does not ask i
 
 | Claim | Used for |
 | --- | --- |
-| `user_metadata.is_staff` | Quota changes for any company, global stats, global metrics, Shellui Actions for any `company_id` |
-| `user_metadata.is_company_owner` | Quota changes for the token's company, company metrics, Shellui Actions for that company |
-| `pat_agm` | Global Prometheus metrics for a personal access token (PAT) issued by staff |
+| `user_metadata.is_staff` | Quota changes for any company, global stats, Shellui Actions for any `company_id` |
+| `user_metadata.is_company_owner` | Quota changes for the token's company, Shellui Actions for that company |
 | `company_id` | Which company's bucket, objects, quota, and events this caller may touch |
 | `user_id` or `sub` | Numeric identity user id stored as the object owner and on the event log |
 | `email` | Actor email on events, when the token carries one |
@@ -62,7 +61,7 @@ Object and bucket routes compare `company_id` on the token with the row. You onl
 
 Staff tokens can `PUT` quotas for a `company_id` in the path and can read `GET /storage/v1/stats` with no company filter. Other callers see stats for their company only. `days` on that route is from 1 to 90 and defaults to 14.
 
-`GET /storage/v1/metrics` uses the company on the token and requires staff or a company owner. A `company_id` query parameter is 400. `GET /storage/v1/metrics/all` requires staff or `pat_agm`.
+A `pat_agm` claim on a personal access token is ignored. It used to authorize `GET /storage/v1/metrics/all`, which is removed.
 
 Shellui Actions routes under `/api/v1/actions/` let staff pass any `company_id` query parameter. Company owners may omit it and then the token company is used. Another company returns 403. A caller who is neither staff nor a company owner receives 403.
 

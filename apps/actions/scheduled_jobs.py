@@ -7,7 +7,7 @@ are both recorded. Each finished run writes:
 
 - one ``ScheduledJobRun`` row (kept ``RUN_RETENTION_DAYS``)
 - the latest timestamps in ``ScheduledJobState``
-- monotonic counters in ``ScheduledJobCounter`` for Prometheus
+- monotonic counters in ``ScheduledJobCounter`` for OpenTelemetry
 - one staff-only platform event (``storage.scheduled_job.succeeded`` / ``.failed``)
 
 A failed run logs at ERROR with the run id as request id (``[req=sjr-<id>]``), which also
@@ -599,7 +599,7 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def jobs_overview(*, now: datetime | None = None, check_redis: bool = True) -> dict:
-    """Payload of ``GET /api/v1/scheduled-jobs`` (also used by the metrics collector)."""
+    """Payload of ``GET /api/v1/scheduled-jobs`` (also used by the telemetry callbacks)."""
     now = now or timezone.now()
     enabled = scheduler_enabled()
     states = ensure_states()

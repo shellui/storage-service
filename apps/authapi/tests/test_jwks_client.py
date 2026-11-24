@@ -265,7 +265,7 @@ class JWKSAuthenticationFlowTests(SimpleTestCase):
             principal = auth.authenticate_credentials(good)
             self.assertEqual(principal.user_id, 1)
             self.assertEqual(principal.company_id, 10)
-            self.assertTrue(principal.access_global_metrics)
+            self.assertFalse(hasattr(principal, 'access_global_metrics'))
             with self.assertRaises(AuthenticationFailed):
                 auth.authenticate_credentials(bogus)
 

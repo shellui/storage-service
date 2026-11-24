@@ -40,6 +40,7 @@ For production, `python manage.py generate_env --host storage.example.com` print
 | `IDENTITY_ISSUER`, `IDENTITY_AUDIENCE` | Must match identity `JWT_ISSUER` and `JWT_AUDIENCE` |
 | `REDIS_URL` | Required when `DEBUG=false`. Cache and scheduled jobs |
 | `STORAGE_BACKEND` | `filesystem` (default) or `s3` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector. Empty leaves telemetry off |
 
 Every setting is in [Configuration](docs/configuration.md).
 

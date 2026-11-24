@@ -83,7 +83,9 @@ The app redirects HTTP to HTTPS. `GET /health/live` stays on HTTP and skips Djan
 | `REDIS_URL` | `redis://redis:6379/0` | Shared cache and job broker |
 | `POSTGRES_DATABASE_URL` | empty | PostgreSQL URL, or empty for SQLite |
 
-For every other variable, read the [configuration reference](https://docs.shellui.com/storage/configuration). That page covers S3, quotas, Shellui Actions webhooks, and JSON Web Key Set (JWKS) pinning.
+For every other variable, read the [configuration reference](https://docs.shellui.com/storage/configuration). That page covers S3, quotas, Shellui Actions webhooks, JSON Web Key Set (JWKS) pinning, and OpenTelemetry.
+
+OpenTelemetry export is off until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Also set `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME` (default `storage-service`), and `OTEL_RESOURCE_ATTRIBUTES` (for example `deployment.environment` and `cloud.region`) when you turn it on.
 
 ## Image tags
 

@@ -148,7 +148,7 @@ REDIS_URL=redis://redis:6379/0
 | `CELERY_WORKER_CONCURRENCY` | `2` | Threads in the worker |
 | `CELERY_BEAT_SCHEDULE_FILE` | `/tmp/celerybeat-schedule` | Beat schedule state file |
 
-Schedules, locks, the staff API and metrics are in [Scheduled jobs](maintenance-jobs.md).
+Schedules, locks, and the staff API are in [Scheduled jobs](maintenance-jobs.md).
 
 ## CORS and HTTPS
 
@@ -228,6 +228,41 @@ Set `EMAIL_SERVICE_API_KEY` to forward storage events to email-service. An empty
 | `SENTRY_ENVIRONMENT` | `development` or `production` from `DEBUG` | Sentry environment tag |
 | `SENTRY_RELEASE` | the package version | Sentry release tag |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0` | Share of requests traced. `0` reports errors only |
+
+## OpenTelemetry
+
+Telemetry is off until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Traces, metrics, and log fields then export over OTLP/HTTP protobuf. Leave the endpoint empty for local development. Gunicorn, the Celery worker (including embedded beat), and management commands all use the same setup. `service.version` is the storage-service package version.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OTEL_SERVICE_NAME` | `storage-service` | `service.name`. Overrides the built-in name |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | empty | Collector base URL, for example `https://signoz.example:4318`. Empty leaves telemetry off |
+| `OTEL_EXPORTER_OTLP_HEADERS` | empty | Exporter headers, such as SigNoz basic auth. URL-encode spaces. Do not commit this value |
+| `OTEL_RESOURCE_ATTRIBUTES` | empty | Extra resource attributes. Set `deployment.environment` and `cloud.region` here, for example `deployment.environment=production,cloud.region=eu` |
+
+`OTEL_EXPORTER_OTLP_PROTOCOL` can stay unset. The exporter speaks HTTP protobuf. `grpc` is rejected.
+
+A request that storage-service accepts can be followed into outbound `requests` calls (webhooks, email-service) and into Celery tasks. Log lines keep `X-Request-ID` / `[req=…]` and add `trace_id` and `span_id`. Spans can carry `shellui.company_id`, `shellui.user_id`, and, for an agent token, `shellui.agent_id`. When `STORAGE_BACKEND` is `s3`, the request span also carries `shellui.region` from `AWS_S3_REGION_NAME`. Emails, tokens, and object keys are not span attributes.
+
+S3 calls are their own spans: operation and bucket name only.
+
+These gauges replace `shellui_storage_*`. Each point has a `company_id` attribute.
+
+| Was | Instrument | Unit |
+| --- | --- | --- |
+| `shellui_storage_objects_total` | `shellui.storage.objects` | count |
+| `shellui_storage_bytes_total` | `shellui.storage.bytes` | bytes |
+| `shellui_storage_buckets_total` | `shellui.storage.buckets` | count |
+| `shellui_storage_documents_total` | `shellui.storage.documents` | count |
+| `shellui_storage_document_bytes` | `shellui.storage.document.bytes` | bytes |
+| `shellui_storage_uploads_24h` | `shellui.storage.uploads.24h` | count |
+| `shellui_storage_uploads_7d` | `shellui.storage.uploads.7d` | count |
+| `shellui_storage_uploads_30d` | `shellui.storage.uploads.30d` | count |
+| `shellui_storage_bytes_7d` | `shellui.storage.bytes.7d` | bytes |
+| `shellui_storage_quota_used_bytes` | `shellui.storage.quota.used.bytes` | bytes |
+| `shellui_storage_quota_max_bytes` | `shellui.storage.quota.max.bytes` | bytes |
+
+Scheduled-job instruments are in [Scheduled jobs](maintenance-jobs.md). JSON stats stay at `GET /storage/v1/stats`.
 
 ## Related
 

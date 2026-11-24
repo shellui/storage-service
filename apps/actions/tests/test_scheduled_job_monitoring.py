@@ -26,6 +26,7 @@ from apps.actions.models import (
 )
 from apps.actions.registry import get_event_type, is_webhook_event, webhook_event_types
 from apps.actions.retention import purge_expired_data
+from apps.actions.scheduled_job_metrics import clear_scheduled_job_metric_cache
 from apps.actions.scheduled_jobs import (
     PURGE_EXPIRED_DATA,
     RETRY_WEBHOOKS,
@@ -36,7 +37,6 @@ from apps.actions.scheduled_jobs import (
 )
 from apps.actions.tests.test_scheduled_tasks import FakeRedis
 from apps.actions.webhook_transport import WebhookPostResult
-from apps.storage.metrics import metrics_http_body
 from config.request_context import request_id_var
 from config.task_lock import beat_heartbeat_key, lock_key
 
@@ -551,39 +551,69 @@ class MetricsTests(TestCase):
     def _auth(self, **kwargs):
         return {'HTTP_AUTHORIZATION': f'Bearer {_token(**kwargs)}'}
 
+    def test_metrics_routes_are_gone(self):
+        self.assertEqual(self.client.get('/storage/v1/metrics').status_code, 404)
+        self.assertEqual(self.client.get('/storage/v1/metrics/all', **self._auth(staff=True)).status_code, 404)
+
     @mock.patch('apps.actions.management.commands.retry_webhooks.connection')
     @mock.patch('apps.actions.management.commands.retry_webhooks.retry_pending_webhooks')
-    def test_global_metrics_include_scheduled_jobs(self, retry, _conn):
-        retry.return_value = {'processed': 2, 'delivered': 2, 'retried': 0, 'dead': 0}
-        call_command('retry_webhooks', stdout=StringIO())
+    def test_scheduled_job_instruments(self, retry, _conn):
+        import os
 
-        body = self.client.get('/storage/v1/metrics/all', **self._auth(staff=True)).content.decode()
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+        from shellui_django.telemetry import _reset_for_tests
 
-        self.assertIn('shellui_storage_scheduled_job_runs_total{job="retry_webhooks",status="succeeded"} 1.0', body)
-        self.assertIn('shellui_storage_scheduled_job_runs_total{job="purge_expired_data",status="failed"} 0.0', body)
-        self.assertIn(
-            'shellui_storage_scheduled_job_items_total{job="retry_webhooks",kind="webhook_deliveries_succeeded"} 2.0',
-            body,
-        )
-        self.assertIn('shellui_storage_scheduled_job_overdue{job="retry_webhooks"} 0.0', body)
-        self.assertIn('shellui_storage_scheduled_job_last_success_timestamp_seconds{job="retry_webhooks"}', body)
-        self.assertIn('shellui_storage_scheduled_job_last_run_duration_seconds{job="retry_webhooks"}', body)
-        self.assertIn('shellui_storage_scheduler_enabled', body)
+        from config.telemetry import setup_telemetry
 
-        self.assertEqual(self.client.get('/storage/v1/metrics/all', **self._auth(owner=True)).status_code, 403)
+        saved = os.environ.pop('OTEL_EXPORTER_OTLP_ENDPOINT', None)
+        _reset_for_tests()
+        try:
+            retry.return_value = {'processed': 2, 'delivered': 2, 'retried': 0, 'dead': 0}
+            call_command('retry_webhooks', stdout=StringIO())
+            reader = InMemoryMetricReader()
+            self.assertTrue(setup_telemetry(span_exporter=InMemorySpanExporter(), metric_reader=reader))
+            clear_scheduled_job_metric_cache()
+            data = reader.get_metrics_data()
+            points = {}
+            for resource_metric in data.resource_metrics:
+                for scope_metric in resource_metric.scope_metrics:
+                    for metric in scope_metric.metrics:
+                        points.setdefault(metric.name, []).extend(metric.data.data_points)
 
-    def test_company_metrics_never_include_scheduled_jobs(self):
-        ScheduledJobCounter.objects.create(job='retry_webhooks', name='runs.succeeded', value=4)
-        body = metrics_http_body(company_id=10)
-        self.assertNotIn(b'scheduled_job', body)
-        self.assertNotIn(b'shellui_storage_scheduler', body)
-        self.assertNotIn(b'company_id="11"', body)
+            def value(name, **attrs):
+                for point in points[name]:
+                    if dict(point.attributes or {}) == attrs:
+                        return point.value
+                self.fail(f'{name} {attrs} missing in {points.get(name)}')
 
-        response = self.client.get('/storage/v1/metrics', **self._auth(owner=True))
-        self.assertEqual(response.status_code, 200)
-        text = response.content.decode()
-        self.assertNotIn('shellui_storage_scheduled_job', text)
-        self.assertNotIn('shellui_storage_scheduler', text)
+            self.assertEqual(value('shellui.storage.scheduled.job.runs', job='retry_webhooks', status='succeeded'), 1)
+            self.assertEqual(value('shellui.storage.scheduled.job.runs', job='purge_expired_data', status='failed'), 0)
+            self.assertEqual(
+                value(
+                    'shellui.storage.scheduled.job.items',
+                    job='retry_webhooks',
+                    kind='webhook_deliveries_succeeded',
+                ),
+                2,
+            )
+            self.assertEqual(value('shellui.storage.scheduled.job.overdue', job='retry_webhooks'), 0)
+            self.assertGreater(
+                value('shellui.storage.scheduled.job.last.success.timestamp.seconds', job='retry_webhooks'),
+                0,
+            )
+            self.assertIsNotNone(
+                value('shellui.storage.scheduled.job.last.run.duration.seconds', job='retry_webhooks')
+            )
+            self.assertIn('shellui.storage.scheduler.enabled', points)
+            self.assertEqual(len(points['shellui.storage.scheduler.enabled']), 1)
+        finally:
+            clear_scheduled_job_metric_cache()
+            _reset_for_tests()
+            if saved is None:
+                os.environ.pop('OTEL_EXPORTER_OTLP_ENDPOINT', None)
+            else:
+                os.environ['OTEL_EXPORTER_OTLP_ENDPOINT'] = saved
 
 
 @override_settings(ACTIONS_WEBHOOK_SYNC_DELIVERY=True)
