@@ -12,6 +12,9 @@ def main():
 
         sys.exit(generate_env(sys.argv[2:]))
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+    from config.telemetry import setup_telemetry
+
+    setup_telemetry()
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

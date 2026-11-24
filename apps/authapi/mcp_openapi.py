@@ -12,8 +12,6 @@ MCP_EXCLUDED_PATH_PREFIXES: tuple[str, ...] = (
 MCP_FORBIDDEN_OPERATION_IDS: frozenset[str] = frozenset(
     {
         'storage_v1_health_retrieve',
-        'storage_v1_metrics_retrieve',
-        'storage_v1_metrics_all_retrieve',
         'storage_v1_bucket_create',
         'storage_v1_bucket_update',
         'storage_v1_bucket_destroy',

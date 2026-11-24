@@ -1,22 +1,64 @@
-"""Prometheus-style metrics for storage-service.
+"""Storage figures as OpenTelemetry observable gauges.
 
-Exposition is JWT-protected (see StorageMetricsView / StorageGlobalMetricsView).
-Company-scoped `/metrics` uses a fresh registry so other tenants never appear
-in the text dump.
+Each instrument keeps the ``company_id`` attribute the Prometheus series used.
+Values come from the database when the meter collects. Export is process-wide
+(the old per-tenant ``/metrics`` scrape is gone).
 """
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from datetime import timedelta
+from typing import Any
 
 from django.db.models import Count, Sum
 from django.utils import timezone
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Gauge, generate_latest
 
 from .models import Bucket, CompanyQuota, StorageObject
 from .stats import document_q
 
-_LABELS = ('company_id',)
+# Prometheus name -> field on the snapshot. The OpenTelemetry name drops
+# ``_total`` and turns underscores into dots.
+STORAGE_GAUGES: tuple[tuple[str, str, str, str], ...] = (
+    ('shellui_storage_objects_total', 'objects_total', '1', 'Stored objects for a company.'),
+    ('shellui_storage_bytes_total', 'bytes_total', 'By', 'Total stored bytes for a company.'),
+    ('shellui_storage_buckets_total', 'buckets_total', '1', 'Buckets for a company.'),
+    ('shellui_storage_documents_total', 'documents_total', '1', 'Document-like objects for a company.'),
+    ('shellui_storage_document_bytes', 'document_bytes', 'By', 'Bytes in document-like objects for a company.'),
+    ('shellui_storage_uploads_24h', 'uploads_24h', '1', 'Objects created in the last 24 hours.'),
+    ('shellui_storage_uploads_7d', 'uploads_7d', '1', 'Objects created in the last 7 days.'),
+    ('shellui_storage_uploads_30d', 'uploads_30d', '1', 'Objects created in the last 30 days.'),
+    ('shellui_storage_bytes_7d', 'bytes_7d', 'By', 'Bytes uploaded in the last 7 days.'),
+    (
+        'shellui_storage_quota_used_bytes',
+        'quota_used_bytes',
+        'By',
+        'Company quota used bytes.',
+    ),
+    (
+        'shellui_storage_quota_max_bytes',
+        'quota_max_bytes',
+        'By',
+        'Company quota max bytes.',
+    ),
+)
+
+logger = logging.getLogger(__name__)
+
+_cache_lock = threading.Lock()
+_cache_at = 0.0
+_cache_value: list[tuple[str, dict[str, int]]] | None = None
+_CACHE_TTL = 5.0
+_registered: tuple[Any, ...] | None = None
+
+
+def clear_storage_metric_cache() -> None:
+    global _cache_at, _cache_value
+    with _cache_lock:
+        _cache_at = 0.0
+        _cache_value = None
 
 
 def _company_ids() -> list[int]:
@@ -51,98 +93,44 @@ def _snapshot(company_id: int) -> dict[str, int]:
     }
 
 
-def _bind_gauges(registry: CollectorRegistry) -> dict[str, Gauge]:
-    return {
-        'objects_total': Gauge(
-            'shellui_storage_objects_total',
-            'Stored objects for a company.',
-            _LABELS,
-            registry=registry,
-        ),
-        'bytes_total': Gauge(
-            'shellui_storage_bytes_total',
-            'Total stored bytes for a company.',
-            _LABELS,
-            registry=registry,
-        ),
-        'buckets_total': Gauge(
-            'shellui_storage_buckets_total',
-            'Buckets for a company.',
-            _LABELS,
-            registry=registry,
-        ),
-        'documents_total': Gauge(
-            'shellui_storage_documents_total',
-            'Document-like objects for a company.',
-            _LABELS,
-            registry=registry,
-        ),
-        'document_bytes': Gauge(
-            'shellui_storage_document_bytes',
-            'Bytes in document-like objects for a company.',
-            _LABELS,
-            registry=registry,
-        ),
-        'uploads_24h': Gauge(
-            'shellui_storage_uploads_24h',
-            'Objects created in the last 24 hours.',
-            _LABELS,
-            registry=registry,
-        ),
-        'uploads_7d': Gauge(
-            'shellui_storage_uploads_7d',
-            'Objects created in the last 7 days.',
-            _LABELS,
-            registry=registry,
-        ),
-        'uploads_30d': Gauge(
-            'shellui_storage_uploads_30d',
-            'Objects created in the last 30 days.',
-            _LABELS,
-            registry=registry,
-        ),
-        'bytes_7d': Gauge(
-            'shellui_storage_bytes_7d',
-            'Bytes uploaded in the last 7 days.',
-            _LABELS,
-            registry=registry,
-        ),
-        'quota_used_bytes': Gauge(
-            'shellui_storage_quota_used_bytes',
-            'Company quota used bytes.',
-            _LABELS,
-            registry=registry,
-        ),
-        'quota_max_bytes': Gauge(
-            'shellui_storage_quota_max_bytes',
-            'Company quota max bytes.',
-            _LABELS,
-            registry=registry,
-        ),
-    }
+def _snapshots() -> list[tuple[str, dict[str, int]]]:
+    global _cache_at, _cache_value
+    now = time.monotonic()
+    with _cache_lock:
+        if _cache_value is not None and now - _cache_at < _CACHE_TTL:
+            return _cache_value
+    loaded = [(str(company_id), _snapshot(company_id)) for company_id in _company_ids()]
+    with _cache_lock:
+        _cache_at = time.monotonic()
+        _cache_value = loaded
+    return loaded
 
 
-def _set_company(gauges: dict[str, Gauge], company_id: int) -> None:
-    cid = str(company_id)
-    snap = _snapshot(company_id)
-    for name, gauge in gauges.items():
-        gauge.labels(company_id=cid).set(snap[name])
+def register_storage_metrics(meter) -> None:
+    """Create one observable gauge per storage figure. Safe to call once per provider."""
+    global _registered
+    token = id(meter)
+    if _registered == token:
+        return
+    from opentelemetry.metrics import Observation
+    from shellui_django.telemetry import canonical_metric_name
 
+    def _observe(field: str):
+        def callback(_options):
+            try:
+                rows = _snapshots()
+            except Exception:
+                logger.exception('storage telemetry: failed to read storage gauges')
+                return []
+            return [Observation(snap[field], {'company_id': company_id}) for company_id, snap in rows]
 
-def metrics_http_body(company_id: int | None = None) -> bytes:
-    """Serialize Prometheus text. When ``company_id`` is set, only that tenant is included."""
-    registry = CollectorRegistry()
-    gauges = _bind_gauges(registry)
-    if company_id is None:
-        for cid in _company_ids():
-            _set_company(gauges, cid)
-        body = generate_latest(registry)
-        # Staff metrics live in their own registry and are appended only here.
-        from apps.actions.scheduled_job_metrics import scheduled_jobs_metrics_body
+        return callback
 
-        return body + scheduled_jobs_metrics_body()
-    _set_company(gauges, company_id)
-    return generate_latest(registry)
-
-
-METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
+    for prometheus_name, field, unit, description in STORAGE_GAUGES:
+        meter.create_observable_gauge(
+            canonical_metric_name(prometheus_name),
+            callbacks=[_observe(field)],
+            unit=unit,
+            description=description,
+        )
+    _registered = token

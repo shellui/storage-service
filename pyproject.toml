@@ -21,12 +21,11 @@ dependencies = [
     "pyjwt==2.15.1",
     "requests==2.33.0",
     "markdown==3.10.2",
-    "prometheus-client==0.21.1",
     "redis==8.1.0",
     "sqlparse==0.6.0",
     "celery==5.6.3",
     "djangorestframework-simplejwt==5.5.1",
-    "shellui-django[mcp]==0.5.1",
+    "shellui-django[mcp,otel]==0.7.0",
 ]
 
 [dependency-groups]

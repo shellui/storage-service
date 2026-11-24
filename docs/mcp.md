@@ -138,8 +138,6 @@ Webhook rules, deliveries, event types, and the company event log carry `x-mcp` 
 
 ## Not available to agents
 
-- `GET /storage/v1/metrics` and `/metrics/all` (Prometheus; staff or global PAT)
-
 - Public object downloads and anonymous share redeem URLs
 
 - `POST /api/v1/internal/company-deletions` (identity-service assertion only)

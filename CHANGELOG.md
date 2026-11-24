@@ -18,6 +18,22 @@ Notable changes to this project. Format: [Keep a Changelog](http://keepachangelo
 See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog-emoji/master/CHANGELOG.md
 -->
 
+## [Unreleased]
+
+### ✨ Feature
+
+- OpenTelemetry traces, metrics, and log correlation through `shellui-django[otel]` 0.7.0. Export stays off until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Log lines include `trace_id` and `span_id` (both `0` when telemetry is off). Outbound `requests` calls and Celery tasks keep the W3C `traceparent`. S3 calls are spans with the bucket name and operation. Object keys are not recorded.
+- Storage and scheduled-job Prometheus series are OpenTelemetry instruments with the same meaning. `company_id` stays on the storage gauges. Scheduled-job labels stay `job`, `status`, and `kind`. Names are listed in [Configuration](docs/configuration.md) and [Scheduled jobs](docs/maintenance-jobs.md).
+
+### 🗑 Removed
+
+- **Breaking:** `GET /storage/v1/metrics` and `GET /storage/v1/metrics/all` are removed, along with the Prometheus client. Those paths no longer serve a scrape. JSON `GET /storage/v1/stats` and `GET /api/v1/scheduled-jobs` are unchanged.
+- The `pat_agm` claim (`access_global_metrics`) is ignored. It only authorized the removed global metrics route.
+
+### ⚠️ Deprecated
+
+- Personal access tokens may still carry `pat_agm`. storage-service does not read it. No database column is dropped in this release.
+
 ## [0.8.0] - 2026-11-18
 
 ### ✨ Feature

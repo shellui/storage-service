@@ -95,7 +95,6 @@ def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
         username=f"agent:{claims.get('agent_id')}",
         is_staff=False,
         is_company_owner=True,
-        access_global_metrics=False,
         claims=claims,
     )
 

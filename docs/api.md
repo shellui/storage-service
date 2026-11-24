@@ -40,7 +40,6 @@ Paths below are on the storage host, for example `http://localhost:8001`.
 | Sign URL | `POST /storage/v1/object/sign/{bucket}/{path}` |
 | Quota | `GET /storage/v1/quota`, `PUT /storage/v1/quota/company/{company_id}`, `PUT …/user/{user_id}` |
 | Stats | `GET /storage/v1/stats` |
-| Metrics | `GET /storage/v1/metrics`, `GET /storage/v1/metrics/all` |
 | Shellui Actions | `/api/v1/actions/events`, `/rules`, `/deliveries` |
 | Event log | `GET /api/v1/actions/event-log` (`scope=platform` is staff only) |
 | Scheduled jobs | `GET /api/v1/scheduled-jobs` (staff only) |
@@ -57,26 +56,9 @@ Company members with `company_id` in the token use that company's bucket. Grants
 | `GET /storage/v1/stats` | The caller's company. Staff receive every company |
 | `GET /storage/v1/quota` | The caller's company |
 | `PUT /storage/v1/quota/…` | Staff, or a company owner for their own company id |
-| `GET /storage/v1/metrics` | Staff or a company owner. Company id comes from the token. A `company_id` query parameter is 400. Scheduled-job metrics are omitted |
-| `GET /storage/v1/metrics/all` | Staff, or a personal access token with the `pat_agm` claim. Includes `shellui_storage_scheduled_job_*` |
 | `GET /api/v1/scheduled-jobs` | Staff only. Company owners receive 403 |
 | `/api/v1/actions/*` | Staff, or a company owner scoped to the token `company_id` |
 
-## Metrics
-
-Metrics responses are Prometheus text, not JSON. Gauges are labeled with `company_id` and named:
-
-- `shellui_storage_objects_total`
-- `shellui_storage_bytes_total`
-- `shellui_storage_buckets_total`
-- `shellui_storage_documents_total`
-- `shellui_storage_document_bytes`
-- `shellui_storage_uploads_24h`, `shellui_storage_uploads_7d`, `shellui_storage_uploads_30d`
-- `shellui_storage_bytes_7d`
-- `shellui_storage_quota_used_bytes`, `shellui_storage_quota_max_bytes`
-
-Document counts use the same MIME families as the Django admin statistics page.
-
-`GET /storage/v1/metrics/all` also appends the scheduler gauges (`shellui_storage_scheduled_job_*` and `shellui_storage_scheduler_*`). `GET /storage/v1/metrics` does not. Names and alert examples are in [Scheduled jobs](maintenance-jobs.md).
+Storage figures are OpenTelemetry instruments, not HTTP routes. Names and the `company_id` attribute are in [Configuration](configuration.md). `GET /storage/v1/metrics` and `GET /storage/v1/metrics/all` are removed. Document counts on `GET /storage/v1/stats` use the same MIME families as the Django admin statistics page. Scheduled-job instruments are in [Scheduled jobs](maintenance-jobs.md).
 
 Error JSON on `/storage/v1/` uses `statusCode`, `error`, and `message`. Responses include `X-Request-ID`.
