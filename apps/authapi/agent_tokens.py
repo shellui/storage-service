@@ -123,14 +123,26 @@ def _owner_user_id(claims: dict) -> int:
     return raw
 
 
-def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
+def _is_global_or_delegated(claims: dict) -> bool:
+    """True for a token minted for a global (delegated) agent."""
+    return bool(
+        claims.get('global_agent_id')
+        or claims.get('global_company_id')
+        or str(claims.get('mcp_authority') or '').strip().lower() == 'delegated'
+    )
+
+
+def principal_from_agent_claims(claims: dict, *, creator_status: str | None = None) -> StoragePrincipal:
     """Build a principal for an MCP agent access token.
 
-    A personal agent acts as its creator: the user id is ``owner_user_id`` and the role is
-    the creator's company role, from Identity's ``owner_is_company_owner`` claim (a real
-    boolean, and only with a creator). An agent with no creator is user 0, which means "no
-    user": it never matches a private file and is never an owner. An agent is never staff,
-    including when its creator is. ``user_metadata`` and other role-looking claims are ignored.
+    A personal agent acts as its creator: the user id is ``owner_user_id``. The creator's
+    company role is never read from the token. It comes from ``creator_status``, which the
+    caller takes from Identity's signed revocation snapshot (``owner`` or ``member``), so a
+    demotion applies on the next poll instead of at token expiry. Anything else, including no
+    answer, is a plain member. A global or delegated token is always a plain member, whatever
+    role-looking claims it carries. An agent with no creator is user 0, which means "no user":
+    it never matches a private file and is never an owner. An agent is never staff, including
+    when its creator is. ``user_metadata`` and other role-looking claims are ignored.
     """
     company_id = claims.get('company_id')
     try:
@@ -144,13 +156,14 @@ def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
     if not username:
         username = f"agent:{claims.get('agent_id')}"
     owner_id = _owner_user_id(claims)
+    is_owner = bool(owner_id > 0 and creator_status == 'owner' and not _is_global_or_delegated(claims))
     return StoragePrincipal(
         user_id=owner_id,
         company_id=cid,
         email=str(claims.get('email') or user_meta.get('email') or ''),
         username=username,
         is_staff=False,
-        is_company_owner=bool(owner_id > 0 and claims.get('owner_is_company_owner') is True),
+        is_company_owner=is_owner,
         claims=claims,
     )
 
@@ -184,5 +197,11 @@ def authenticate_agent_bearer(
         delegated_regional_authority_live_ok(claims, expected_resource=expected_resource)
     except (DelegatedAuthorityUnavailable, DelegatedAuthorityDenied):
         raise
-    principal = principal_from_agent_claims(claims)
+    from apps.storage.mcp_identity import agent_creator_status
+
+    creator_status = agent_creator_status(claims)
+    if creator_status == 'gone':
+        # The person who created this agent no longer has access to the company.
+        return None
+    principal = principal_from_agent_claims(claims, creator_status=creator_status)
     return principal, claims

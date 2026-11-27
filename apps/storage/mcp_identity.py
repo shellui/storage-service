@@ -408,12 +408,40 @@ def agent_is_revoked(agent_id: str, company_id: int | None = None, agent_claims:
         status, row = _authority_row_status(str(agent_id), agent_claims)
         if status in ('missing', 'ambiguous'):
             return True
+        if row is not None and row.get('creator_status') == 'gone':
+            # The person who created this agent no longer has access to the company.
+            return True
         if delegated_tok:
             if status == 'absent' or row is None or not _grant_row_matches_agent(agent_claims, row):
                 return True
         elif row is not None and not _grant_row_matches_agent(agent_claims, row):
             return True
     return False
+
+
+CREATOR_STATUSES = frozenset({'owner', 'member', 'gone'})
+
+
+def agent_creator_status(agent_claims: dict[str, Any]) -> str | None:
+    """The agent creator's live standing in the company, from Identity's signed snapshot.
+
+    ``owner``, ``member`` or ``gone``. ``None`` when there is no usable answer: the list cannot
+    be loaded, the agent has no row or no ``creator_status`` (an older Identity, a global agent,
+    an agent with no creator), or the token is delegated. Callers treat ``None`` as a plain
+    member, never as an owner. The list is polled at most every 30 seconds, so a promotion,
+    demotion or removal applies within that window and no token has to expire.
+    """
+    if parse_global_company_id(agent_claims.get('global_company_id')) is not None or parse_global_agent_id(
+        agent_claims.get('global_agent_id')
+    ) is not None:
+        return None
+    if identity_revocation_unavailable():
+        return None
+    status, row = _authority_row_status(str(agent_claims.get('agent_id') or ''), agent_claims)
+    if status != 'exact' or row is None:
+        return None
+    value = row.get('creator_status')
+    return value if isinstance(value, str) and value in CREATOR_STATUSES else None
 
 
 def max_active_grant_version() -> int | None:

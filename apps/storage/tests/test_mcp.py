@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import inspect
 import uuid
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -73,7 +74,6 @@ def _agent_token(
     mcp_authority: str | None = None,
     secret: str = 'test-secret',
     owner_user_id: int | None = None,
-    owner_is_company_owner: bool | None = None,
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
     payload = {
@@ -91,8 +91,6 @@ def _agent_token(
     }
     if owner_user_id is not None:
         payload['owner_user_id'] = owner_user_id
-    if owner_is_company_owner is not None:
-        payload['owner_is_company_owner'] = owner_is_company_owner
     if not omit_grant_version and grant_version is not None:
         payload['grant_version'] = grant_version
     if global_company_id is not None:
@@ -464,7 +462,8 @@ class McpEndpointTests(TestCase):
         meta = payload.get('meta') or {}
         self.assertTrue(meta.get('status') == 'pending' or meta.get('approval_id'))
 
-    def _rpc_as_agent(self, method, params=None, **token_kwargs):
+    def _rpc_as_agent(self, method, params=None, *, creator_status=None, approved=False, **token_kwargs):
+        """POST to /mcp as an agent. ``creator_status`` is what Identity's snapshot says."""
         token = _agent_token(**token_kwargs)
         claims = jwt.decode(token, options={'verify_signature': False})
         row = {
@@ -472,12 +471,30 @@ class McpEndpointTests(TestCase):
             'company_id': int(claims['company_id']),
             'grant_version': 0,
         }
+        if creator_status is not None:
+            row['creator_status'] = creator_status
         body = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}}
-        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+        from django.core.cache import cache
+
+        cache.delete('mcp:revoked_trusted_payload')
+        cache.delete('mcp:revoked_list_trusted')
+        cache.delete('mcp:revoked_verified_claims')
+        with ExitStack() as stack:
+            mock_get = stack.enter_context(patch('apps.storage.mcp_identity.requests.get'))
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: _signed_revocation_for_tests(agents=[row]),
             )
+            if approved:
+
+                def _state(payload, _claims):
+                    payload['approval_id'] = str(uuid.uuid4())
+                    return 'approved'
+
+                stack.enter_context(patch('apps.storage.mcp_views._approval_state_for_mcp', side_effect=_state))
+                stack.enter_context(
+                    patch('apps.storage.mcp_views.consume_approval', return_value=(True, {'approval_id': 'x'}))
+                )
             return self.client.post(
                 '/mcp',
                 data=json.dumps(body),
@@ -518,7 +535,7 @@ class McpEndpointTests(TestCase):
             self.assertEqual(error.get('message'), 'Unknown tool', op)
         self.assertFalse(StorageAccessGrant.objects.exists())
 
-    def test_agent_admin_writes_follow_the_creators_role(self):
+    def _admin_write(self, **kwargs):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = apply_published_tool_names(tools_from_schema(schema))
         tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
@@ -526,21 +543,259 @@ class McpEndpointTests(TestCase):
         from apps.storage.access import ensure_company_bucket
 
         ensure_company_bucket(company_id=10)
-        member = self._rpc_as_agent(
-            'tools/call', params, mcp_access=ACCESS_FULL, owner_user_id=7, owner_is_company_owner=False
-        ).json()['result']
+        return self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL, approved=True, **kwargs)
+
+    def test_agent_admin_writes_follow_the_creators_live_role(self):
+        member = self._admin_write(owner_user_id=7, creator_status='member').json()['result']
         self.assertTrue(member['isError'], member)
         self.assertIn('permission', json.dumps(member))
-        # An owner id with no role claim at all is a plain member too.
-        no_claim = self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL, owner_user_id=7).json()['result']
-        self.assertTrue(no_claim['isError'], no_claim)
-        self.assertIn('permission', json.dumps(no_claim))
-        ownerless = self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL).json()['result']
+        # No status from Identity (an older Identity, or no row field) is a plain member.
+        no_status = self._admin_write(owner_user_id=7).json()['result']
+        self.assertTrue(no_status['isError'], no_status)
+        self.assertIn('permission', json.dumps(no_status))
+        ownerless = self._admin_write(creator_status='owner').json()['result']
         self.assertTrue(ownerless['isError'], ownerless)
-        owner = self._rpc_as_agent(
-            'tools/call', params, mcp_access=ACCESS_FULL, owner_user_id=7, owner_is_company_owner=True
-        ).json()['result']
+        owner = self._admin_write(owner_user_id=7, creator_status='owner').json()['result']
         self.assertFalse(owner['isError'], owner)
+
+    def test_a_demoted_owner_is_a_member_with_the_same_token(self):
+        # One token, two polls of Identity's snapshot: the role follows the snapshot.
+        token = _agent_token(mcp_access=ACCESS_FULL, owner_user_id=7)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
+        body = {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'tools/call',
+            'params': {'name': tool['name'], 'arguments': _grant_create_call_arguments(tool)},
+        }
+        from apps.storage.access import ensure_company_bucket
+        from django.core.cache import cache
+
+        ensure_company_bucket(company_id=10)
+        results = []
+        for status in ('owner', 'member'):
+            for key in ('mcp:revoked_trusted_payload', 'mcp:revoked_list_trusted', 'mcp:revoked_verified_claims'):
+                cache.delete(key)
+            row = {
+                'agent_id': str(claims['agent_id']),
+                'company_id': 10,
+                'grant_version': 0,
+                'creator_status': status,
+            }
+            with (
+                patch('apps.storage.mcp_identity.requests.get') as mock_get,
+                patch(
+                    'apps.storage.mcp_views._approval_state_for_mcp',
+                    side_effect=lambda payload, _c: payload.update(approval_id=str(uuid.uuid4())) or 'approved',
+                ),
+                patch('apps.storage.mcp_views.consume_approval', return_value=(True, {'approval_id': 'x'})),
+            ):
+                mock_get.return_value = MagicMock(
+                    status_code=200, json=lambda r=row: _signed_revocation_for_tests(agents=[r])
+                )
+                response = self.client.post(
+                    '/mcp',
+                    data=json.dumps(body),
+                    content_type='application/json',
+                    HTTP_AUTHORIZATION=f'Bearer {token}',
+                    **_mcp_host_kwargs(),
+                )
+            results.append(response.json()['result']['isError'])
+        self.assertEqual(results, [False, True])
+
+    def test_an_agent_whose_creator_is_gone_is_refused(self):
+        for method in ('initialize', 'tools/list'):
+            response = self._rpc_as_agent(method, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='gone')
+            self.assertEqual(response.status_code, 401, response.content)
+        for status in ('owner', 'member'):
+            response = self._rpc_as_agent('initialize', mcp_access=ACCESS_FULL, owner_user_id=7, creator_status=status)
+            self.assertEqual(response.status_code, 200, response.content)
+
+    def test_an_agent_listed_as_revoked_by_identity_is_refused_when_its_creator_is_gone(self):
+        # Identity also lists a gone creator's agent in revoked_agent_ids. A service that
+        # reads the list and not the new field refuses it the same way.
+        token = _agent_token(mcp_access=ACCESS_FULL, owner_user_id=7)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        from django.core.cache import cache
+
+        for key in ('mcp:revoked_trusted_payload', 'mcp:revoked_list_trusted', 'mcp:revoked_verified_claims'):
+            cache.delete(key)
+        row = {'agent_id': str(claims['agent_id']), 'company_id': 10, 'grant_version': 0, 'creator_status': 'gone'}
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(agents=[row], revoked=[str(claims['agent_id'])]),
+            )
+            response = self._initialize(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_a_global_token_carrying_owner_claims_is_a_plain_member(self):
+        # A delegated (global) token that carries owner-looking claims never acts as an owner,
+        # even when the snapshot row says "owner".
+        from apps.authapi.agent_tokens import principal_from_agent_claims
+
+        token = _agent_token(
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            global_company_id='18e20f88-286e-46ea-858e-1d75bca615ff',
+            company_binding_version=0,
+        )
+        claims = jwt.decode(token, options={'verify_signature': False})
+        claims['owner_is_company_owner'] = True
+        claims['is_company_owner'] = True
+        claims['user_metadata'] = {'is_company_owner': True}
+        for status in ('owner', 'member', None):
+            principal = principal_from_agent_claims(claims, creator_status=status)
+            self.assertFalse(principal.is_company_owner, status)
+            self.assertFalse(principal.is_staff)
+
+    def _tool_call(self, operation_id: str, *, path_params=None, body=None, query=None, **kwargs):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == operation_id)
+        arguments = {
+            'path': tool['_meta']['path'],
+            'method': tool['_meta']['method'],
+            'query': query or {},
+            'path_params': path_params or {},
+            'body': body or {},
+        }
+        from apps.storage.access import ensure_company_bucket
+
+        ensure_company_bucket(company_id=10)
+        params = {'name': tool['name'], 'arguments': arguments}
+        with (
+            patch('apps.storage.mcp_views._approval_state_for_mcp', return_value=None),
+            patch(
+                'apps.storage.mcp_views.create_approval_request',
+                return_value={'id': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'},
+            ),
+        ):
+            return self._rpc_as_agent('tools/call', params, **kwargs)
+
+    def _assert_needs_approval(self, response):
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn('result', response.json(), response.content)
+        result = response.json()['result']
+        self.assertTrue(result['isError'], result)
+        meta = result.get('meta') or {}
+        self.assertTrue(meta.get('status') == 'pending' or meta.get('approval_id'), result)
+
+    def test_full_access_agent_needs_approval_for_quota_changes(self):
+        for operation, path_params in (
+            ('storage_v1_quota_company_update', {'company_id': 10}),
+            ('storage_v1_quota_company_user_update', {'company_id': 10, 'user_id': 7}),
+        ):
+            with self.subTest(operation=operation):
+                response = self._tool_call(
+                    operation,
+                    path_params=path_params,
+                    body={'max_bytes': 1048576},
+                    mcp_access=ACCESS_FULL,
+                    owner_user_id=7,
+                    creator_status='owner',
+                )
+                self._assert_needs_approval(response)
+
+    def test_full_access_agent_needs_approval_for_an_actions_webhook(self):
+        body = {
+            'name': 'hook',
+            'url': 'https://example.com/hook',
+            'event_type': 'storage.object.uploaded',
+            'enabled': True,
+        }
+        response = self._tool_call(
+            'api_v1_actions_rules_create', body=body, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='owner'
+        )
+        self._assert_needs_approval(response)
+        response = self._tool_call(
+            'api_v1_actions_rules_partial_update',
+            path_params={'id': str(uuid.uuid4())},
+            body={'url': 'https://example.com/other'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='owner',
+        )
+        self._assert_needs_approval(response)
+
+    def test_full_access_agent_needs_approval_to_mount_an_outside_bucket(self):
+        body = {
+            'name': 'outside',
+            'connector_provider': 's3',
+            'credential': 'not-a-real-secret',
+            'connector_settings': {'bucket': 'b'},
+        }
+        response = self._tool_call(
+            'storage_v1_connector_create', body=body, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='owner'
+        )
+        self._assert_needs_approval(response)
+
+    def test_read_only_agent_is_refused_outright_for_these_changes(self):
+        response = self._tool_call(
+            'storage_v1_quota_company_update',
+            path_params={'company_id': 10},
+            body={'max_bytes': 1},
+            mcp_access=ACCESS_READ_ONLY,
+            owner_user_id=7,
+            creator_status='owner',
+        )
+        result = response.json()['result']
+        self.assertTrue(result['isError'])
+        self.assertIn('read only', json.dumps(result))
+        self.assertNotEqual((result.get('meta') or {}).get('status'), 'pending')
+
+    def test_copy_that_shows_a_file_to_more_people_needs_approval(self):
+        import io
+
+        from apps.storage.access import ensure_company_bucket
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.storage.services import upload_object
+
+        bucket = ensure_company_bucket(company_id=10)
+        upload_object(
+            bucket=bucket, path='mine.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        marker = StorageObject.objects.create(
+            bucket=bucket,
+            company_id=10,
+            name=f'team/{FOLDER_PLACEHOLDER_NAME}',
+            size=0,
+            mime_type='application/x-directory',
+            storage_key='k/team',
+        )
+        StorageAccessGrant.objects.create(
+            company_id=10,
+            bucket=bucket,
+            object=marker,
+            resource_type=StorageAccessGrant.ResourceType.FOLDER,
+            subject_type=StorageAccessGrant.SubjectType.COMPANY,
+            subject_id='10',
+            permission=StorageAccessGrant.Permission.READ,
+            effect=StorageAccessGrant.Effect.ALLOW,
+        )
+        wider = self._tool_call(
+            'storage_v1_object_copy_create',
+            body={'sourceKey': f'{COMPANY_BUCKET_NAME}/mine.txt', 'destinationKey': f'{COMPANY_BUCKET_NAME}/team/mine.txt'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='member',
+        )
+        self._assert_needs_approval(wider)
+        self.assertFalse(StorageObject.objects.filter(bucket=bucket, name='team/mine.txt').exists())
+        # A copy that stays private to the same person goes through without asking.
+        same = self._tool_call(
+            'storage_v1_object_copy_create',
+            body={'sourceKey': f'{COMPANY_BUCKET_NAME}/mine.txt', 'destinationKey': f'{COMPANY_BUCKET_NAME}/mine-2.txt'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='member',
+        )
+        result = same.json()['result']
+        self.assertFalse(result['isError'], result)
+        self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='mine-2.txt').exists())
 
     def test_mcp_refuses_the_scheduled_job_routes(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)

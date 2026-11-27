@@ -22,8 +22,9 @@ from shellui_django.mcp.routing import (
     path_parameter_names,
     validate_mcp_tool_arguments,
 )
-from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
+from shellui_django.mcp.write_gate import WriteGateDecision, decide_write, is_destructive_operation
 
+from apps.storage.agent_gate import approval_reason_for_agent_call
 from apps.storage.mcp_tool_schema import coerce_mcp_call_arguments, published_mcp_tools
 from apps.storage.mcp_assertions import parse_grant_version
 from apps.storage.mcp_identity import (
@@ -433,6 +434,11 @@ class StrictMcpServer:
             allow_destructive_without_asking=bool(agent_claims.get('mcp_destructive')),
             tool_read_only=tool_read_only,
         )
+        if decision.allowed and not tool_read_only and method not in _BODYLESS_METHODS:
+            # Some changes need a person's approval from an agent in every access mode.
+            extra_reason = approval_reason_for_agent_call(registry_op_id, arguments, getattr(request, 'user', None))
+            if extra_reason:
+                decision = WriteGateDecision(allowed=False, needs_approval=True, reason=extra_reason)
         approval_payload: dict[str, Any] = {}
 
         approval_granted = False

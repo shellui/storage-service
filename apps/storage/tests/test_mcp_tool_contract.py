@@ -121,7 +121,6 @@ class McpToolContractTests(TestCase):
             mcp_access='full',
             mcp_read='sensitive',
             owner_user_id=1,
-            owner_is_company_owner=False,
         )
         claims = jwt.decode(self.token, options={'verify_signature': False})
         body = _signed_revocation_for_tests(
@@ -277,7 +276,6 @@ class McpToolHappyPathTests(TestCase):
             mcp_access='full',
             mcp_read='sensitive',
             owner_user_id=1,
-            owner_is_company_owner=False,
         )
         claims = jwt.decode(self.token, options={'verify_signature': False})
         self.agent_id = str(claims['agent_id'])

@@ -41,8 +41,8 @@ def _agent_principal(user_id: int, *, owner: bool = False) -> StoragePrincipal:
     }
     if user_id:
         claims['owner_user_id'] = user_id
-        claims['owner_is_company_owner'] = owner
-    return principal_from_agent_claims(claims)
+    # The role is what Identity's snapshot says, not a token claim.
+    return principal_from_agent_claims(claims, creator_status='owner' if owner else 'member')
 
 
 def _human(user_id: int, *, owner: bool = False) -> StoragePrincipal:
@@ -82,7 +82,7 @@ class AgentActsAsCreatorTests(_Base):
                 can_access_path(human, self.bucket, mine.name, write=write, admin=admin),
             )
 
-    def test_creator_role_comes_from_the_signed_claim_only(self):
+    def test_creator_role_comes_from_the_live_snapshot_only(self):
         self.assertTrue(_agent_principal(7, owner=True).is_company_owner)
         self.assertFalse(_agent_principal(7, owner=False).is_company_owner)
         claims = {
@@ -90,22 +90,26 @@ class AgentActsAsCreatorTests(_Base):
             'agent_id': 'x',
             'company_id': COMPANY,
             'owner_user_id': 7,
-            'owner_is_company_owner': 'true',
+            'owner_is_company_owner': True,
             'user_metadata': {'is_company_owner': True, 'is_staff': True},
             'is_company_owner': True,
         }
+        # No token claim makes an owner. Only the snapshot's status does.
         principal = principal_from_agent_claims(claims)
         self.assertFalse(principal.is_company_owner)
         self.assertFalse(principal.is_staff)
+        self.assertTrue(principal_from_agent_claims(claims, creator_status='owner').is_company_owner)
+        for status in (None, 'member', 'gone', 'OWNER', 'admin', '', True, 1):
+            with self.subTest(status=status):
+                self.assertFalse(principal_from_agent_claims(claims, creator_status=status).is_company_owner)
         no_owner = principal_from_agent_claims(
-            {'sub': 'agent:x', 'agent_id': 'x', 'company_id': COMPANY, 'owner_is_company_owner': True}
+            {'sub': 'agent:x', 'agent_id': 'x', 'company_id': COMPANY}, creator_status='owner'
         )
         self.assertEqual(no_owner.user_id, 0)
         self.assertFalse(no_owner.is_company_owner)
 
-    def test_missing_role_claim_is_a_plain_member(self):
-        # A token minted before identity sent the claim, or by an older identity, has an owner
-        # id and no owner_is_company_owner. The creator is treated as a member, never an owner.
+    def test_missing_status_is_a_plain_member(self):
+        # An older Identity sends no creator_status. The creator acts as a member, never an owner.
         claims = {
             'sub': 'agent:x',
             'agent_id': 'x',
@@ -113,16 +117,32 @@ class AgentActsAsCreatorTests(_Base):
             'token_type': 'access',
             'owner_user_id': 7,
         }
-        self.assertNotIn('owner_is_company_owner', claims)
         principal = principal_from_agent_claims(claims)
         self.assertEqual(principal.user_id, 7)
         self.assertFalse(principal.is_company_owner)
         self.assertFalse(principal.is_staff)
-        for bad in (None, 1, 0, 'true', 'True', [True], {'v': True}):
-            with self.subTest(claim=bad):
-                self.assertFalse(
-                    principal_from_agent_claims({**claims, 'owner_is_company_owner': bad}).is_company_owner
-                )
+
+    def test_global_and_delegated_tokens_ignore_any_role(self):
+        base = {
+            'sub': 'agent:x',
+            'agent_id': 'x',
+            'company_id': COMPANY,
+            'token_type': 'access',
+            'owner_user_id': 7,
+            'owner_is_company_owner': True,
+            'is_company_owner': True,
+        }
+        variants = (
+            {'global_agent_id': str(uuid.uuid4())},
+            {'global_company_id': str(uuid.uuid4())},
+            {'mcp_authority': 'delegated'},
+            {'global_company_id': str(uuid.uuid4()), 'mcp_authority': 'delegated'},
+        )
+        for extra in variants:
+            with self.subTest(extra=sorted(extra)):
+                principal = principal_from_agent_claims({**base, **extra}, creator_status='owner')
+                self.assertFalse(principal.is_company_owner)
+                self.assertFalse(principal.is_staff)
 
     def test_owner_agent_is_not_staff_and_cannot_read_others_private_files(self):
         theirs = self.upload('theirs.txt', 8)

@@ -79,7 +79,7 @@ Agent access tokens are accepted only on `POST /mcp`. Every other route, includi
 
 ### Who an agent acts as
 
-A personal agent acts as its creator. The principal's user id is `owner_user_id`, and its company role is the creator's own role, taken from the signed `owner_is_company_owner` claim (a real boolean that Identity sets from the creator's membership). The agent sees and manages the files its creator can, with the same grants, and no others. Staff status never passes to an agent, including when the creator is staff. Role-looking fields such as `user_metadata` are ignored on an agent token.
+A personal agent acts as its creator. The principal's user id is `owner_user_id`, and its company role is the creator's own live role. Storage reads it from the `creator_status` field (`owner`, `member` or `gone`) of Identity's signed revocation snapshot, which it already polls every 30 seconds, and never from the token. A demotion applies on the next poll, and a creator who has left the company (`gone`) makes the agent fail with 401. A missing status, for example from an older Identity, is a plain member. A global or delegated token is always a plain member, and any role-looking claim on it is ignored. The agent sees and manages the files its creator can, with the same grants, and no others. Staff status never passes to an agent, including when the creator is staff. Role-looking fields such as `user_metadata` are ignored on an agent token.
 
 An agent with no creator has user id `0`, which means "no user". It never matches a private file or a user grant. It can read and write company-visible files at its role (folders that carry a company grant), and it cannot upload a private file: the call fails with 403 `agent_has_no_owner` before the body is read, and nothing is stored. Create the agent from a user account, or upload into a folder that is already shared with the company.
 
@@ -89,7 +89,16 @@ An agent cannot create or widen sharing. Creating or deleting an access grant an
 
 Routes marked `global_refused` (the scheduled-job routes) are not listed and are refused for agents.
 
-Connector writes, quota changes, and Shellui Actions admin routes follow the creator's role. An agent created by a company owner has owner access to them, and every write still goes through the approval modes below. An agent with a member creator, or no creator, receives 403 on those routes.
+Connector writes, quota changes, and Shellui Actions admin routes follow the creator's live role. An agent created by a company owner has owner access to them, and every write still goes through the approval modes below. An agent with a member creator, or no creator, receives 403 on those routes.
+
+### Calls that always need approval
+
+These need a person's single-use approval from an agent in every access mode, `full` included (a read only agent is refused outright):
+
+- creating or updating an Actions webhook (`api_v1_actions_rules_create`, `api_v1_actions_rules_partial_update`)
+- any quota change (`storage_v1_quota_company_update`, `storage_v1_quota_company_user_update`)
+- mounting an outside bucket with credentials (`storage_v1_connector_create`). Changing or deleting a connector is already destructive and needs approval.
+- copying or moving a file to a place more people can see than at the source (`storage_v1_object_copy_create`, `storage_v1_object_move_create`). Storage compares who can read the source with who would read the destination: a copy of a private file into a company-visible folder or a folder shared with someone else asks first, and so does a copy by an agent with no creator, which has no private space. A move keeps the file's own grants, so only a file that inherits its access from its folder can widen. Staying private to the same person never asks.
 
 ## Required agent token claims
 
@@ -291,4 +300,4 @@ python manage.py reassign_unowned_files --company 10 --user 42 --prefix reports/
 
 It moves the owner, the private grants, the creator id and the per-user quota usage to that user. Run it with `--dry-run` first.
 
-Deploy order: deploy Identity first so new agent tokens carry `owner_is_company_owner`, then storage. Existing agent tokens without the claim act as a member of their creator until they refresh, never as an owner.
+Deploy order: deploy Identity (#195) first, so the revocation snapshot carries `creator_status`, then storage. Until then every agent acts as a plain member of its creator, never as an owner.
