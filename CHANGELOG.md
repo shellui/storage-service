@@ -24,7 +24,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 - `shellui-django` 0.8.0 with Django 6.1.3, Django REST framework 3.18.3 and drf-spectacular 0.30.0. The shellui-django pins are exact, so these move together.
 - gunicorn 27.0.1. A request whose `Transfer-Encoding` does not end with `chunked` (for example `identity` alone) now gets HTTP 400. No gunicorn setting changed.
-- Django 6.1 requires PostgreSQL 15 or newer, and drops 14. Production already runs PostgreSQL 18 (`postgres:18-alpine`), so nothing changes there. Check the database of any other deployment before upgrading.
+- Django 6.1 requires PostgreSQL 15 or newer, and drops 14. Check the database of any deployment before upgrading. CI runs PostgreSQL 18.
 - drf-spectacular 0.30 describes blank URL and slug fields as `oneOf` (the field's format or an empty string) in the OpenAPI schema. Generated clients and the published schema see that change. The API itself does not change.
 
 ### 🔒 Security
@@ -38,7 +38,7 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - Python dependencies: python-dotenv 1.2.4, psycopg 3.3.9, sentry-sdk 2.77.0, cryptography 50.0.2, requests 2.34.2, markdown 3.11.4, redis 8.2.0, sqlparse 0.6.1, celery 5.7.0.
 - npm dependencies: @tailwindcss/cli 4.3.5, tailwindcss 4.3.5.
 - CI runs `manage.py makemigrations --check --dry-run`, so a model change without a migration fails the build.
-- CI uses uv 0.13.10, which resolves Python 3.14.10, the patch the `python:3.14-slim` image ships. uv 0.12.1 resolved 3.14.6.
+- CI pins Python 3.14.10 and uv 0.13.10, and the Dockerfile copies the same uv, so CI and the image run the same interpreter and the same tool.
 
 ## [0.9.1] - 2026-11-24
 
