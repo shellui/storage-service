@@ -513,7 +513,8 @@
           },
           "url": {
             "format": "uri",
-            "type": "string"
+            "type": "string",
+            "x-mcp-destination": true
           }
         },
         "required": [
@@ -2609,7 +2610,8 @@
           },
           "url": {
             "format": "uri",
-            "type": "string"
+            "type": "string",
+            "x-mcp-destination": true
           }
         },
         "required": [

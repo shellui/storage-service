@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from shellui_django.mcp.fields import McpDestinationURLField
 
 from apps.authapi.mcp_fields import McpSecretCharField
 from apps.actions.registry import is_webhook_event, webhook_event_types
@@ -26,7 +27,7 @@ class ActionRuleWriteSerializer(serializers.Serializer):
     )
     enabled = serializers.BooleanField(required=False)
 
-    url = serializers.URLField(required=False, allow_blank=True)
+    url = McpDestinationURLField(required=False, allow_blank=True)
     secret = McpSecretCharField(required=False, allow_blank=True, trim_whitespace=False)
     authorization_header = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
     allow_private_urls = serializers.BooleanField(required=False)

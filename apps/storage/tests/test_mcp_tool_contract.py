@@ -35,9 +35,17 @@ from apps.storage.tests.test_mcp import (
 )
 from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES
 from apps.storage.mcp_tool_schema import published_mcp_tools
+from shellui_django.mcp.approval_summary import destination_paths
 from shellui_django.mcp.routing import McpToolArgumentError
 
 _FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'mcp_tools_contract.json'
+# Properties that name where a call sends something. Each must carry `x-mcp-destination` (on the items
+# for a list) so the gateway shows it first in the approval prompt.
+DESTINATION_PATHS: dict[str, set[str]] = {
+    'storage_create_action_rules': {'url'},
+    'storage_update_action_rules': {'url'},
+}
+
 _COMPANY = 10
 _APPROVAL_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
 _RULE_SECRET = 'whsec-audit-known'
@@ -181,6 +189,12 @@ class McpToolContractTests(TestCase):
             if name.startswith('test_storage_v1_') or name.startswith('test_api_v1_')
         }
         self.assertEqual(ops, methods)
+
+    def test_destination_properties_are_marked_for_the_approval_prompt(self):
+        tools = {tool['name']: tool for tool in published_mcp_tools(SchemaGenerator().get_schema(request=None, public=True))}
+        self.assertLessEqual(set(DESTINATION_PATHS), set(tools))
+        for name, tool in tools.items():
+            self.assertEqual(destination_paths(tool['inputSchema']), DESTINATION_PATHS.get(name, set()), name)
 
     def test_tool_names_use_storage_prefix(self):
         for tool in self._tools_list():

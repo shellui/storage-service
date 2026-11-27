@@ -1140,21 +1140,19 @@ wheels = [
 
 [[package]]
 name = "shellui-django"
-version = "0.8.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.9.0"
+source = { url = "https://github.com/shellui/django-commons/archive/23b3c4d6390a93e2606af495d83f417df64e6536.tar.gz" }
 dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/e1/f15c48a3b64b3ea789f3e1bf79f8f13596b526ffde0db2b0f182f44969d6/shellui_django-0.8.0.tar.gz", hash = "sha256:a6ee6f3b486da04329b3a0dd39ad63937123907d86cd13f5682a9501a9959adb", size = 68412, upload-time = "2026-11-27T06:02:47.028Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c6/f8/581179f81caa0e590ea5381654eab61d5e5f0b114e022cd232d6a7789891/shellui_django-0.8.0-py3-none-any.whl", hash = "sha256:d8da546d0841f93b4b7735a72b115e7ffc23eab326d62678cdee1b8edbedc79f", size = 53115, upload-time = "2026-11-27T06:02:45.775Z" },
-]
+sdist = { hash = "sha256:9d477e9dac3fbf97b1afa27144cffa1c446863ace3c990d08098858d15cff7a5" }
 
 [package.optional-dependencies]
 mcp = [
     { name = "cryptography" },
     { name = "djangorestframework-simplejwt" },
+    { name = "drf-spectacular" },
     { name = "pyjwt" },
     { name = "requests" },
 ]
@@ -1169,6 +1167,27 @@ otel = [
     { name = "opentelemetry-instrumentation-requests" },
     { name = "opentelemetry-sdk" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", marker = "extra == 'mcp'", specifier = ">=50.0.0" },
+    { name = "django", specifier = "==6.1.3" },
+    { name = "djangorestframework", specifier = "==3.18.3" },
+    { name = "djangorestframework-simplejwt", marker = "extra == 'mcp'", specifier = "==5.5.1" },
+    { name = "drf-spectacular", marker = "extra == 'mcp'", specifier = "==0.30.0" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = "==1.45.2" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = "==1.45.2" },
+    { name = "opentelemetry-instrumentation-celery", marker = "extra == 'otel'", specifier = "==0.66b2" },
+    { name = "opentelemetry-instrumentation-django", extras = ["asgi"], marker = "extra == 'otel'", specifier = "==0.66b2" },
+    { name = "opentelemetry-instrumentation-logging", marker = "extra == 'otel'", specifier = "==0.66b2" },
+    { name = "opentelemetry-instrumentation-psycopg", marker = "extra == 'otel'", specifier = "==0.66b2" },
+    { name = "opentelemetry-instrumentation-redis", marker = "extra == 'otel'", specifier = "==0.66b2" },
+    { name = "opentelemetry-instrumentation-requests", marker = "extra == 'otel'", specifier = "==0.66b2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = "==1.45.2" },
+    { name = "pyjwt", marker = "extra == 'mcp'", specifier = ">=2.14.0" },
+    { name = "requests", marker = "extra == 'mcp'", specifier = ">=2.32.0" },
+]
+provides-extras = ["mcp", "otel"]
 
 [[package]]
 name = "six"
@@ -1236,7 +1255,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.2.0" },
     { name = "requests", specifier = "==2.34.2" },
     { name = "sentry-sdk", specifier = "==2.77.0" },
-    { name = "shellui-django", extras = ["mcp", "otel"], specifier = "==0.8.0" },
+    { name = "shellui-django", extras = ["mcp", "otel"], url = "https://github.com/shellui/django-commons/archive/23b3c4d6390a93e2606af495d83f417df64e6536.tar.gz" },
     { name = "sqlparse", specifier = "==0.6.1" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]

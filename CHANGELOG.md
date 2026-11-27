@@ -20,6 +20,10 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
+### 🚨 Changed
+
+- The action rule `url` is marked `x-mcp-destination` in the OpenAPI schema and the MCP tool schemas. The gateway reads the marker to show it first and in full on the approval prompt. No request or response changes. Needs `shellui-django` 0.9.0.
+
 ### 🔒 Security
 
 - Agent access tokens are accepted only on `POST /mcp`, and only when `token_type` is `access`. Every other route returns 401 for them, including WebDAV and the scheduled-job routes. `/mcp` does not list or run the scheduled-job routes (`global_refused`).

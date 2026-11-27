@@ -142,6 +142,8 @@ x-mcp:
 ```
 
 Response fields may carry `x-mcp-secret` (never return to agents) or `x-mcp-sensitive` (mask in read-safe MCP modes).
+Request fields that say where a call sends something carry `x-mcp-destination: true`. The gateway shows those values first, in full, when a person approves the call. Here the only one is the action rule `url`. Declare a new field with `McpDestinationCharField`, `McpDestinationEmailField` or `McpDestinationURLField` from `shellui_django.mcp.fields` (for a list, use them as the `child`), and add its path to `DESTINATION_PATHS` in `apps/storage/tests/test_mcp_tool_contract.py`. `connector_settings` is a free-form object, so an endpoint inside it cannot be marked and shows as an ordinary argument.
+
 
 The published schema excludes `/api/v1/internal/*` and `/api/v1/scheduled-jobs*`.
 
