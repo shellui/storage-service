@@ -103,6 +103,27 @@ class AgentActsAsCreatorTests(_Base):
         self.assertEqual(no_owner.user_id, 0)
         self.assertFalse(no_owner.is_company_owner)
 
+    def test_missing_role_claim_is_a_plain_member(self):
+        # A token minted before identity sent the claim, or by an older identity, has an owner
+        # id and no owner_is_company_owner. The creator is treated as a member, never an owner.
+        claims = {
+            'sub': 'agent:x',
+            'agent_id': 'x',
+            'company_id': COMPANY,
+            'token_type': 'access',
+            'owner_user_id': 7,
+        }
+        self.assertNotIn('owner_is_company_owner', claims)
+        principal = principal_from_agent_claims(claims)
+        self.assertEqual(principal.user_id, 7)
+        self.assertFalse(principal.is_company_owner)
+        self.assertFalse(principal.is_staff)
+        for bad in (None, 1, 0, 'true', 'True', [True], {'v': True}):
+            with self.subTest(claim=bad):
+                self.assertFalse(
+                    principal_from_agent_claims({**claims, 'owner_is_company_owner': bad}).is_company_owner
+                )
+
     def test_owner_agent_is_not_staff_and_cannot_read_others_private_files(self):
         theirs = self.upload('theirs.txt', 8)
         agent = _agent_principal(7, owner=True)

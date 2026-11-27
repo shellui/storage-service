@@ -531,6 +531,10 @@ class McpEndpointTests(TestCase):
         ).json()['result']
         self.assertTrue(member['isError'], member)
         self.assertIn('permission', json.dumps(member))
+        # An owner id with no role claim at all is a plain member too.
+        no_claim = self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL, owner_user_id=7).json()['result']
+        self.assertTrue(no_claim['isError'], no_claim)
+        self.assertIn('permission', json.dumps(no_claim))
         ownerless = self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL).json()['result']
         self.assertTrue(ownerless['isError'], ownerless)
         owner = self._rpc_as_agent(
