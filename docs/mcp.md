@@ -77,7 +77,7 @@ The ai-service gateway records every `tools/call`. This service does not post ca
 
 Agent access tokens are accepted only on `POST /mcp`. A refresh token presented as a bearer is rejected, on `/mcp` and on the rest of the API. The principal's user id is `owner_user_id` when that claim is a positive integer. `is_company_owner` and `is_staff` stay false, including when the creating user is a company owner.
 
-Routes marked `global_refused` refuse agent callers. That mark is on global metrics (`GET /storage/v1/metrics/all`) and the scheduled-job routes.
+Routes marked `global_refused` refuse agent callers. That mark is on the scheduled-job routes.
 
 Connector writes, quota changes, and Shellui Actions admin routes still require a company owner or staff user. An agent call to those routes returns 403. Listing and reading objects follows the same company-bucket rules as a member.
 

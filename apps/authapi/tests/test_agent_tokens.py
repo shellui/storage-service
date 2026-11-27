@@ -57,7 +57,6 @@ class AgentTokenBoundaryTests(TestCase):
         self.assertEqual(principal.email, 'ada@example.com')
         self.assertFalse(principal.is_company_owner)
         self.assertFalse(principal.is_staff)
-        self.assertFalse(principal.access_global_metrics)
 
     def test_bool_owner_user_id_is_not_a_user(self):
         principal = principal_from_agent_claims(
@@ -102,7 +101,7 @@ class AgentTokenBoundaryTests(TestCase):
             }
         )
         response = self.client.get(
-            '/storage/v1/metrics/all',
+            '/api/v1/scheduled-jobs',
             HTTP_AUTHORIZATION=f'Bearer {token}',
         )
         self.assertEqual(response.status_code, 401)
@@ -124,16 +123,16 @@ class AgentTokenBoundaryTests(TestCase):
         )
         self.assertIsNone(result)
 
-    def test_global_refused_blocks_agent_even_with_global_metrics(self):
+    def test_global_refused_blocks_agent_even_when_staff(self):
         user = StoragePrincipal(
             user_id=1,
             company_id=10,
             username='agent:abc',
-            access_global_metrics=True,
+            is_staff=True,
             claims={'agent_id': 'abc', 'sub': 'agent:abc', 'token_type': 'access'},
         )
         self.client.force_authenticate(user=user)
-        response = self.client.get('/storage/v1/metrics/all')
+        response = self.client.get('/api/v1/scheduled-jobs')
         self.assertEqual(response.status_code, 403)
 
     def test_access_token_without_agent_claim_still_works(self):
