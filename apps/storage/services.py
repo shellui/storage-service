@@ -16,6 +16,7 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 
+from . import write_guard
 from .access import access_summary, path_access_summary
 from .backends import build_storage_key, delete_storage_key, is_s3_backend
 from .mime import mime_allowed, normalize_mime_type, safe_object_path
@@ -867,6 +868,15 @@ def empty_bucket(bucket: Bucket, *, principal, request=None) -> None:
         delete_object(obj, request=request)
 
 
+def lock_company_buckets(company_id: int) -> None:
+    """Serialize visibility-changing writes in one company for the rest of this transaction.
+
+    Moves, copies and renames take this first, so two of them cannot interleave. The agent
+    gate holds the same lock while it compares who can read before and after.
+    """
+    list(Bucket.objects.select_for_update().filter(company_id=company_id).order_by('pk').values_list('pk', flat=True))
+
+
 @transaction.atomic
 def rename_folder(
     *,
@@ -892,6 +902,7 @@ def rename_folder(
             code='invalid_destination',
         )
 
+    lock_company_buckets(bucket.company_id)
     objs = list(objects_under_prefix(bucket, src).select_for_update().order_by('name'))
     if not objs:
         raise StorageError('Folder not found', status=404, code='folder_not_found')
@@ -924,6 +935,7 @@ def rename_folder(
         obj.save(update_fields=['name', 'updated_at'])
         moved.append(new_name)
 
+    write_guard.after_write()
     grants_updated = StorageAccessGrant.objects.filter(
         object_id__in=[o.pk for o in objs]
     ).count()
@@ -946,6 +958,7 @@ def move_object(
 ) -> StorageObject:
     source_name = safe_object_path(source_path)
     dest_name = safe_object_path(dest_path)
+    lock_company_buckets(bucket.company_id)
     obj = StorageObject.objects.select_for_update().filter(bucket=bucket, name=source_name).first()
     if not obj:
         raise StorageError('Object not found', status=404, code='object_not_found')
@@ -956,6 +969,7 @@ def move_object(
         obj.name = dest_name
         obj.updated_at = timezone.now()
         obj.save(update_fields=['name', 'updated_at'])
+        write_guard.after_write()
         return obj
 
     # Cross-bucket: adjust quotas if companies differ (they shouldn't in our tenancy model).
@@ -967,6 +981,7 @@ def move_object(
     obj.updated_at = timezone.now()
     obj.save(update_fields=['bucket', 'name', 'updated_at'])
     StorageAccessGrant.objects.filter(object=obj).update(bucket=dest_bucket)
+    write_guard.after_write()
     return obj
 
 
@@ -982,6 +997,7 @@ def copy_object(
 ) -> StorageObject:
     source_name = safe_object_path(source_path)
     dest_name = safe_object_path(dest_path)
+    lock_company_buckets(bucket.company_id)
     src = StorageObject.objects.filter(bucket=bucket, name=source_name).first()
     if not src:
         raise StorageError('Object not found', status=404, code='object_not_found')
@@ -999,9 +1015,6 @@ def copy_object(
     except QuotaExceeded as exc:
         raise StorageError(str(exc), status=413, code=exc.code) from exc
 
-    with default_storage.open(src.storage_key, 'rb') as fh:
-        data = fh.read()
-
     object_id = uuid.uuid4()
     storage_key = build_storage_key(
         company_id=dest_bucket.company_id,
@@ -1009,7 +1022,6 @@ def copy_object(
         object_name=dest_name,
         object_id=object_id,
     )
-    _save_blob(storage_key, data)
     obj = StorageObject.objects.create(
         id=object_id,
         bucket=dest_bucket,
@@ -1029,6 +1041,11 @@ def copy_object(
         instance=obj,
         user_id=obj.owner_id,
     )
+    # The decision comes before any blob is touched: a refused copy leaves nothing in S3.
+    write_guard.after_write({src.pk: obj.pk})
+    with default_storage.open(src.storage_key, 'rb') as fh:
+        data = fh.read()
+    _save_blob(storage_key, data)
     storage_object_uploaded.send(
         sender=StorageObject,
         instance=obj,

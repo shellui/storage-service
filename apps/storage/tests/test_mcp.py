@@ -773,7 +773,7 @@ class McpEndpointTests(TestCase):
             resource_type=StorageAccessGrant.ResourceType.FOLDER,
             subject_type=StorageAccessGrant.SubjectType.COMPANY,
             subject_id='10',
-            permission=StorageAccessGrant.Permission.READ,
+            permission=StorageAccessGrant.Permission.WRITE,
             effect=StorageAccessGrant.Effect.ALLOW,
         )
         wider = self._tool_call(
@@ -883,6 +883,113 @@ class McpEndpointTests(TestCase):
         )
         self.assertFalse(inside.json()['result']['isError'], inside.content)
         self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='priv/sub2/t.txt').exists())
+
+    def _result_text(self, response) -> str:
+        return json.dumps(response.json()['result'])
+
+    def test_two_overlapping_calls_never_make_a_private_file_company_readable(self):
+        """Reed's scenario. A moves a file into the private folder x/. B moves x/'s marker away.
+
+        Each is fine against the state the other has not changed yet. Whichever commits second
+        is judged against what the first did, so the file never becomes readable by the company.
+        """
+        from apps.storage import views
+        from apps.storage.access import can_access_path
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.authapi.principal import StoragePrincipal
+
+        bucket = self._visibility_fixture()
+        marker_x = StorageObject.objects.create(
+            bucket=bucket,
+            company_id=10,
+            name=f'x/{FOLDER_PLACEHOLDER_NAME}',
+            size=0,
+            mime_type='application/x-directory',
+            storage_key='k/x',
+        )
+        common = {'company_id': 10, 'bucket': bucket, 'resource_type': StorageAccessGrant.ResourceType.FOLDER}
+        StorageAccessGrant.objects.create(
+            object=marker_x, subject_type='company', subject_id='10', permission='read', effect='deny', **common
+        )
+        StorageAccessGrant.objects.create(
+            object=marker_x, subject_type='user', subject_id='7', permission='admin', effect='allow', **common
+        )
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        a_body = {'sourceKey': key('priv/s.txt'), 'destinationKey': key('x/s.txt')}
+        b_body = {
+            'sourceKey': key(f'x/{FOLDER_PLACEHOLDER_NAME}'),
+            'destinationKey': key(f'y/{FOLDER_PLACEHOLDER_NAME}'),
+        }
+        real_move = views.move_object
+        seen = {}
+
+        def b_runs_while_a_is_in_flight(**kwargs):
+            if kwargs['source_path'] == 'priv/s.txt' and 'b' not in seen:
+                seen['b'] = self._full_access_call('storage_v1_object_move_create', body=b_body)
+            return real_move(**kwargs)
+
+        with patch('apps.storage.views.move_object', side_effect=b_runs_while_a_is_in_flight):
+            a = self._full_access_call('storage_v1_object_move_create', body=a_body)
+
+        # B was checked against a folder x/ that had no files in it: nothing to expose, so it ran.
+        self.assertFalse(seen['b'].json()['result']['isError'], seen['b'].content)
+        # A was judged after B: x/ is no longer private, so A asks, and nothing of A was written.
+        self._assert_needs_approval(a)
+        self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='priv/s.txt').exists())
+        self.assertFalse(StorageObject.objects.filter(bucket=bucket, name='x/s.txt').exists())
+        member = StoragePrincipal(user_id=99, company_id=10)
+        for name in ('priv/s.txt', 'x/s.txt'):
+            self.assertFalse(can_access_path(member, bucket, name), name)
+
+    def test_copy_onto_an_existing_key_is_a_400_and_not_a_500(self):
+        from apps.storage.models import StorageObject
+
+        bucket = self._visibility_fixture()
+        before = StorageObject.objects.filter(bucket=bucket).count()
+        response = self._full_access_call(
+            'storage_v1_object_copy_create',
+            body={
+                'sourceKey': f'{COMPANY_BUCKET_NAME}/priv/s.txt',
+                'destinationKey': f'{COMPANY_BUCKET_NAME}/priv/sub/t.txt',
+            },
+        )
+        result = response.json()['result']
+        self.assertTrue(result['isError'], result)
+        self.assertIn('already exists', json.dumps(result).lower())
+        self.assertEqual(StorageObject.objects.filter(bucket=bucket).count(), before)
+
+    def test_the_prompt_says_why_for_the_cap_and_for_a_folder_marker(self):
+        from apps.storage import agent_gate
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME
+
+        self._visibility_fixture()
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        with patch.object(agent_gate, 'MAX_OBJECTS', 1):
+            capped = self._full_access_call(
+                'storage_v1_object_prefix_create',
+                path_params={'bucket_id': COMPANY_BUCKET_NAME},
+                body={'from': 'priv', 'to': 'priv2'},
+            )
+        self._assert_needs_approval(capped)
+        self.assertIn('limit is 1', self._result_text(capped))
+        moved = self._full_access_call(
+            'storage_v1_object_move_create',
+            body={
+                'sourceKey': key(f'priv/{FOLDER_PLACEHOLDER_NAME}'),
+                'destinationKey': key(f'gone/{FOLDER_PLACEHOLDER_NAME}'),
+            },
+        )
+        self._assert_needs_approval(moved)
+        self.assertIn('marker', self._result_text(moved))
+        deleted = self._tool_call(
+            'storage_v1_object_destroy',
+            path_params={'bucket_id': COMPANY_BUCKET_NAME, 'object_path': f'priv/{FOLDER_PLACEHOLDER_NAME}'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='member',
+        )
+        self._assert_needs_approval(deleted)
+        self.assertIn('marker', self._result_text(deleted))
 
     def test_mcp_refuses_the_scheduled_job_routes(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
