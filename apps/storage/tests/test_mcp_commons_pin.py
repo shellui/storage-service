@@ -17,9 +17,9 @@ class McpCommonsPinTests(SimpleTestCase):
         )
         normalized = ''.join(dep_line.split())
         self.assertIn(
-            'shellui-django[mcp,otel]==0.7.0',
+            'shellui-django[mcp,otel]==0.7.2',
             normalized,
-            msg='Pin shellui-django[mcp,otel] to the published PyPI release 0.7.0.',
+            msg='Pin shellui-django[mcp,otel] to the published PyPI release 0.7.2.',
         )
         self.assertNotIn('git+', dep_line)
         self.assertNotIn('django-commons', dep_line)

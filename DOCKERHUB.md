@@ -8,13 +8,13 @@ The entrypoint starts as root, prepares `/app/data`, and runs the app as `appuse
 
 | Item | Value |
 | --- | --- |
-| Base | `python:3.14-slim` |
+| Base | `python:3.15-slim` |
 | Listen port | `8000` |
 | Entrypoint | `/app/tools/docker-entrypoint.sh` |
 | App processes | `appuser` |
 | Volume | `/app/data` (SQLite and filesystem blobs) |
 
-Node.js 22 builds the CSS during the image build, and the final image includes that file. The default command is `web`: migrate, then Gunicorn and the scheduler. The image sets `DEBUG=false` and `STORAGE_BACKEND=filesystem`.
+Node.js 26 builds the CSS during the image build, and the final image includes that file. The default command is `web`: migrate, then Gunicorn and the scheduler. The image sets `DEBUG=false` and `STORAGE_BACKEND=filesystem`.
 
 ## Start a container
 
