@@ -45,7 +45,12 @@ _FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'mcp_tools_contract.js
 # for a list) so the gateway shows it first in the approval prompt.
 # Write-tool arguments whose name looks like a destination but that are not one. Anything new that looks like a
 # destination must be marked `x-mcp-destination` (fix the serializer) or be added here with a reason.
-ALLOWED_UNMARKED: dict[str, set[str]] = {}
+ALLOWED_UNMARKED: dict[str, set[str]] = {
+    # `to` is a path inside the caller's own storage (a folder, or bucket/path). Nothing leaves storage.
+    'storage_copy_object': {'to'},
+    'storage_create_object_prefix': {'to'},
+    'storage_move_object': {'to'},
+}
 
 # `connector_settings` is a free-form object in the schema, so its keys cannot carry a marker. The service
 # accepts only these keys (anything else is a 400). None names an address the service sends data to. A new key
