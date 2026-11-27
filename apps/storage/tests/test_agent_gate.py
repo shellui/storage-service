@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import threading
+import time
 from unittest.mock import patch
 
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 
 from apps.authapi.principal import StoragePrincipal
@@ -227,6 +229,71 @@ class VisibilityTests(TestCase):
         self.grant(inner, subject=StorageAccessGrant.SubjectType.COMPANY, subject_id=COMPANY, kind='folder')
         self.assertTrue(self.widens(MOVE, _args('priv/x/s.txt', 'priv/open/s.txt')))
 
+    def landing_fixture(self):
+        """A private folder priv/ holding priv/inbox/report.txt, and a marker of its own elsewhere."""
+        self.folder('priv')
+        self.upload('priv/inbox/report.txt')
+        self.assertFalse(self.can_read('priv/inbox/report.txt'))
+
+    def test_5a_a_company_readable_marker_landing_on_a_folder_with_files_asks(self):
+        self.landing_fixture()
+        opened = self.folder('open', company_deny=False, owner=None)
+        self.grant(opened, subject=StorageAccessGrant.SubjectType.COMPANY, subject_id=COMPANY, kind='folder')
+        ran, reason = self.attempt(MOVE, _args(f'open/{FOLDER_PLACEHOLDER_NAME}', f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}'))
+        self.assertFalse(ran)
+        self.assertEqual(reason, agent_gate.MARKER_LANDS_REASON)
+        self.assertFalse(StorageObject.objects.filter(name=f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}').exists())
+        self.assertFalse(self.can_read('priv/inbox/report.txt'))
+
+    def test_5b_a_marker_shared_with_one_person_landing_on_a_folder_with_files_asks(self):
+        self.landing_fixture()
+        shared = self.folder('with-bob')
+        self.grant(shared, subject=StorageAccessGrant.SubjectType.USER, subject_id=9, kind='folder')
+        bob = StoragePrincipal(user_id=9, company_id=COMPANY)
+        ran, reason = self.attempt(MOVE, _args(f'with-bob/{FOLDER_PLACEHOLDER_NAME}', f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}'))
+        self.assertFalse(ran)
+        self.assertEqual(reason, agent_gate.MARKER_LANDS_REASON)
+        self.assertFalse(can_access_path(bob, self.bucket, 'priv/inbox/report.txt'))
+
+    def test_5c_a_marker_landing_on_an_empty_folder_or_with_the_same_access_does_not_ask(self):
+        self.landing_fixture()
+        self.folder('mine')
+        self.assertFalse(self.widens(MOVE, _args(f'mine/{FOLDER_PLACEHOLDER_NAME}', f'priv/empty/{FOLDER_PLACEHOLDER_NAME}')))
+        self.folder('mine2')
+        self.assertFalse(self.widens(MOVE, _args(f'mine2/{FOLDER_PLACEHOLDER_NAME}', f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}')))
+
+    def test_5d_a_marker_landing_on_more_files_than_the_cap_asks(self):
+        self.landing_fixture()
+        self.upload('priv/inbox/second.txt')
+        self.folder('mine')
+        with patch.object(agent_gate, 'MAX_OBJECTS', 2):
+            ran, reason = self.attempt(MOVE, _args(f'mine/{FOLDER_PLACEHOLDER_NAME}', f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}'))
+        self.assertFalse(ran)
+        self.assertIn('limit is 2', reason)
+
+    def test_an_error_answer_after_the_write_rolls_it_back(self):
+        from django.http import JsonResponse
+
+        self.folder('priv')
+        self.upload('priv/a.txt')
+
+        def write_then_fail():
+            move_object(bucket=self.bucket, source_path='priv/a.txt', dest_bucket=self.bucket, dest_path='priv/b.txt')
+            return JsonResponse({'jsonrpc': '2.0', 'id': 1, 'result': {'content': [], 'isError': True}})
+
+        ran, _response = checked(MOVE, _args('priv/a.txt', 'priv/b.txt'), self.agent, write_then_fail)
+        self.assertTrue(ran)
+        self.assertTrue(StorageObject.objects.filter(name='priv/a.txt').exists())
+        self.assertFalse(StorageObject.objects.filter(name='priv/b.txt').exists())
+
+    def test_a_copy_whose_service_skips_the_check_asks(self):
+        self.upload('mine.txt')
+        with patch('apps.storage.services.write_guard.after_write'):
+            ran, reason = self.attempt(COPY, _args('mine.txt', 'mine-copy.txt'))
+        self.assertFalse(ran)
+        self.assertEqual(reason, agent_gate.UNRESOLVED_REASON)
+        self.assertFalse(StorageObject.objects.filter(name='mine-copy.txt').exists())
+
     def test_a_refused_call_changes_nothing(self):
         self.folder('priv')
         self.upload('priv/sub/s.txt')
@@ -410,3 +477,53 @@ class VisibilityCostTests(TestCase):
         self.assertIsNone(
             agent_gate.destructive_reason('storage_v1_object_destroy', {'path_params': {'object_path': 'priv/a.txt'}})
         )
+
+
+class LockTests(TransactionTestCase):
+    """Two gated calls on separate connections. Postgres only: SQLite ignores FOR UPDATE."""
+
+    def setUp(self):
+        if connection.vendor != 'postgresql':
+            self.skipTest('SQLite ignores FOR UPDATE')
+        self.helper = VisibilityTests('folder')
+        self.helper.bucket = self.bucket = ensure_company_bucket(company_id=COMPANY)
+        self.helper.agent = StoragePrincipal(user_id=7, company_id=COMPANY)
+        self.helper.member = StoragePrincipal(user_id=99, company_id=COMPANY)
+
+    def test_the_second_call_waits_for_the_first_and_is_judged_on_what_it_did(self):
+        """A moves x/'s marker away while B moves a private file into x/. B must ask."""
+        h = self.helper
+        h.folder('priv')
+        h.upload('priv/s.txt')
+        h.folder('x')
+        locked, timeline = threading.Event(), {}
+
+        def first():
+            try:
+                def slow_move():
+                    locked.set()
+                    time.sleep(0.5)
+                    timeline['a_wrote'] = time.monotonic()
+                    return move_object(
+                        bucket=self.bucket,
+                        source_path=f'x/{FOLDER_PLACEHOLDER_NAME}',
+                        dest_bucket=self.bucket,
+                        dest_path=f'y/{FOLDER_PLACEHOLDER_NAME}',
+                    )
+
+                timeline['a'] = checked(MOVE, _args(f'x/{FOLDER_PLACEHOLDER_NAME}', f'y/{FOLDER_PLACEHOLDER_NAME}'), h.agent, slow_move)
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=first)
+        thread.start()
+        self.assertTrue(locked.wait(5))
+        b_ran, b_reason = h.attempt(MOVE, _args('priv/s.txt', 'x/s.txt'))
+        b_done = time.monotonic()
+        thread.join(5)
+        self.assertTrue(timeline['a'][0], timeline['a'])
+        self.assertGreater(b_done, timeline['a_wrote'])
+        self.assertFalse(b_ran)
+        self.assertEqual(b_reason, agent_gate.WIDENS_REASON)
+        self.assertTrue(StorageObject.objects.filter(name='priv/s.txt').exists())
+        self.assertFalse(h.can_read('priv/s.txt'))

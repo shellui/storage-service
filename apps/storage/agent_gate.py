@@ -14,6 +14,7 @@ interleave with. If access widened, the transaction rolls back and nothing was w
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from time import monotonic
 from typing import Any, Callable
@@ -55,6 +56,10 @@ WIDENS_REASON = 'This would let more people read a file or folder than can read 
 MARKER_REASON = (
     "This moves or removes a folder's marker, which is what keeps the folder private, "
     'so the files left in that folder would become readable by more people.'
+)
+MARKER_LANDS_REASON = (
+    'This puts a folder marker on a folder that already holds files, so those files would take '
+    "the marker's access and could become readable by more people."
 )
 TOO_MANY_REASON = 'Too many files are affected to check who can read them afterwards (the limit is {n}).'
 BUDGET_REASON = 'Checking who could read the result took more work than the limit allows.'
@@ -185,11 +190,13 @@ def _is_marker(name: str) -> bool:
     return name.rsplit('/', 1)[-1] == FOLDER_PLACEHOLDER_NAME
 
 
-def _affected(operation_id: str, arguments: dict[str, Any], company_id: int) -> tuple[dict[Any, Any], bool]:
-    """Ids of the objects the call changes, and whether it moves a folder marker.
+def _affected(operation_id: str, arguments: dict[str, Any], company_id: int) -> tuple[dict[Any, Any], dict[Any, str]]:
+    """Ids of the objects the call changes, and why each one would ask if it widened.
 
-    That is the source object, every object under a renamed prefix, and every object left in
-    a folder whose marker moves (the marker is what makes that folder private).
+    That is the source object, every object under a renamed prefix, every object left in a
+    folder whose marker moves (the marker is what makes that folder private), and every object
+    already in a folder a marker lands on (those files take the marker's grants). A marker at
+    the bucket root covers the whole bucket, so it is not skipped.
     """
     body = arguments.get('body') if isinstance(arguments.get('body'), dict) else {}
     if operation_id == FOLDER_RENAME:
@@ -211,17 +218,42 @@ def _affected(operation_id: str, arguments: dict[str, Any], company_id: int) -> 
             raise _Ask(UNRESOLVED_REASON)
         objs = [src_obj]
 
+    moves_marker = operation_id != OBJECT_COPY and any(_is_marker(o.name) for o in objs)
     affected = {o.pk: o.pk for o in objs}
-    moves_marker = False
-    if operation_id != OBJECT_COPY:
+    reasons = {o.pk: MARKER_REASON if moves_marker else WIDENS_REASON for o in objs}
+
+    def add(found, reason: str) -> None:
+        for o in found[: MAX_OBJECTS + 1]:
+            if o.pk not in affected:
+                affected[o.pk] = o.pk
+                reasons[o.pk] = reason
+
+    if moves_marker:
         for o in objs:
-            if _is_marker(o.name) and folder_path_from_placeholder(o.name):
-                moves_marker = True
-                for left in objects_under_prefix(bucket, folder_path_from_placeholder(o.name))[: MAX_OBJECTS + 1]:
-                    affected.setdefault(left.pk, left.pk)
+            if _is_marker(o.name):
+                add(objects_under_prefix(bucket, folder_path_from_placeholder(o.name)), MARKER_REASON)
+    if operation_id != FOLDER_RENAME:
+        dest_bucket_name, dest_name = _split(body.get('destinationKey') or body.get('to'))
+        if _is_marker(dest_name):
+            dest_bucket = _bucket(company_id, dest_bucket_name)
+            add(objects_under_prefix(dest_bucket, folder_path_from_placeholder(dest_name)), MARKER_LANDS_REASON)
     if len(affected) > MAX_OBJECTS:
         raise _Ask(TOO_MANY_REASON.format(n=MAX_OBJECTS))
-    return affected, moves_marker
+    return affected, reasons
+
+
+def _failed(result: Any) -> bool:
+    """Whether ``run()`` answered with an error: an HTTP error status, or an MCP error result."""
+    if getattr(result, 'status_code', 200) >= 400:
+        return True
+    content = getattr(result, 'content', None)
+    if content is None:
+        return False
+    try:
+        payload = json.loads(content)
+    except (TypeError, ValueError):
+        return True
+    return not isinstance(payload, dict) or bool(payload.get('error') or (payload.get('result') or {}).get('isError'))
 
 
 def checked(
@@ -241,7 +273,11 @@ def checked(
     roll back if anyone gained read access. Only the grants that apply to an object are
     evaluated, for a plain member, a company owner, the caller's creator and the people those
     grants name. More than ``MAX_OBJECTS`` objects, or more work than ``MAX_EVALUATIONS`` or
-    ``MAX_SECONDS`` allows, asks.
+    ``MAX_SECONDS`` allows, asks. An error answer from ``run()`` rolls back too.
+
+    A call a person approved does not come through here: it runs outside this lock and this
+    check on purpose, because the approval is for that exact call (single use, bound to the
+    arguments) and there is nothing left to compare. The service still takes the lock itself.
     """
     company_id = getattr(principal, 'company_id', None)
     if company_id is None:
@@ -252,7 +288,7 @@ def checked(
     try:
         with transaction.atomic():
             lock_company_buckets(company_id)
-            before_ids, moves_marker = _affected(operation_id, arguments, company_id)
+            before_ids, reasons = _affected(operation_id, arguments, company_id)
             reader = _Reader(company_id, owner_id)
             objs, index = reader.snapshot(before_ids)
             before: dict[Any, dict[int, bool]] = {}
@@ -270,16 +306,16 @@ def checked(
                 done = True
                 ids = new_ids if new_ids is not None else before_ids
                 try:
-                    new_objs, new_index = reader.snapshot({k: ids[k] for k in before_ids})
+                    new_objs, new_index = reader.snapshot({k: ids.get(k, oid) for k, oid in before_ids.items()})
                     for key in before_ids:
-                        obj = new_objs[ids[key]]
+                        obj = new_objs[ids.get(key, before_ids[key])]
                         matching = new_index.for_object(obj.bucket_id, obj.name, str(obj.pk))
                         users = set(reader.standard) | before_named[key] | _named_users(matching)
                         now = reader.readers(obj, matching, users)
                         baseline = before[key]
                         for uid, can in now.items():
                             if can and not baseline.get(uid, baseline[_PLAIN_MEMBER_ID]):
-                                raise write_guard.WriteWouldWiden(MARKER_REASON if moves_marker else WIDENS_REASON)
+                                raise write_guard.WriteWouldWiden(reasons[key])
                 except _Ask as ask:
                     raise write_guard.WriteWouldWiden(ask.reason) from ask
 
@@ -288,7 +324,14 @@ def checked(
                 result = run()
             finally:
                 write_guard.deactivate(token)
-            if not done and operation_id != OBJECT_COPY and getattr(result, 'status_code', 200) < 400:
+            if _failed(result):
+                # An error answer keeps nothing, even if rows were written before it.
+                transaction.set_rollback(True)
+            elif not done:
+                # The service did not call the check. A move or rename is checked now. A copy's
+                # new row cannot be found from here, so it asks.
+                if operation_id == OBJECT_COPY:
+                    raise _Ask(UNRESOLVED_REASON)
                 after(None)
             return True, result
     except write_guard.WriteWouldWiden as widen:

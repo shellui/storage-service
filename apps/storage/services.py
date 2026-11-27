@@ -40,8 +40,8 @@ class StorageError(Exception):
         self.code = code
 
 
-def _save_blob(storage_key: str, data: bytes) -> None:
-    """Write ``data`` at ``storage_key``, replacing any previous bytes.
+def _save_blob(storage_key: str, data: bytes | File) -> None:
+    """Write ``data`` (bytes, or a file that is streamed) at ``storage_key``, replacing any previous bytes.
 
     Django's filesystem backend refuses to overwrite (``allow_overwrite`` defaults
     off) and stores the new bytes under a different name. Callers keep the original
@@ -50,7 +50,7 @@ def _save_blob(storage_key: str, data: bytes) -> None:
     try:
         if default_storage.exists(storage_key):
             default_storage.delete(storage_key)
-        default_storage.save(storage_key, ContentFile(data))
+        default_storage.save(storage_key, data if isinstance(data, File) else ContentFile(data))
     except Exception as exc:
         raise _blob_write_error(exc) from exc
 
@@ -873,6 +873,12 @@ def lock_company_buckets(company_id: int) -> None:
 
     Moves, copies and renames take this first, so two of them cannot interleave. The agent
     gate holds the same lock while it compares who can read before and after.
+
+    Other writes do not take it, on purpose. A person editing grants is the access decision
+    itself, not something the gate judges. An upload adds one object: a file takes the grants
+    already in place, and a folder marker copies its parent folder's grants or is made private
+    to its creator. Deleting a folder marker always asks an agent for approval, and a person
+    deleting one decides that themselves.
     """
     list(Bucket.objects.select_for_update().filter(company_id=company_id).order_by('pk').values_list('pk', flat=True))
 
@@ -1044,8 +1050,7 @@ def copy_object(
     # The decision comes before any blob is touched: a refused copy leaves nothing in S3.
     write_guard.after_write({src.pk: obj.pk})
     with default_storage.open(src.storage_key, 'rb') as fh:
-        data = fh.read()
-    _save_blob(storage_key, data)
+        _save_blob(storage_key, fh)
     storage_object_uploaded.send(
         sender=StorageObject,
         instance=obj,

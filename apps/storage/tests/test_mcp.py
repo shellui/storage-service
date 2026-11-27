@@ -941,6 +941,58 @@ class McpEndpointTests(TestCase):
         for name in ('priv/s.txt', 'x/s.txt'):
             self.assertFalse(can_access_path(member, bucket, name), name)
 
+    def test_a_marker_moved_onto_a_folder_that_holds_files_needs_approval_through_mcp(self):
+        """Reed's repros: a moved marker must not hand its access to the files already in the folder."""
+        import io
+
+        from apps.authapi.principal import StoragePrincipal
+        from apps.storage.access import can_access_path
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.storage.services import upload_object
+
+        bucket = self._visibility_fixture()
+        upload_object(
+            bucket=bucket, path='priv/inbox/report.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        common = {'company_id': 10, 'bucket': bucket, 'resource_type': StorageAccessGrant.ResourceType.FOLDER}
+        # The agent can write both markers: open/ is writable by the company, with-bob/ is 7's, shared with 9.
+        for folder, grants in (
+            ('open', [('company', '10', 'write')]),
+            ('with-bob', [('user', '7', 'admin'), ('user', '9', 'read')]),
+        ):
+            marker = StorageObject.objects.create(
+                bucket=bucket,
+                company_id=10,
+                name=f'{folder}/{FOLDER_PLACEHOLDER_NAME}',
+                size=0,
+                mime_type='application/x-directory',
+                storage_key=f'k/{folder}',
+            )
+            for subject_type, subject_id, permission in grants:
+                StorageAccessGrant.objects.create(
+                    object=marker,
+                    subject_type=subject_type,
+                    subject_id=subject_id,
+                    permission=permission,
+                    effect='allow',
+                    **common,
+                )
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        for folder, reader in (('open', 99), ('with-bob', 9)):
+            with self.subTest(folder=folder):
+                response = self._full_access_call(
+                    'storage_v1_object_move_create',
+                    body={
+                        'sourceKey': key(f'{folder}/{FOLDER_PLACEHOLDER_NAME}'),
+                        'destinationKey': key(f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}'),
+                    },
+                )
+                self._assert_needs_approval(response)
+                self.assertIn('already holds files', self._result_text(response))
+                self.assertTrue(StorageObject.objects.filter(bucket=bucket, name=f'{folder}/{FOLDER_PLACEHOLDER_NAME}').exists())
+                person = StoragePrincipal(user_id=reader, company_id=10)
+                self.assertFalse(can_access_path(person, bucket, 'priv/inbox/report.txt'))
+
     def test_copy_onto_an_existing_key_is_a_400_and_not_a_500(self):
         from apps.storage.models import StorageObject
 

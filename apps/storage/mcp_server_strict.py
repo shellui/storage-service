@@ -639,6 +639,8 @@ class StrictMcpServer:
                 )
             )
 
+        # An approved move, copy or rename runs here, outside agent_gate.checked and its lock, on
+        # purpose: the approval is single use and bound to these exact arguments.
         return run_inner()
 
     @staticmethod
