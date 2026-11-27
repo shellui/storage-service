@@ -419,7 +419,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -474,7 +475,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -545,7 +547,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -603,7 +606,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -639,7 +643,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -675,7 +680,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -717,7 +723,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -773,7 +780,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -855,7 +863,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -911,7 +920,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -947,7 +957,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -983,7 +994,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -1022,7 +1034,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -1073,7 +1086,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -1120,7 +1134,8 @@
           "prefix"
         ],
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -1161,7 +1176,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -1197,7 +1213,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1236,7 +1253,8 @@
           "scope"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1278,7 +1296,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1306,7 +1325,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1342,7 +1362,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1378,7 +1399,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1417,7 +1439,8 @@
           "download"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1462,7 +1485,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1500,7 +1524,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1543,7 +1568,8 @@
           "prefix"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1586,7 +1612,8 @@
           "download"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1629,7 +1656,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1657,7 +1685,8 @@
           "days"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1695,7 +1724,8 @@
           "resource_type"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1757,7 +1787,8 @@
           "status"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1834,7 +1865,8 @@
           "user_id"
         ],
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1894,7 +1926,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1920,7 +1953,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1946,7 +1980,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1972,7 +2007,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -1998,7 +2034,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2027,7 +2064,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": true
+        "read_only": true,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2071,7 +2109,8 @@
         "path_params": [],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2121,7 +2160,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -2191,7 +2231,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2244,7 +2285,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2294,7 +2336,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2339,7 +2382,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -2376,7 +2420,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -2412,7 +2457,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -2452,7 +2498,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -2505,7 +2552,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
@@ -2567,7 +2615,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": false,
@@ -2640,7 +2689,8 @@
         ],
         "query_fields": null,
         "query_required": null,
-        "read_only": false
+        "read_only": false,
+        "destinations_declared": true
       },
       "annotations": {
         "destructiveHint": true,
