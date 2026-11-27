@@ -8,7 +8,7 @@ The entrypoint starts as root, prepares `/app/data`, and runs the app as `appuse
 
 | Item | Value |
 | --- | --- |
-| Base | `python:3.15-slim` |
+| Base | `python:3.14-slim` |
 | Listen port | `8000` |
 | Entrypoint | `/app/tools/docker-entrypoint.sh` |
 | App processes | `appuser` |
