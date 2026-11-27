@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import os
+import tempfile
 import uuid
+from collections.abc import Callable
 from typing import BinaryIO
 
 from django.conf import settings
@@ -11,8 +16,9 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 
+from . import write_guard
 from .access import access_summary, path_access_summary
-from .backends import build_storage_key, content_etag, delete_storage_key, is_s3_backend
+from .backends import build_storage_key, delete_storage_key, is_s3_backend
 from .mime import mime_allowed, normalize_mime_type, safe_object_path
 from .models import (
     Bucket,
@@ -24,6 +30,8 @@ from .models import (
 from .quotas import QuotaExceeded, assert_can_store, apply_usage_delta
 from .signals import storage_object_deleted, storage_object_uploaded
 
+logger = logging.getLogger(__name__)
+
 
 class StorageError(Exception):
     def __init__(self, message: str, *, status: int = 400, code: str = 'storage_error'):
@@ -32,8 +40,8 @@ class StorageError(Exception):
         self.code = code
 
 
-def _save_blob(storage_key: str, data: bytes) -> None:
-    """Write ``data`` at ``storage_key``, replacing any previous bytes.
+def _save_blob(storage_key: str, data: bytes | File) -> None:
+    """Write ``data`` (bytes, or a file that is streamed) at ``storage_key``, replacing any previous bytes.
 
     Django's filesystem backend refuses to overwrite (``allow_overwrite`` defaults
     off) and stores the new bytes under a different name. Callers keep the original
@@ -42,7 +50,7 @@ def _save_blob(storage_key: str, data: bytes) -> None:
     try:
         if default_storage.exists(storage_key):
             default_storage.delete(storage_key)
-        default_storage.save(storage_key, ContentFile(data))
+        default_storage.save(storage_key, data if isinstance(data, File) else ContentFile(data))
     except Exception as exc:
         raise _blob_write_error(exc) from exc
 
@@ -256,15 +264,241 @@ def list_objects(
     return combined[offset : offset + limit]
 
 
-def _read_upload_bytes(fileobj: BinaryIO | File, max_bytes: int) -> bytes:
-    data = fileobj.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise StorageError(
-            f'Upload exceeds maximum size of {max_bytes} bytes.',
-            status=413,
-            code='payload_too_large',
-        )
-    return data
+# One chunk in memory while hashing or copying an upload. The object itself
+# is not buffered up to MAX_UPLOAD_BYTES.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+# Multipart bodies include boundaries and fields around the file. A request
+# may declare this many extra bytes and still be read.
+_MULTIPART_CONTENT_LENGTH_SLACK = 1024 * 1024
+
+
+def upload_limit_bytes(bucket: Bucket) -> int:
+    """Smaller of the bucket file size limit and ``MAX_UPLOAD_BYTES``."""
+    limit = bucket.file_size_limit or settings.MAX_UPLOAD_BYTES
+    return min(int(limit), int(settings.MAX_UPLOAD_BYTES))
+
+
+def declared_content_length(request) -> int | None:
+    """HTTP ``Content-Length`` when it is a non-negative integer, else None."""
+    if request is None:
+        return None
+    raw = None
+    meta = getattr(request, 'META', None)
+    if isinstance(meta, dict):
+        raw = meta.get('CONTENT_LENGTH')
+    if raw in (None, ''):
+        headers = getattr(request, 'headers', None)
+        if headers is not None:
+            raw = headers.get('Content-Length')
+    if raw in (None, ''):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if value < 0:
+        return None
+    return value
+
+
+def content_length_exceeds_limit(
+    declared: int | None,
+    max_bytes: int,
+    *,
+    content_type: str | None,
+) -> bool:
+    """True when ``Content-Length`` is already over the cap, before the body is read.
+
+    Multipart requests may be up to 1 MiB over the file cap so form framing
+    does not reject a file that is itself within the limit.
+    """
+    if declared is None:
+        return False
+    media = (content_type or '').split(';', 1)[0].strip().lower()
+    if media.startswith('multipart/'):
+        return declared > max_bytes + _MULTIPART_CONTENT_LENGTH_SLACK
+    return declared > max_bytes
+
+
+def _too_large(max_bytes: int) -> StorageError:
+    return StorageError(
+        f'Upload exceeds maximum size of {max_bytes} bytes.',
+        status=413,
+        code='payload_too_large',
+    )
+
+
+def _request_content_type(request) -> str:
+    if request is None:
+        return ''
+    content_type = getattr(request, 'content_type', None)
+    if content_type:
+        return str(content_type)
+    meta = getattr(request, 'META', None) or {}
+    return str(meta.get('CONTENT_TYPE') or '')
+
+
+def _remaining_length(fileobj) -> int | None:
+    """Byte length from the current position when ``fileobj`` can seek, else None."""
+    tell = getattr(fileobj, 'tell', None)
+    seek = getattr(fileobj, 'seek', None)
+    if not callable(tell) or not callable(seek):
+        return None
+    try:
+        pos = tell()
+        seek(0, os.SEEK_END)
+        end = tell()
+        seek(pos)
+    except Exception:
+        return None
+    if not isinstance(pos, int) or not isinstance(end, int) or end < pos:
+        return None
+    return end - pos
+
+
+def _hash_limited(fileobj: BinaryIO, max_bytes: int) -> tuple[str, int]:
+    """Hash and count ``fileobj`` in chunks. Stop once the cap is passed."""
+    digest = hashlib.md5(usedforsecurity=False)
+    total = 0
+    while total <= max_bytes:
+        chunk = fileobj.read(min(_UPLOAD_CHUNK_BYTES, max_bytes + 1 - total))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise _too_large(max_bytes)
+        digest.update(chunk)
+    return digest.hexdigest(), total
+
+
+def _copy_limited(fileobj: BinaryIO, dest, max_bytes: int) -> tuple[str, int]:
+    """Copy ``fileobj`` to ``dest`` in chunks, hashing as we go."""
+    digest = hashlib.md5(usedforsecurity=False)
+    total = 0
+    while total <= max_bytes:
+        chunk = fileobj.read(min(_UPLOAD_CHUNK_BYTES, max_bytes + 1 - total))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise _too_large(max_bytes)
+        digest.update(chunk)
+        dest.write(chunk)
+    return digest.hexdigest(), total
+
+
+def _as_django_file(fileobj) -> File:
+    if isinstance(fileobj, File):
+        return fileobj
+    return File(fileobj)
+
+
+class _HashingFile(File):
+    """Hash and count the bytes the storage backend actually reads from the source.
+
+    ``seek(start)`` restarts the hash, so a retried read is counted once. Any other seek
+    marks the hash unusable, and the caller then skips the comparison.
+    """
+
+    def __init__(self, file, *, start: int = 0):
+        super().__init__(file)
+        self._start = start
+        self._digest = hashlib.md5(usedforsecurity=False)
+        self.bytes_read = 0
+        self.hash_valid = True
+
+    def read(self, size=-1):
+        chunk = self.file.read(size)
+        if chunk:
+            self._digest.update(chunk)
+            self.bytes_read += len(chunk)
+        return chunk
+
+    def seek(self, offset, whence=os.SEEK_SET):
+        # Django's File.chunks() rewinds with seek(0). The upload starts at ``_start``.
+        if whence == os.SEEK_SET and offset == 0:
+            offset = self._start
+        position = self.file.seek(offset, whence)
+        if whence == os.SEEK_SET and offset == self._start:
+            self._digest = hashlib.md5(usedforsecurity=False)
+            self.bytes_read = 0
+        elif not (whence == os.SEEK_END or offset == self.bytes_read + self._start):
+            self.hash_valid = False
+        return position
+
+    def hexdigest(self) -> str:
+        return self._digest.hexdigest()
+
+
+def _save_stream(storage_key: str, fileobj, *, start: int = 0) -> tuple[str, str, int | None]:
+    """Stream ``fileobj`` to a new blob.
+
+    Returns ``(saved_key, md5 of the bytes the backend read, byte count)``. The hash and
+    count are ``''`` and ``None`` when the backend read the source in a way that cannot be
+    compared. The key must not exist yet: a replace writes a new key and removes the old
+    blob afterwards.
+    """
+    django_file = _HashingFile(fileobj, start=start)
+    try:
+        try:
+            django_file.seek(start)
+        except Exception:
+            pass
+        saved = default_storage.save(storage_key, django_file)
+    except StorageError:
+        raise
+    except Exception as exc:
+        raise _blob_write_error(exc) from exc
+    if not django_file.hash_valid:
+        return saved, '', None
+    return saved, django_file.hexdigest(), django_file.bytes_read
+
+
+def _delete_blob_quietly(key: str | None) -> None:
+    """Remove a blob after a failed write. A failure here must not hide the original error."""
+    if not key:
+        return
+    try:
+        delete_storage_key(key)
+    except Exception:
+        logger.warning('Could not remove an orphaned blob', exc_info=True)
+
+
+def _open_capped_upload(
+    fileobj: BinaryIO | File,
+    max_bytes: int,
+    *,
+    request=None,
+) -> tuple[str, int, BinaryIO, Callable[[], None] | None]:
+    """Return ``(etag, size, source, close)`` without holding the object in memory.
+
+    A declared ``Content-Length`` over the cap is rejected before ``fileobj`` is
+    read, unless the file is seekable and its own length is within the cap
+    (multipart framing, or a body that was already decoded).
+    """
+    remaining = _remaining_length(fileobj)
+    if remaining is None:
+        if content_length_exceeds_limit(
+            declared_content_length(request),
+            max_bytes,
+            content_type=_request_content_type(request),
+        ):
+            raise _too_large(max_bytes)
+        tmp = tempfile.TemporaryFile()
+        try:
+            etag, size = _copy_limited(fileobj, tmp, max_bytes)
+        except Exception:
+            tmp.close()
+            raise
+        tmp.seek(0)
+        return etag, size, tmp, tmp.close
+
+    if remaining > max_bytes:
+        raise _too_large(max_bytes)
+    pos = fileobj.tell()
+    etag, size = _hash_limited(fileobj, max_bytes)
+    fileobj.seek(pos)
+    return etag, size, fileobj, None
 
 
 @transaction.atomic
@@ -294,10 +528,21 @@ def upload_object(
     if existing and not upsert:
         raise StorageError('The resource already exists', status=400, code='resource_already_exists')
 
-    max_bytes = bucket.file_size_limit or settings.MAX_UPLOAD_BYTES
-    max_bytes = min(max_bytes, settings.MAX_UPLOAD_BYTES)
-    data = _read_upload_bytes(fileobj, max_bytes)
-    size = len(data)
+    if not existing and owner_id is not None and int(owner_id) <= 0:
+        from .access import default_private_would_apply, raise_ownerless_private
+
+        # An agent with no creating user cannot own a private file. Refuse before reading the body.
+        if default_private_would_apply(
+            company_id=bucket.company_id, bucket_name=bucket.name, name=object_name
+        ):
+            raise_ownerless_private()
+
+    max_bytes = upload_limit_bytes(bucket)
+    etag, size, source, close_source = _open_capped_upload(
+        fileobj,
+        max_bytes,
+        request=request,
+    )
 
     replacing = existing.size if existing else 0
     try:
@@ -308,69 +553,92 @@ def upload_object(
             replacing_bytes=replacing,
         )
     except QuotaExceeded as exc:
+        if close_source is not None:
+            close_source()
         raise StorageError(str(exc), status=413, code=exc.code) from exc
 
-    etag = content_etag(data)
     meta = dict(metadata or {})
     if cache_control:
         meta['cacheControl'] = cache_control
 
-    if existing:
-        old_key = existing.storage_key
-        _save_blob(old_key, data)
-        delta = size - replacing
-        existing.size = size
-        existing.etag = etag
-        existing.mime_type = mime
-        existing.metadata = meta
-        existing.version += 1
-        existing.updated_at = timezone.now()
-        if owner_id is not None:
-            existing.owner_id = owner_id
-        existing.save()
-        apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=delta)
-        storage_object_uploaded.send(
-            sender=StorageObject,
-            instance=existing,
-            created=False,
-            request=request,
-        )
-        return existing
-
-    object_id = uuid.uuid4()
-    storage_key = build_storage_key(
+    try:
+        source_start = int(source.tell())
+    except Exception:
+        source_start = 0
+    new_id = uuid.uuid4()
+    new_key = build_storage_key(
         company_id=bucket.company_id,
         bucket_name=bucket.name,
         object_name=object_name,
-        object_id=object_id,
+        object_id=new_id,
     )
-    _save_blob(storage_key, data)
-    obj = StorageObject.objects.create(
-        id=object_id,
-        bucket=bucket,
-        name=object_name,
-        company_id=bucket.company_id,
-        owner_id=owner_id,
-        size=size,
-        etag=etag,
-        mime_type=mime,
-        metadata=meta,
-        storage_key=storage_key,
-    )
-    apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=size)
-    from .access import apply_default_private_on_create
+    try:
+        saved_key, saved_etag, saved_size = _save_stream(new_key, source, start=source_start)
+    finally:
+        if close_source is not None:
+            close_source()
+    # From here a failure must remove the blob just written. The old blob stays until
+    # the row points at the new one and the transaction has committed.
+    try:
+        if saved_size is not None and (saved_size != size or saved_etag != etag):
+            raise StorageError(
+                'The upload changed while it was being stored. Try again.',
+                status=409,
+                code='upload_changed',
+            )
+        if existing:
+            old_key = existing.storage_key
+            delta = size - replacing
+            existing.size = size
+            existing.etag = etag
+            existing.mime_type = mime
+            existing.metadata = meta
+            existing.storage_key = saved_key
+            existing.version += 1
+            existing.updated_at = timezone.now()
+            if owner_id is not None and owner_id > 0:
+                existing.owner_id = owner_id
+            existing.save()
+            apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=delta)
+            if old_key and old_key != saved_key:
+                transaction.on_commit(lambda: _delete_blob_quietly(old_key))
+            storage_object_uploaded.send(
+                sender=StorageObject,
+                instance=existing,
+                created=False,
+                request=request,
+            )
+            return existing
 
-    apply_default_private_on_create(
-        instance=obj,
-        user_id=owner_id,
-    )
-    storage_object_uploaded.send(
-        sender=StorageObject,
-        instance=obj,
-        created=True,
-        request=request,
-    )
-    return obj
+        obj = StorageObject.objects.create(
+            id=new_id,
+            bucket=bucket,
+            name=object_name,
+            company_id=bucket.company_id,
+            owner_id=owner_id,
+            size=size,
+            etag=etag,
+            mime_type=mime,
+            metadata=meta,
+            storage_key=saved_key,
+        )
+        apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=size)
+        from .access import apply_default_private_on_create
+
+        apply_default_private_on_create(
+            instance=obj,
+            user_id=owner_id,
+        )
+        storage_object_uploaded.send(
+            sender=StorageObject,
+            instance=obj,
+            created=True,
+            request=request,
+        )
+        return obj
+    except BaseException:
+        _delete_blob_quietly(saved_key)
+        raise
 
 
 def ensure_folder_marker(bucket: Bucket, folder_path: str, *, owner_id: int | None) -> StorageObject:
@@ -600,6 +868,21 @@ def empty_bucket(bucket: Bucket, *, principal, request=None) -> None:
         delete_object(obj, request=request)
 
 
+def lock_company_buckets(company_id: int) -> None:
+    """Serialize visibility-changing writes in one company for the rest of this transaction.
+
+    Moves, copies and renames take this first, so two of them cannot interleave. The agent
+    gate holds the same lock while it compares who can read before and after.
+
+    Other writes do not take it, on purpose. A person editing grants is the access decision
+    itself, not something the gate judges. An upload adds one object: a file takes the grants
+    already in place, and a folder marker copies its parent folder's grants or is made private
+    to its creator. Deleting a folder marker always asks an agent for approval, and a person
+    deleting one decides that themselves.
+    """
+    list(Bucket.objects.select_for_update().filter(company_id=company_id).order_by('pk').values_list('pk', flat=True))
+
+
 @transaction.atomic
 def rename_folder(
     *,
@@ -625,6 +908,7 @@ def rename_folder(
             code='invalid_destination',
         )
 
+    lock_company_buckets(bucket.company_id)
     objs = list(objects_under_prefix(bucket, src).select_for_update().order_by('name'))
     if not objs:
         raise StorageError('Folder not found', status=404, code='folder_not_found')
@@ -657,6 +941,7 @@ def rename_folder(
         obj.save(update_fields=['name', 'updated_at'])
         moved.append(new_name)
 
+    write_guard.after_write()
     grants_updated = StorageAccessGrant.objects.filter(
         object_id__in=[o.pk for o in objs]
     ).count()
@@ -679,6 +964,7 @@ def move_object(
 ) -> StorageObject:
     source_name = safe_object_path(source_path)
     dest_name = safe_object_path(dest_path)
+    lock_company_buckets(bucket.company_id)
     obj = StorageObject.objects.select_for_update().filter(bucket=bucket, name=source_name).first()
     if not obj:
         raise StorageError('Object not found', status=404, code='object_not_found')
@@ -689,6 +975,7 @@ def move_object(
         obj.name = dest_name
         obj.updated_at = timezone.now()
         obj.save(update_fields=['name', 'updated_at'])
+        write_guard.after_write()
         return obj
 
     # Cross-bucket: adjust quotas if companies differ (they shouldn't in our tenancy model).
@@ -700,6 +987,7 @@ def move_object(
     obj.updated_at = timezone.now()
     obj.save(update_fields=['bucket', 'name', 'updated_at'])
     StorageAccessGrant.objects.filter(object=obj).update(bucket=dest_bucket)
+    write_guard.after_write()
     return obj
 
 
@@ -715,6 +1003,7 @@ def copy_object(
 ) -> StorageObject:
     source_name = safe_object_path(source_path)
     dest_name = safe_object_path(dest_path)
+    lock_company_buckets(bucket.company_id)
     src = StorageObject.objects.filter(bucket=bucket, name=source_name).first()
     if not src:
         raise StorageError('Object not found', status=404, code='object_not_found')
@@ -732,9 +1021,6 @@ def copy_object(
     except QuotaExceeded as exc:
         raise StorageError(str(exc), status=413, code=exc.code) from exc
 
-    with default_storage.open(src.storage_key, 'rb') as fh:
-        data = fh.read()
-
     object_id = uuid.uuid4()
     storage_key = build_storage_key(
         company_id=dest_bucket.company_id,
@@ -742,7 +1028,6 @@ def copy_object(
         object_name=dest_name,
         object_id=object_id,
     )
-    _save_blob(storage_key, data)
     obj = StorageObject.objects.create(
         id=object_id,
         bucket=dest_bucket,
@@ -762,6 +1047,10 @@ def copy_object(
         instance=obj,
         user_id=obj.owner_id,
     )
+    # The decision comes before any blob is touched: a refused copy leaves nothing in S3.
+    write_guard.after_write({src.pk: obj.pk})
+    with default_storage.open(src.storage_key, 'rb') as fh:
+        _save_blob(storage_key, fh)
     storage_object_uploaded.send(
         sender=StorageObject,
         instance=obj,

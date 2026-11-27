@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import inspect
 import uuid
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -13,6 +14,7 @@ from django.test import Client, TestCase, override_settings
 from drf_spectacular.generators import SchemaGenerator
 
 from apps.storage.access import COMPANY_BUCKET_NAME
+from apps.storage.models import StorageAccessGrant
 from apps.storage.tests.rs256_helpers import (
     MCP_SIGNING_TEST_SETTINGS,
     generate_test_rsa_jwks,
@@ -21,7 +23,7 @@ from apps.storage.tests.rs256_helpers import (
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
 from apps.storage.mcp_tool_names import apply_published_tool_names
 from shellui_django.mcp.openapi_tools import tools_from_schema
-from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
+from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_FULL, ACCESS_READ_ONLY, decide_write
 
 _AUTH_POST = 'apps.authapi.mcp_authority.requests.post'
 
@@ -35,18 +37,20 @@ def _mcp_host_kwargs() -> dict[str, str]:
     return {'HTTP_HOST': '127.0.0.1'}
 
 
+ASK_WRITE_OPERATION = 'storage_v1_quota_company_update'
+
+
 def _grant_create_call_arguments(tool: dict) -> dict:
-    """Body must include AccessGrantCreate required fields or tools/call is rejected before approval."""
+    """Arguments for a write tool that is not agent-refused (company quota update).
+
+    The name is kept from when this called the grant tool. Agents can no longer create grants.
+    """
     return {
         'path': tool['_meta']['path'],
         'method': tool['_meta']['method'],
         'query': {},
-        'body': {
-            'subject_type': 'user',
-            'subject_id': '7',
-            'resource_type': 'object',
-            'resource_id': 'notes/a.txt',
-        },
+        'path_params': {'company_id': 10},
+        'body': {'max_bytes': 1048576},
     }
 
 
@@ -69,10 +73,12 @@ def _agent_token(
     global_agent_id: str | None = None,
     mcp_authority: str | None = None,
     secret: str = 'test-secret',
+    owner_user_id: int | None = None,
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
     payload = {
         'sub': f'agent:{agent_id}',
+        'token_type': 'access',
         'agent_id': agent_id,
         'company_id': company_id,
         'scope': scope,
@@ -83,6 +89,8 @@ def _agent_token(
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
     }
+    if owner_user_id is not None:
+        payload['owner_user_id'] = owner_user_id
     if not omit_grant_version and grant_version is not None:
         payload['grant_version'] = grant_version
     if global_company_id is not None:
@@ -209,6 +217,7 @@ class McpEndpointTests(TestCase):
         agent_id = str(uuid.uuid4())
         payload = {
             'sub': f'agent:{agent_id}',
+            'token_type': 'access',
             'agent_id': agent_id,
             'company_id': 10,
             'grant_version': 0,
@@ -266,6 +275,7 @@ class McpEndpointTests(TestCase):
         agent_id = str(uuid.uuid4())
         payload = {
             'sub': f'agent:{agent_id}',
+            'token_type': 'access',
             'agent_id': agent_id,
             'company_id': 10,
             'scope': 'storage',
@@ -399,7 +409,7 @@ class McpEndpointTests(TestCase):
         self.assertTrue(decision.needs_approval)
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = apply_published_tool_names(tools_from_schema(schema))
-        tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_access_grant_create')
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
         token = _agent_token(
             mcp_access=ACCESS_ASK,
             grant_version=0,
@@ -452,6 +462,601 @@ class McpEndpointTests(TestCase):
         meta = payload.get('meta') or {}
         self.assertTrue(meta.get('status') == 'pending' or meta.get('approval_id'))
 
+    def _rpc_as_agent(self, method, params=None, *, creator_status=None, approved=False, **token_kwargs):
+        """POST to /mcp as an agent. ``creator_status`` is what Identity's snapshot says."""
+        token = _agent_token(**token_kwargs)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        row = {
+            'agent_id': str(claims['agent_id']),
+            'company_id': int(claims['company_id']),
+            'grant_version': 0,
+        }
+        if creator_status is not None:
+            row['creator_status'] = creator_status
+        body = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}}
+        from django.core.cache import cache
+
+        cache.delete('mcp:revoked_trusted_payload')
+        cache.delete('mcp:revoked_list_trusted')
+        cache.delete('mcp:revoked_verified_claims')
+        with ExitStack() as stack:
+            mock_get = stack.enter_context(patch('apps.storage.mcp_identity.requests.get'))
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(agents=[row]),
+            )
+            if approved:
+
+                def _state(payload, _claims):
+                    payload['approval_id'] = str(uuid.uuid4())
+                    return 'approved'
+
+                stack.enter_context(patch('apps.storage.mcp_views._approval_state_for_mcp', side_effect=_state))
+                stack.enter_context(
+                    patch('apps.storage.mcp_views.consume_approval', return_value=(True, {'approval_id': 'x'}))
+                )
+            return self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+
+    def test_sharing_tools_are_not_listed_for_agents(self):
+        from apps.storage.mcp_server_strict import AGENT_REFUSED_OPERATIONS
+
+        response = self._rpc_as_agent('tools/list', mcp_access=ACCESS_FULL)
+        self.assertEqual(response.status_code, 200, response.content)
+        listed = {
+            str((tool.get('_meta') or {}).get('operationId') or tool['name'])
+            for tool in response.json()['result']['tools']
+        }
+        self.assertTrue(listed)
+        self.assertTrue(AGENT_REFUSED_OPERATIONS.isdisjoint(listed), AGENT_REFUSED_OPERATIONS & listed)
+        # Narrowing and reading sharing stays available.
+        self.assertIn('storage_v1_access_grant_list', listed)
+        self.assertIn('storage_v1_share_link_destroy', listed)
+
+    def test_agent_cannot_call_a_sharing_tool_even_with_full_access(self):
+        from apps.storage.mcp_server_strict import AGENT_REFUSED_OPERATIONS
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        by_op = {t['_meta']['operationId']: t for t in tools}
+        for op in sorted(AGENT_REFUSED_OPERATIONS):
+            response = self._rpc_as_agent(
+                'tools/call',
+                {'name': by_op[op]['name'], 'arguments': {}},
+                mcp_access=ACCESS_FULL,
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            error = response.json().get('error') or {}
+            self.assertEqual(error.get('message'), 'Unknown tool', op)
+        self.assertFalse(StorageAccessGrant.objects.exists())
+
+    def _admin_write(self, **kwargs):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
+        params = {'name': tool['name'], 'arguments': _grant_create_call_arguments(tool)}
+        from apps.storage.access import ensure_company_bucket
+
+        ensure_company_bucket(company_id=10)
+        return self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL, approved=True, **kwargs)
+
+    def test_agent_admin_writes_follow_the_creators_live_role(self):
+        member = self._admin_write(owner_user_id=7, creator_status='member').json()['result']
+        self.assertTrue(member['isError'], member)
+        self.assertIn('permission', json.dumps(member))
+        # No status from Identity (an older Identity, or no row field) is a plain member.
+        no_status = self._admin_write(owner_user_id=7).json()['result']
+        self.assertTrue(no_status['isError'], no_status)
+        self.assertIn('permission', json.dumps(no_status))
+        ownerless = self._admin_write(creator_status='owner').json()['result']
+        self.assertTrue(ownerless['isError'], ownerless)
+        owner = self._admin_write(owner_user_id=7, creator_status='owner').json()['result']
+        self.assertFalse(owner['isError'], owner)
+
+    def test_a_demoted_owner_is_a_member_with_the_same_token(self):
+        # One token, two polls of Identity's snapshot: the role follows the snapshot.
+        token = _agent_token(mcp_access=ACCESS_FULL, owner_user_id=7)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
+        body = {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'tools/call',
+            'params': {'name': tool['name'], 'arguments': _grant_create_call_arguments(tool)},
+        }
+        from apps.storage.access import ensure_company_bucket
+        from django.core.cache import cache
+
+        ensure_company_bucket(company_id=10)
+        results = []
+        for status in ('owner', 'member'):
+            for key in ('mcp:revoked_trusted_payload', 'mcp:revoked_list_trusted', 'mcp:revoked_verified_claims'):
+                cache.delete(key)
+            row = {
+                'agent_id': str(claims['agent_id']),
+                'company_id': 10,
+                'grant_version': 0,
+                'creator_status': status,
+            }
+            with (
+                patch('apps.storage.mcp_identity.requests.get') as mock_get,
+                patch(
+                    'apps.storage.mcp_views._approval_state_for_mcp',
+                    side_effect=lambda payload, _c: payload.update(approval_id=str(uuid.uuid4())) or 'approved',
+                ),
+                patch('apps.storage.mcp_views.consume_approval', return_value=(True, {'approval_id': 'x'})),
+            ):
+                mock_get.return_value = MagicMock(
+                    status_code=200, json=lambda r=row: _signed_revocation_for_tests(agents=[r])
+                )
+                response = self.client.post(
+                    '/mcp',
+                    data=json.dumps(body),
+                    content_type='application/json',
+                    HTTP_AUTHORIZATION=f'Bearer {token}',
+                    **_mcp_host_kwargs(),
+                )
+            results.append(response.json()['result']['isError'])
+        self.assertEqual(results, [False, True])
+
+    def test_an_agent_whose_creator_is_gone_is_refused(self):
+        for method in ('initialize', 'tools/list'):
+            response = self._rpc_as_agent(method, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='gone')
+            self.assertEqual(response.status_code, 401, response.content)
+        for status in ('owner', 'member'):
+            response = self._rpc_as_agent('initialize', mcp_access=ACCESS_FULL, owner_user_id=7, creator_status=status)
+            self.assertEqual(response.status_code, 200, response.content)
+
+    def test_an_agent_listed_as_revoked_by_identity_is_refused_when_its_creator_is_gone(self):
+        # Identity also lists a gone creator's agent in revoked_agent_ids. A service that
+        # reads the list and not the new field refuses it the same way.
+        token = _agent_token(mcp_access=ACCESS_FULL, owner_user_id=7)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        from django.core.cache import cache
+
+        for key in ('mcp:revoked_trusted_payload', 'mcp:revoked_list_trusted', 'mcp:revoked_verified_claims'):
+            cache.delete(key)
+        row = {'agent_id': str(claims['agent_id']), 'company_id': 10, 'grant_version': 0, 'creator_status': 'gone'}
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(agents=[row], revoked=[str(claims['agent_id'])]),
+            )
+            response = self._initialize(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_a_global_token_carrying_owner_claims_is_a_plain_member(self):
+        # A delegated (global) token that carries owner-looking claims never acts as an owner,
+        # even when the snapshot row says "owner".
+        from apps.authapi.agent_tokens import principal_from_agent_claims
+
+        token = _agent_token(
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            global_company_id='18e20f88-286e-46ea-858e-1d75bca615ff',
+            company_binding_version=0,
+        )
+        claims = jwt.decode(token, options={'verify_signature': False})
+        claims['owner_is_company_owner'] = True
+        claims['is_company_owner'] = True
+        claims['user_metadata'] = {'is_company_owner': True}
+        for status in ('owner', 'member', None):
+            principal = principal_from_agent_claims(claims, creator_status=status)
+            self.assertFalse(principal.is_company_owner, status)
+            self.assertFalse(principal.is_staff)
+
+    def _tool_call(self, operation_id: str, *, path_params=None, body=None, query=None, **kwargs):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == operation_id)
+        arguments = {
+            'path': tool['_meta']['path'],
+            'method': tool['_meta']['method'],
+            'query': query or {},
+            'path_params': path_params or {},
+            'body': body or {},
+        }
+        from apps.storage.access import ensure_company_bucket
+
+        ensure_company_bucket(company_id=10)
+        params = {'name': tool['name'], 'arguments': arguments}
+        with (
+            patch('apps.storage.mcp_views._approval_state_for_mcp', return_value=None),
+            patch(
+                'apps.storage.mcp_views.create_approval_request',
+                return_value={'id': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'},
+            ),
+        ):
+            return self._rpc_as_agent('tools/call', params, **kwargs)
+
+    def _assert_needs_approval(self, response):
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn('result', response.json(), response.content)
+        result = response.json()['result']
+        self.assertTrue(result['isError'], result)
+        meta = result.get('meta') or {}
+        self.assertTrue(meta.get('status') == 'pending' or meta.get('approval_id'), result)
+
+    def test_full_access_agent_needs_approval_for_quota_changes(self):
+        for operation, path_params in (
+            ('storage_v1_quota_company_update', {'company_id': 10}),
+            ('storage_v1_quota_company_user_update', {'company_id': 10, 'user_id': 7}),
+        ):
+            with self.subTest(operation=operation):
+                response = self._tool_call(
+                    operation,
+                    path_params=path_params,
+                    body={'max_bytes': 1048576},
+                    mcp_access=ACCESS_FULL,
+                    owner_user_id=7,
+                    creator_status='owner',
+                )
+                self._assert_needs_approval(response)
+
+    def test_full_access_agent_needs_approval_for_an_actions_webhook(self):
+        body = {
+            'name': 'hook',
+            'url': 'https://example.com/hook',
+            'event_type': 'storage.object.uploaded',
+            'enabled': True,
+        }
+        response = self._tool_call(
+            'api_v1_actions_rules_create', body=body, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='owner'
+        )
+        self._assert_needs_approval(response)
+        response = self._tool_call(
+            'api_v1_actions_rules_partial_update',
+            path_params={'id': str(uuid.uuid4())},
+            body={'url': 'https://example.com/other'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='owner',
+        )
+        self._assert_needs_approval(response)
+
+    def test_full_access_agent_needs_approval_to_mount_an_outside_bucket(self):
+        body = {
+            'name': 'outside',
+            'connector_provider': 's3',
+            'credential': 'not-a-real-secret',
+            'connector_settings': {'bucket': 'b'},
+        }
+        response = self._tool_call(
+            'storage_v1_connector_create', body=body, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='owner'
+        )
+        self._assert_needs_approval(response)
+
+    def test_read_only_agent_is_refused_outright_for_these_changes(self):
+        response = self._tool_call(
+            'storage_v1_quota_company_update',
+            path_params={'company_id': 10},
+            body={'max_bytes': 1},
+            mcp_access=ACCESS_READ_ONLY,
+            owner_user_id=7,
+            creator_status='owner',
+        )
+        result = response.json()['result']
+        self.assertTrue(result['isError'])
+        self.assertIn('read only', json.dumps(result))
+        self.assertNotEqual((result.get('meta') or {}).get('status'), 'pending')
+
+    def test_copy_that_shows_a_file_to_more_people_needs_approval(self):
+        import io
+
+        from apps.storage.access import ensure_company_bucket
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.storage.services import upload_object
+
+        bucket = ensure_company_bucket(company_id=10)
+        upload_object(
+            bucket=bucket, path='mine.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        marker = StorageObject.objects.create(
+            bucket=bucket,
+            company_id=10,
+            name=f'team/{FOLDER_PLACEHOLDER_NAME}',
+            size=0,
+            mime_type='application/x-directory',
+            storage_key='k/team',
+        )
+        StorageAccessGrant.objects.create(
+            company_id=10,
+            bucket=bucket,
+            object=marker,
+            resource_type=StorageAccessGrant.ResourceType.FOLDER,
+            subject_type=StorageAccessGrant.SubjectType.COMPANY,
+            subject_id='10',
+            permission=StorageAccessGrant.Permission.WRITE,
+            effect=StorageAccessGrant.Effect.ALLOW,
+        )
+        wider = self._tool_call(
+            'storage_v1_object_copy_create',
+            body={'sourceKey': f'{COMPANY_BUCKET_NAME}/mine.txt', 'destinationKey': f'{COMPANY_BUCKET_NAME}/team/mine.txt'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='member',
+        )
+        self._assert_needs_approval(wider)
+        self.assertFalse(StorageObject.objects.filter(bucket=bucket, name='team/mine.txt').exists())
+        # A copy that stays private to the same person goes through without asking.
+        same = self._tool_call(
+            'storage_v1_object_copy_create',
+            body={'sourceKey': f'{COMPANY_BUCKET_NAME}/mine.txt', 'destinationKey': f'{COMPANY_BUCKET_NAME}/mine-2.txt'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='member',
+        )
+        result = same.json()['result']
+        self.assertFalse(result['isError'], result)
+        self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='mine-2.txt').exists())
+
+    def _visibility_fixture(self):
+        """A private folder of agent 7's, with a file in it that is shared with person 9."""
+        import io
+
+        from apps.storage.access import ensure_company_bucket
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.storage.services import upload_object
+
+        bucket = ensure_company_bucket(company_id=10)
+        marker = StorageObject.objects.create(
+            bucket=bucket,
+            company_id=10,
+            name=f'priv/{FOLDER_PLACEHOLDER_NAME}',
+            size=0,
+            mime_type='application/x-directory',
+            storage_key='k/priv',
+        )
+        common = {'company_id': 10, 'bucket': bucket, 'resource_type': StorageAccessGrant.ResourceType.FOLDER}
+        StorageAccessGrant.objects.create(
+            object=marker, subject_type='company', subject_id='10', permission='read', effect='deny', **common
+        )
+        StorageAccessGrant.objects.create(
+            object=marker, subject_type='user', subject_id='7', permission='admin', effect='allow', **common
+        )
+        shared = upload_object(
+            bucket=bucket, path='priv/s.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        StorageAccessGrant.objects.create(
+            company_id=10,
+            bucket=bucket,
+            object=shared,
+            resource_type=StorageAccessGrant.ResourceType.OBJECT,
+            subject_type='user',
+            subject_id='9',
+            permission='read',
+            effect='allow',
+        )
+        upload_object(
+            bucket=bucket, path='priv/sub/t.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        return bucket
+
+    def _full_access_call(self, operation_id, **kwargs):
+        return self._tool_call(operation_id, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='member', **kwargs)
+
+    def test_a_move_that_exposes_a_private_file_needs_approval_through_mcp(self):
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+
+        bucket = self._visibility_fixture()
+        names = lambda: sorted(StorageObject.objects.filter(bucket=bucket).values_list('name', flat=True))  # noqa: E731
+        before = names()
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        for source, destination in (
+            ('priv//s.txt', 's.txt'),  # an unnormalized key
+            ('priv/s.txt', 's.txt'),  # a file with its own allow grant, leaving its private folder
+            (f'priv/{FOLDER_PLACEHOLDER_NAME}', f'x/{FOLDER_PLACEHOLDER_NAME}'),  # the folder's marker
+            ('priv/missing.txt', 'missing.txt'),  # a source that is not found
+        ):
+            with self.subTest(source=source):
+                response = self._full_access_call(
+                    'storage_v1_object_move_create',
+                    body={'sourceKey': key(source), 'destinationKey': key(destination)},
+                )
+                self._assert_needs_approval(response)
+                self.assertEqual(before, names())
+
+    def test_a_folder_rename_that_exposes_private_files_needs_approval_through_mcp(self):
+        from apps.storage.models import StorageObject
+
+        bucket = self._visibility_fixture()
+        before = sorted(StorageObject.objects.filter(bucket=bucket).values_list('name', flat=True))
+        response = self._full_access_call(
+            'storage_v1_object_prefix_create',
+            path_params={'bucket_id': COMPANY_BUCKET_NAME},
+            body={'from': 'priv/sub', 'to': 'sub'},
+        )
+        self._assert_needs_approval(response)
+        self.assertEqual(before, sorted(StorageObject.objects.filter(bucket=bucket).values_list('name', flat=True)))
+        # A rename inside the same private folder goes through.
+        inside = self._full_access_call(
+            'storage_v1_object_prefix_create',
+            path_params={'bucket_id': COMPANY_BUCKET_NAME},
+            body={'from': 'priv/sub', 'to': 'priv/sub2'},
+        )
+        self.assertFalse(inside.json()['result']['isError'], inside.content)
+        self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='priv/sub2/t.txt').exists())
+
+    def _result_text(self, response) -> str:
+        return json.dumps(response.json()['result'])
+
+    def test_two_overlapping_calls_never_make_a_private_file_company_readable(self):
+        """Reed's scenario. A moves a file into the private folder x/. B moves x/'s marker away.
+
+        Each is fine against the state the other has not changed yet. Whichever commits second
+        is judged against what the first did, so the file never becomes readable by the company.
+        """
+        from apps.storage import views
+        from apps.storage.access import can_access_path
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.authapi.principal import StoragePrincipal
+
+        bucket = self._visibility_fixture()
+        marker_x = StorageObject.objects.create(
+            bucket=bucket,
+            company_id=10,
+            name=f'x/{FOLDER_PLACEHOLDER_NAME}',
+            size=0,
+            mime_type='application/x-directory',
+            storage_key='k/x',
+        )
+        common = {'company_id': 10, 'bucket': bucket, 'resource_type': StorageAccessGrant.ResourceType.FOLDER}
+        StorageAccessGrant.objects.create(
+            object=marker_x, subject_type='company', subject_id='10', permission='read', effect='deny', **common
+        )
+        StorageAccessGrant.objects.create(
+            object=marker_x, subject_type='user', subject_id='7', permission='admin', effect='allow', **common
+        )
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        a_body = {'sourceKey': key('priv/s.txt'), 'destinationKey': key('x/s.txt')}
+        b_body = {
+            'sourceKey': key(f'x/{FOLDER_PLACEHOLDER_NAME}'),
+            'destinationKey': key(f'y/{FOLDER_PLACEHOLDER_NAME}'),
+        }
+        real_move = views.move_object
+        seen = {}
+
+        def b_runs_while_a_is_in_flight(**kwargs):
+            if kwargs['source_path'] == 'priv/s.txt' and 'b' not in seen:
+                seen['b'] = self._full_access_call('storage_v1_object_move_create', body=b_body)
+            return real_move(**kwargs)
+
+        with patch('apps.storage.views.move_object', side_effect=b_runs_while_a_is_in_flight):
+            a = self._full_access_call('storage_v1_object_move_create', body=a_body)
+
+        # B was checked against a folder x/ that had no files in it: nothing to expose, so it ran.
+        self.assertFalse(seen['b'].json()['result']['isError'], seen['b'].content)
+        # A was judged after B: x/ is no longer private, so A asks, and nothing of A was written.
+        self._assert_needs_approval(a)
+        self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='priv/s.txt').exists())
+        self.assertFalse(StorageObject.objects.filter(bucket=bucket, name='x/s.txt').exists())
+        member = StoragePrincipal(user_id=99, company_id=10)
+        for name in ('priv/s.txt', 'x/s.txt'):
+            self.assertFalse(can_access_path(member, bucket, name), name)
+
+    def test_a_marker_moved_onto_a_folder_that_holds_files_needs_approval_through_mcp(self):
+        """Reed's repros: a moved marker must not hand its access to the files already in the folder."""
+        import io
+
+        from apps.authapi.principal import StoragePrincipal
+        from apps.storage.access import can_access_path
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.storage.services import upload_object
+
+        bucket = self._visibility_fixture()
+        upload_object(
+            bucket=bucket, path='priv/inbox/report.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        common = {'company_id': 10, 'bucket': bucket, 'resource_type': StorageAccessGrant.ResourceType.FOLDER}
+        # The agent can write both markers: open/ is writable by the company, with-bob/ is 7's, shared with 9.
+        for folder, grants in (
+            ('open', [('company', '10', 'write')]),
+            ('with-bob', [('user', '7', 'admin'), ('user', '9', 'read')]),
+        ):
+            marker = StorageObject.objects.create(
+                bucket=bucket,
+                company_id=10,
+                name=f'{folder}/{FOLDER_PLACEHOLDER_NAME}',
+                size=0,
+                mime_type='application/x-directory',
+                storage_key=f'k/{folder}',
+            )
+            for subject_type, subject_id, permission in grants:
+                StorageAccessGrant.objects.create(
+                    object=marker,
+                    subject_type=subject_type,
+                    subject_id=subject_id,
+                    permission=permission,
+                    effect='allow',
+                    **common,
+                )
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        for folder, reader in (('open', 99), ('with-bob', 9)):
+            with self.subTest(folder=folder):
+                response = self._full_access_call(
+                    'storage_v1_object_move_create',
+                    body={
+                        'sourceKey': key(f'{folder}/{FOLDER_PLACEHOLDER_NAME}'),
+                        'destinationKey': key(f'priv/inbox/{FOLDER_PLACEHOLDER_NAME}'),
+                    },
+                )
+                self._assert_needs_approval(response)
+                self.assertIn('already holds files', self._result_text(response))
+                self.assertTrue(StorageObject.objects.filter(bucket=bucket, name=f'{folder}/{FOLDER_PLACEHOLDER_NAME}').exists())
+                person = StoragePrincipal(user_id=reader, company_id=10)
+                self.assertFalse(can_access_path(person, bucket, 'priv/inbox/report.txt'))
+
+    def test_copy_onto_an_existing_key_is_a_400_and_not_a_500(self):
+        from apps.storage.models import StorageObject
+
+        bucket = self._visibility_fixture()
+        before = StorageObject.objects.filter(bucket=bucket).count()
+        response = self._full_access_call(
+            'storage_v1_object_copy_create',
+            body={
+                'sourceKey': f'{COMPANY_BUCKET_NAME}/priv/s.txt',
+                'destinationKey': f'{COMPANY_BUCKET_NAME}/priv/sub/t.txt',
+            },
+        )
+        result = response.json()['result']
+        self.assertTrue(result['isError'], result)
+        self.assertIn('already exists', json.dumps(result).lower())
+        self.assertEqual(StorageObject.objects.filter(bucket=bucket).count(), before)
+
+    def test_the_prompt_says_why_for_the_cap_and_for_a_folder_marker(self):
+        from apps.storage import agent_gate
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME
+
+        self._visibility_fixture()
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        with patch.object(agent_gate, 'MAX_OBJECTS', 1):
+            capped = self._full_access_call(
+                'storage_v1_object_prefix_create',
+                path_params={'bucket_id': COMPANY_BUCKET_NAME},
+                body={'from': 'priv', 'to': 'priv2'},
+            )
+        self._assert_needs_approval(capped)
+        self.assertIn('limit is 1', self._result_text(capped))
+        moved = self._full_access_call(
+            'storage_v1_object_move_create',
+            body={
+                'sourceKey': key(f'priv/{FOLDER_PLACEHOLDER_NAME}'),
+                'destinationKey': key(f'gone/{FOLDER_PLACEHOLDER_NAME}'),
+            },
+        )
+        self._assert_needs_approval(moved)
+        self.assertIn('marker', self._result_text(moved))
+        deleted = self._tool_call(
+            'storage_v1_object_destroy',
+            path_params={'bucket_id': COMPANY_BUCKET_NAME, 'object_path': f'priv/{FOLDER_PLACEHOLDER_NAME}'},
+            mcp_access=ACCESS_FULL,
+            owner_user_id=7,
+            creator_status='member',
+        )
+        self._assert_needs_approval(deleted)
+        self.assertIn('marker', self._result_text(deleted))
+
+    def test_mcp_refuses_the_scheduled_job_routes(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        names = {t['name'] for t in tools}
+        listed_paths = {str((t.get('_meta') or {}).get('path') or '') for t in tools}
+        self.assertFalse(any('scheduled-job' in path for path in listed_paths), listed_paths)
+        response = self._rpc_as_agent(
+            'tools/call',
+            {'name': 'storage_list_scheduled_jobs', 'arguments': {}},
+            mcp_access=ACCESS_FULL,
+        )
+        self.assertEqual((response.json().get('error') or {}).get('message'), 'Unknown tool')
+        self.assertNotIn('storage_list_scheduled_jobs', names)
+
     def test_wrong_service_scope_forbidden(self):
         token = _agent_token(scope='email')
         response = self.client.post(
@@ -472,7 +1077,7 @@ class McpEndpointTests(TestCase):
     def test_ask_approval_create_pending_approve_consume_reuse_revoke(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = apply_published_tool_names(tools_from_schema(schema))
-        tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_access_grant_create')
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
         agent_id = str(uuid.uuid4())
         company_id = 10
         appr_id = str(uuid.uuid4())

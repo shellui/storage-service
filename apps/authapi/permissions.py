@@ -1,12 +1,21 @@
 from rest_framework.permissions import BasePermission
 
+from apps.authapi.agent_tokens import is_agent_principal
+
 
 class IsAuthenticatedPrincipal(BasePermission):
-    """Require a StoragePrincipal from IdentityJWKSAuthentication."""
+    """Require a StoragePrincipal from IdentityJWKSAuthentication.
+
+    Views with ``global_refused = True`` reject MCP agent callers.
+    """
 
     def has_permission(self, request, view):
         user = request.user
-        return bool(user and getattr(user, 'is_authenticated', False))
+        if not (user and getattr(user, 'is_authenticated', False)):
+            return False
+        if getattr(view, 'global_refused', False) and is_agent_principal(user):
+            return False
+        return True
 
 
 class IsStaffOrCompanyOwner(BasePermission):

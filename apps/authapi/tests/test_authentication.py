@@ -36,6 +36,7 @@ class ExpiredTokenAuthenticationTests(SimpleTestCase):
         return jwt.encode(
             {
                 'sub': '1',
+                'token_type': 'access',
                 'user_id': 1,
                 'company_id': 10,
                 'email': 'user@example.com',
@@ -62,6 +63,7 @@ class ExpiredTokenAuthenticationTests(SimpleTestCase):
         raw = jwt.encode(
             {
                 'sub': '1',
+                'token_type': 'access',
                 'user_id': 1,
                 'company_id': 10,
                 'email': 'user@example.com',
@@ -80,6 +82,7 @@ class ExpiredTokenAuthenticationTests(SimpleTestCase):
         raw = jwt.encode(
             {
                 'sub': '1',
+                'token_type': 'access',
                 'user_id': 1,
                 'company_id': 10,
                 'email': 'user@example.com',
@@ -122,6 +125,7 @@ class ExpiredTokenAuthenticationTests(SimpleTestCase):
         raw = jwt.encode(
             {
                 'sub': '1',
+                'token_type': 'access',
                 'user_id': 1,
                 'company_id': 10,
                 'exp': 2**31 - 1,

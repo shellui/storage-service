@@ -80,7 +80,8 @@ jobs:
         run: uv run python manage.py test --verbosity=1
 
       # SQLite ignores FOR UPDATE, so this job's Postgres service runs the
-      # nullable action_rule lock regression on its own.
+      # lock regressions on their own: the nullable action_rule claim, and two
+      # agent moves on separate connections waiting on the company lock.
       - name: Postgres regression (FOR UPDATE)
         env:
           POSTGRES_DATABASE_URL: postgres://storage:storage@localhost:5432/storage
@@ -88,6 +89,7 @@ jobs:
         run: >-
           uv run python manage.py test
           apps.actions.tests.test_actions.RetryCommandTests.test_claim_email_row_without_action_rule_on_postgres
+          apps.storage.tests.test_agent_gate.LockTests
           --verbosity=1
 
   security:

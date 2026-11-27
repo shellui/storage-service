@@ -20,16 +20,27 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
+### 🔒 Security
+
+- Agent access tokens are accepted only on `POST /mcp`, and only when `token_type` is `access`. Every other route returns 401 for them, including WebDAV and the scheduled-job routes. `/mcp` does not list or run the scheduled-job routes (`global_refused`).
+- A personal agent acts as its creator, with the creator's file access and live company role. The role is read from the `creator_status` field of Identity's signed revocation snapshot (polled every 30 seconds), not from the token, so a demotion applies within that window. If the creator has left the company (`gone`) the agent is refused with 401. No `creator_status` (an older Identity) means a plain member, never an owner. Global and delegated tokens have no creator at all: they are user `0` and plain members, so they never read their creator's private files, and any role-looking claim on them is ignored. It never gains staff status. User `0` means no user: it never matches a private file or a user grant. An agent with no creator can use only company-visible files and cannot upload a private file (403 `agent_has_no_owner`).
+- Agents cannot create or delete access grants or create share links. Those tools are not listed on `/mcp` and calling one returns "Unknown tool". Revoking a share link stays available.
+- Signed URLs for private objects are always signed against the S3 endpoint. `AWS_S3_CUSTOM_DOMAIN` is no longer used for them, so an unsigned CDN URL can no longer replace a signed, expiring one.
+- A replaced file is written to a new key first. The old bytes are deleted only after the new file is saved and the database write succeeds. The checksum is computed on the same stream that is saved, and an orphan blob is removed when the database write fails.
+- S3 signed URLs set `ResponseContentDisposition` and `ResponseContentType`. HTML, SVG, XML, scripts, and other active types are attachments with a safe content type. Raster images other than SVG, PDF, plain text, audio, and video stay inline.
+- Uploads stream to storage in 1 MiB chunks. `Content-Length` above the cap is rejected before the body is read. The cap is the lower of the bucket `file_size_limit` and `MAX_UPLOAD_BYTES` (default 5 GiB). Multipart form uploads may declare up to 1 MiB above that cap for form framing.
+- Django 6.1.3 includes the Django security releases of October and November 2026, among them a fix for memory use when parsing large multipart uploads.
+
 ### 🚨 Changed
 
 - `shellui-django` 0.8.0 with Django 6.1.3, Django REST framework 3.18.3 and drf-spectacular 0.30.0. The shellui-django pins are exact, so these move together.
 - gunicorn 27.0.1. A request whose `Transfer-Encoding` does not end with `chunked` (for example `identity` alone) now gets HTTP 400. No gunicorn setting changed.
+- Connector writes, quota changes, and Shellui Actions admin calls from an agent follow its creator's live role. An agent whose creator is a company owner has owner access, and any other agent gets 403. A human company-owner JWT is unchanged.
+- An agent now needs a person's approval, in every access mode including `full`, to: create or update an Actions webhook, change any quota, mount an outside bucket (create a connector, which carries credentials), and move, copy or rename a file or folder so that anyone could read something they could not read before (keys are normalized first, folders and their markers are included, files already in a folder that a marker is moved or copied onto are included, and a source or destination that cannot be resolved asks). The check runs after the real write, in the same transaction and under a per-company lock, and rolls back if access widened. An error answer after the write rolls it back too, and a copy whose check did not run asks. It is bounded (300 objects, 3000 access checks, 2.5 seconds) and asks beyond that, with the reason in the prompt. Changing or deleting a connector, deleting a webhook and other destructive calls already needed approval. A read only agent is still refused. The approval is single use and bound to the exact arguments.
+- Deploy notes: `AWS_S3_ENDPOINT_URL` must be a public URL that clients can reach, because private objects are always signed against it (an internal-only endpoint produces signed links nobody can open). A token with no `token_type` is no longer a bearer and now gets 401; refresh and setup tokens are refused the same way. Deploy Identity (#195) first.
+- Deploy note: files that earlier versions stored as user `0` stay in place and become visible to and manageable by company owners and staff. Migration `0008_unowned_agent_files` labels them, and `manage.py reassign_unowned_files --company N --user M [--prefix P] [--dry-run]` gives them to a person. See [MCP agents](docs/mcp.md#upgrading-files-stored-as-user-0). Deploy Identity (#195) first: it adds `creator_status` to the revocation snapshot. Storage on an older Identity treats every agent as a plain member.
 - Django 6.1 requires PostgreSQL 15 or newer, and drops 14. Check the database of any deployment before upgrading. CI runs PostgreSQL 18.
 - drf-spectacular 0.30 describes blank URL and slug fields as `oneOf` (the field's format or an empty string) in the OpenAPI schema. Generated clients and the published schema see that change. The API itself does not change.
-
-### 🔒 Security
-
-- Django 6.1.3 includes the Django security releases of October and November 2026, among them a fix for memory use when parsing large multipart uploads.
 
 ### 🏗 Chore
 

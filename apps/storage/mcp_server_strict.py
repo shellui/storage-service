@@ -22,8 +22,9 @@ from shellui_django.mcp.routing import (
     path_parameter_names,
     validate_mcp_tool_arguments,
 )
-from shellui_django.mcp.write_gate import decide_write, is_destructive_operation
+from shellui_django.mcp.write_gate import WriteGateDecision, decide_write, is_destructive_operation
 
+from apps.storage import agent_gate
 from apps.storage.mcp_tool_schema import coerce_mcp_call_arguments, published_mcp_tools
 from apps.storage.mcp_assertions import parse_grant_version
 from apps.storage.mcp_identity import (
@@ -33,6 +34,27 @@ from apps.storage.mcp_identity import (
     identity_token_ok,
     _published_registry_operation_matches,
 )
+
+# An agent never creates, widens or removes sharing. These tools are not listed and a
+# call to one is "Unknown tool". Narrowing tools (revoke a share link) stay available.
+AGENT_REFUSED_OPERATIONS = frozenset(
+    {
+        'storage_v1_access_grant_create',
+        'storage_v1_access_grant_destroy',
+        'storage_v1_share_create',
+    }
+)
+
+
+def agent_visible_tools(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    visible = []
+    for tool in published_mcp_tools(schema):
+        meta = tool.get('_meta') if isinstance(tool.get('_meta'), dict) else {}
+        if str(meta.get('operationId') or tool.get('name') or '') in AGENT_REFUSED_OPERATIONS:
+            continue
+        visible.append(tool)
+    return visible
+
 
 _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
 
@@ -355,7 +377,7 @@ class StrictMcpServer:
             return JsonResponse(self._result(req_id, {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}}))
         if method == 'tools/list':
             schema = self.schema_provider()
-            tools = [public_mcp_tool(t) for t in published_mcp_tools(schema)]
+            tools = [public_mcp_tool(t) for t in agent_visible_tools(schema)]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
             return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
@@ -375,7 +397,7 @@ class StrictMcpServer:
         if raw_arguments is None:
             raw_arguments = {}
         schema = self.schema_provider()
-        tools = published_mcp_tools(schema)
+        tools = agent_visible_tools(schema)
         tool = next((t for t in tools if t['name'] == tool_name), None)
         if tool is None:
             return JsonResponse(self._error(req_id, -32602, 'Unknown tool'))
@@ -412,6 +434,81 @@ class StrictMcpServer:
             allow_destructive_without_asking=bool(agent_claims.get('mcp_destructive')),
             tool_read_only=tool_read_only,
         )
+
+        def run_inner() -> JsonResponse:
+            inner_kwargs: dict[str, Any] = {
+                'query_params': arguments.get('query') or {},
+                'HTTP_AUTHORIZATION': request.META.get('HTTP_AUTHORIZATION', ''),
+            }
+            if method not in _BODYLESS_METHODS:
+                body = arguments.get('body')
+                if body is None:
+                    body = {}
+                if not isinstance(body, dict):
+                    return JsonResponse(self._error(req_id, -32602, 'body must be an object.'))
+                # APIRequestFactory.generic stringifies a dict. Views need JSON bytes.
+                inner_kwargs['data'] = json.dumps(body).encode('utf-8')
+                inner_kwargs['content_type'] = 'application/json'
+            drf_request = self._factory.generic(method, resolved_path, **inner_kwargs)
+            self._attach_request_principal(drf_request, request, agent_claims)
+            from django.urls import resolve
+
+            match = resolve(resolved_path, urlconf=self.urlconf)
+            view_cls = getattr(match.func, 'view_class', None)
+            if view_cls is not None and getattr(view_cls, 'global_refused', False):
+                return JsonResponse(
+                    self._result(
+                        req_id,
+                        {'content': [{'type': 'text', 'text': 'Forbidden'}], 'isError': True},
+                    )
+                )
+            response = match.func(drf_request, *match.args, **match.kwargs)
+            status_code = getattr(response, 'status_code', 500)
+            if hasattr(response, 'data'):
+                data = response.data  # type: ignore[attr-defined]
+            else:
+                data = _binary_mcp_payload(response)
+            eff_status = _inner_response_effective_status(status_code=status_code, data=data)
+            read_sensitive = read_level == 'sensitive'
+            if registry_op_id == 'storage_v1_stats_retrieve':
+                data = _redact_stats_filenames(data, read_sensitive=read_sensitive)
+            payload_for_redact, redact_markers = _response_markers(operation, schema, data)
+            if response_markers and isinstance(data, dict):
+                redact_markers = response_markers
+            redacted = redact_mapping(
+                payload_for_redact,
+                read_sensitive=read_sensitive,
+                markers=redact_markers,
+            )
+            if eff_status < 400:
+                redacted = _reveal_once_secrets(registry_op_id, data if isinstance(data, dict) else None, redacted)
+            return JsonResponse(
+                self._result(
+                    req_id,
+                    {
+                        'content': [{'type': 'text', 'text': json.dumps(redacted, default=_json_default)}],
+                        'isError': eff_status >= 400,
+                    },
+                )
+            )
+
+        gate_reason: str | None = None
+        if decision.allowed and not tool_read_only and method not in _BODYLESS_METHODS:
+            # Some changes need a person's approval from an agent in every access mode.
+            gate_reason = agent_gate.approval_reason_for_agent_call(registry_op_id, arguments)
+            if not gate_reason and registry_op_id in agent_gate.VISIBILITY_OPERATIONS:
+                # A move, copy or rename runs inside the gate. It commits unless it would let
+                # more people read something, and then nothing was written and a person is asked.
+                ran, outcome = agent_gate.checked(registry_op_id, arguments, getattr(request, 'user', None), run_inner)
+                if ran:
+                    return outcome
+                gate_reason = outcome
+            if gate_reason:
+                decision = WriteGateDecision(allowed=False, needs_approval=True, reason=gate_reason)
+        elif decision.needs_approval:
+            gate_reason = agent_gate.destructive_reason(registry_op_id, arguments)
+            if gate_reason:
+                decision = WriteGateDecision(allowed=False, needs_approval=True, reason=gate_reason)
         approval_payload: dict[str, Any] = {}
 
         approval_granted = False
@@ -519,7 +616,9 @@ class StrictMcpServer:
                         self._result(
                             req_id,
                             {
-                                'content': [{'type': 'text', 'text': 'Approval required.'}],
+                                'content': [
+                                    {'type': 'text', 'text': ' '.join(filter(None, ['Approval required.', gate_reason]))}
+                                ],
                                 'isError': True,
                                 'meta': {'approval_id': rid, 'status': 'pending'},
                             },
@@ -540,53 +639,9 @@ class StrictMcpServer:
                 )
             )
 
-        inner_kwargs: dict[str, Any] = {
-            'query_params': arguments.get('query') or {},
-            'HTTP_AUTHORIZATION': request.META.get('HTTP_AUTHORIZATION', ''),
-        }
-        if method not in _BODYLESS_METHODS:
-            body = arguments.get('body')
-            if body is None:
-                body = {}
-            if not isinstance(body, dict):
-                return JsonResponse(self._error(req_id, -32602, 'body must be an object.'))
-            # APIRequestFactory.generic stringifies a dict. Views need JSON bytes.
-            inner_kwargs['data'] = json.dumps(body).encode('utf-8')
-            inner_kwargs['content_type'] = 'application/json'
-        drf_request = self._factory.generic(method, resolved_path, **inner_kwargs)
-        self._attach_request_principal(drf_request, request, agent_claims)
-        from django.urls import resolve
-
-        match = resolve(resolved_path, urlconf=self.urlconf)
-        response = match.func(drf_request, *match.args, **match.kwargs)
-        status_code = getattr(response, 'status_code', 500)
-        if hasattr(response, 'data'):
-            data = response.data  # type: ignore[attr-defined]
-        else:
-            data = _binary_mcp_payload(response)
-        eff_status = _inner_response_effective_status(status_code=status_code, data=data)
-        read_sensitive = read_level == 'sensitive'
-        if registry_op_id == 'storage_v1_stats_retrieve':
-            data = _redact_stats_filenames(data, read_sensitive=read_sensitive)
-        payload_for_redact, redact_markers = _response_markers(operation, schema, data)
-        if response_markers and isinstance(data, dict):
-            redact_markers = response_markers
-        redacted = redact_mapping(
-            payload_for_redact,
-            read_sensitive=read_sensitive,
-            markers=redact_markers,
-        )
-        if eff_status < 400:
-            redacted = _reveal_once_secrets(registry_op_id, data if isinstance(data, dict) else None, redacted)
-        return JsonResponse(
-            self._result(
-                req_id,
-                {
-                    'content': [{'type': 'text', 'text': json.dumps(redacted, default=_json_default)}],
-                    'isError': eff_status >= 400,
-                },
-            )
-        )
+        # An approved move, copy or rename runs here, outside agent_gate.checked and its lock, on
+        # purpose: the approval is single use and bound to these exact arguments.
+        return run_inner()
 
     @staticmethod
     def _attach_request_principal(

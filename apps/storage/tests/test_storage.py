@@ -40,6 +40,7 @@ def make_token(
 ) -> str:
     payload = {
         'sub': str(user_id),
+        'token_type': 'access',
         'user_id': user_id,
         'company_id': company_id,
         'email': email,
@@ -769,6 +770,7 @@ class StorageAPITests(TestCase):
         expired = jwt.encode(
             {
                 'sub': '1',
+                'token_type': 'access',
                 'user_id': 1,
                 'company_id': 10,
                 'email': 'user@example.com',
@@ -1091,13 +1093,17 @@ class StorageAPITests(TestCase):
         )
         obj = StorageObject.objects.get(name='signed.txt')
 
-        with patch('apps.storage.downloads.default_storage') as mock_storage:
-            mock_storage.url = MagicMock(return_value='https://signed.example/object')
+        with override_settings(STORAGE_BACKEND='s3'), patch('apps.storage.downloads.default_storage') as mock_storage:
+            mock_storage._normalize_name = lambda key: key
+            client = mock_storage.connection.meta.client
+            client.generate_presigned_url = MagicMock(return_value='https://signed.example/object')
             build_signed_url(obj, expires_in=999_999)
-            mock_storage.url.assert_called_once_with(obj.storage_key, expire=3600)
+            self.assertEqual(client.generate_presigned_url.call_args.kwargs['ExpiresIn'], 3600)
 
-        with patch('apps.storage.downloads.default_storage') as mock_storage:
-            mock_storage.url = MagicMock(return_value='https://signed.example/object')
+        with override_settings(STORAGE_BACKEND='s3'), patch('apps.storage.downloads.default_storage') as mock_storage:
+            mock_storage._normalize_name = lambda key: key
+            client = mock_storage.connection.meta.client
+            client.generate_presigned_url = MagicMock(return_value='https://signed.example/object')
             response = self.client.post(
                 f'/storage/v1/object/sign/{COMPANY_BUCKET_NAME}/signed.txt',
                 {'expiresIn': 999_999},
@@ -1106,7 +1112,7 @@ class StorageAPITests(TestCase):
             )
             self.assertEqual(response.status_code, 200)
             self.assertIn('signedURL', response.json())
-            mock_storage.url.assert_called_once_with(obj.storage_key, expire=3600)
+            self.assertEqual(client.generate_presigned_url.call_args.kwargs['ExpiresIn'], 3600)
 
     def test_folder_rename_moves_objects_and_grants(self):
         self.client.post(

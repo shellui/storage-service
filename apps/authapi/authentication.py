@@ -9,6 +9,7 @@ import jwt
 from django.conf import settings
 from rest_framework import authentication, exceptions
 
+from .agent_tokens import is_access_token, is_agent_access_claims
 from .jwks_client import get_jwks_client
 from .principal import StoragePrincipal, principal_from_claims
 
@@ -127,6 +128,14 @@ class IdentityJWKSAuthentication(authentication.BaseAuthentication):
 
     def authenticate_credentials(self, raw_token: str) -> StoragePrincipal:
         claims = self._decode_token(raw_token)
+        # Only ``token_type`` ``access`` is an API bearer. A refresh token, a setup token or
+        # any future type is refused. MCP agent tokens are accepted only by ``POST /mcp``.
+        if not is_access_token(claims) or is_agent_access_claims(claims):
+            logger.info(
+                'Bearer rejected (not an access token, or an agent token). %s',
+                _format_context(_safe_jwt_meta(raw_token)),
+            )
+            raise exceptions.AuthenticationFailed(_GENERIC_TOKEN_DETAIL)
         try:
             return principal_from_claims(claims)
         except ValueError as exc:

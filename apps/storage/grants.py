@@ -10,6 +10,8 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from .access import (
+    assert_not_agent_sharing,
+    principal_has_user,
     COMPANY_BUCKET_NAME,
     assert_can_access_bucket,
     assert_can_access_path,
@@ -99,6 +101,7 @@ def _assert_can_manage_resource(
 
 
 def create_grant(*, principal, data: dict) -> StorageAccessGrant:
+    assert_not_agent_sharing(principal)
     company_id = require_company_id(principal)
     subject_type = str(data.get('subject_type') or '').strip()
     subject_id = str(data.get('subject_id') or '').strip()
@@ -225,15 +228,20 @@ def list_grants(
     if not (
         getattr(principal, 'is_company_owner', False) or getattr(principal, 'is_staff', False)
     ):
-        uid = str(int(principal.user_id))
-        qs = qs.filter(
-            Q(created_by_id=int(principal.user_id))
-            | Q(subject_type=StorageAccessGrant.SubjectType.USER, subject_id=uid)
-            | Q(
-                subject_type=StorageAccessGrant.SubjectType.COMPANY,
-                subject_id=str(company_id),
-            )
+        company_rows = Q(
+            subject_type=StorageAccessGrant.SubjectType.COMPANY,
+            subject_id=str(company_id),
         )
+        if principal_has_user(principal):
+            uid = str(int(principal.user_id))
+            qs = qs.filter(
+                Q(created_by_id=int(principal.user_id))
+                | Q(subject_type=StorageAccessGrant.SubjectType.USER, subject_id=uid)
+                | company_rows
+            )
+        else:
+            # No user behind this principal: it sees company-wide rows only, never user 0's.
+            qs = qs.filter(company_rows)
     return [serialize_grant(g) for g in qs]
 
 
@@ -273,6 +281,7 @@ def list_grants_effective(
 
 
 def delete_grant(*, principal, grant_id: str) -> None:
+    assert_not_agent_sharing(principal)
     company_id = require_company_id(principal)
     try:
         grant = StorageAccessGrant.objects.select_related('bucket', 'object').get(
@@ -284,8 +293,10 @@ def delete_grant(*, principal, grant_id: str) -> None:
     is_admin = bool(
         getattr(principal, 'is_company_owner', False) or getattr(principal, 'is_staff', False)
     )
-    is_creator = grant.created_by_id is not None and int(grant.created_by_id) == int(
-        principal.user_id
+    is_creator = (
+        principal_has_user(principal)
+        and grant.created_by_id is not None
+        and int(grant.created_by_id) == int(principal.user_id)
     )
     if not (is_admin or is_creator):
         raise StorageError(

@@ -31,6 +31,7 @@ def _sample_jwks(*, kid: str = 'kid-1') -> dict:
 def _signed(private, kid: str | None, **extra) -> str:
     payload = {
         'sub': '1',
+        'token_type': 'access',
         'user_id': 1,
         'company_id': 10,
         'email': 'user@example.com',

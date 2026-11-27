@@ -1,7 +1,7 @@
 ---
 title: Shellui MCP
 sidebar_label: Shellui MCP
-description: Company-owner storage APIs that Shellui MCP agents may call, and how they are marked in OpenAPI.
+description: Storage APIs that Shellui MCP agents may call, and how they are marked in OpenAPI.
 ---
 
 # Shellui MCP
@@ -73,6 +73,33 @@ Clients can request the full list with `?tools=all`. `ai_call_tool` uses the sam
 
 The ai-service gateway records every `tools/call`. This service does not post call logs to Identity. A client can call `POST /mcp` here directly, including with a personal regional token. That request does not pass through the gateway, so it is absent from the gateway call log.
 
+## Agent role
+
+Agent access tokens are accepted only on `POST /mcp`. Every other route, including the REST API, WebDAV, signed downloads and the scheduled-job routes, returns 401 for an agent token. A refresh token, a setup token or any token whose `token_type` is not `access` is not a bearer anywhere.
+
+### Who an agent acts as
+
+A personal agent acts as its creator. The principal's user id is `owner_user_id`, and its company role is the creator's own live role. Storage reads it from the `creator_status` field (`owner`, `member` or `gone`) of Identity's signed revocation snapshot, which it already polls every 30 seconds, and never from the token. A demotion applies on the next poll, and a creator who has left the company (`gone`) makes the agent fail with 401. A missing status, for example from an older Identity, is a plain member. A global or delegated token has no creator at all: it is user `0` and a plain member, whatever owner id or role-looking claim it carries, so it never reads its creator's private files. The agent sees and manages the files its creator can, with the same grants, and no others. Staff status never passes to an agent, including when the creator is staff. Role-looking fields such as `user_metadata` are ignored on an agent token.
+
+An agent with no creator has user id `0`, which means "no user". It never matches a private file or a user grant. It can read and write company-visible files at its role (folders that carry a company grant), and it cannot upload a private file: the call fails with 403 `agent_has_no_owner` before the body is read, and nothing is stored. Create the agent from a user account, or upload into a folder that is already shared with the company.
+
+### Agents and sharing
+
+An agent cannot create or widen sharing. Creating or deleting an access grant and creating a share link are refused for agents, and those tools are not listed on `/mcp`. Calling one by name returns "Unknown tool". Narrowing stays available: an agent can list grants and share links and can revoke a share link it could already manage.
+
+Routes marked `global_refused` (the scheduled-job routes) are not listed and are refused for agents.
+
+Connector writes, quota changes, and Shellui Actions admin routes follow the creator's live role. An agent created by a company owner has owner access to them, and every write still goes through the approval modes below. An agent with a member creator, or no creator, receives 403 on those routes.
+
+### Calls that always need approval
+
+These need a person's single-use approval from an agent in every access mode, `full` included (a read only agent is refused outright):
+
+- creating or updating an Actions webhook (`api_v1_actions_rules_create`, `api_v1_actions_rules_partial_update`)
+- any quota change (`storage_v1_quota_company_update`, `storage_v1_quota_company_user_update`)
+- mounting an outside bucket with credentials (`storage_v1_connector_create`). Changing or deleting a connector is already destructive and needs approval.
+- moving, copying or renaming a file or folder so that anyone could read something they could not read before (`storage_v1_object_copy_create`, `storage_v1_object_move_create`, `storage_v1_object_prefix_create`). Keys are normalized the way the views do before any lookup. The call runs inside one database transaction that holds a per-company lock (the company's bucket rows are locked, and the move, copy and rename services take the same lock, so two of them never interleave). Storage records who can read each affected object, lets the real write happen, records who can read afterwards, and rolls the transaction back if anyone gained read access. Nothing outside the database (a blob copy) happens until that decision is made, so a refused copy leaves nothing in S3. Affected objects are every object under a moved or renamed prefix, every object left in a folder whose marker moves, and every object already in a folder that a marker is moved or copied onto (those files take the marker's grants; a marker at the bucket root covers the whole bucket). For each object only the grants that apply to it are evaluated, with the real access check, for a plain member, a company owner (legacy `user 0` folders grant owners read), the agent's creator, and the people those grants name. More than 300 affected objects, or more than 3000 access checks or 2.5 seconds of work, asks instead of being checked. A source that cannot be found or resolved also asks. The prompt says why. Moving or deleting a folder marker also asks and says that the folder's files would become readable by more people. Staying private to the same people never asks. If the call answers with an error after the write, the transaction rolls back as well, and a copy whose service did not run the check asks. A call that a person approved runs as approved, outside the lock and the check on purpose: the approval is single use and bound to those exact arguments. Other writes do not take the lock: a person editing grants makes that access decision directly, an upload adds one object that takes the grants already in place (a new folder marker copies its parent folder's grants or is private to its creator), and deleting a folder marker always asks an agent for approval. A copy streams the blob instead of reading it into memory.
+
 ## Required agent token claims
 
 Claims must use the types below. Types match Identity's regional agent access token (shellui/identity-service). There are no aliases (for example no `permission_version`). Strings are not coerced into numbers.
@@ -123,10 +150,10 @@ The published schema excludes `/api/v1/internal/*` and `/api/v1/scheduled-jobs*`
 | Area | Examples |
 | --- | --- |
 | Buckets | List and read the company bucket; empty a bucket (destructive). |
-| Connectors | List, read, create, update, delete connector mounts; re-run local configuration checks (`configuration/check`, `configuration/validate`, `configuration/retry`; company owner; `credential` is `x-mcp-secret`). |
+| Connectors | List and read mounts. Create, update, delete, and configuration checks need a company owner (the agent's creator, for an agent) or staff (`credential` is `x-mcp-secret`). Other agents receive 403 on those writes. |
 | Objects | List, upload, download, move, copy, delete, folder prefix stats, rename, delete, signed URLs. |
-| Access | List, create, and revoke path-level access grants. |
-| Share links | Create and list links for an object; revoke by token (not anonymous redeem). |
+| Access | List path-level access grants. Agents cannot create or delete grants. |
+| Share links | List links for an object; revoke by token (not anonymous redeem). Agents cannot create share links. |
 | Quotas | Read usage; set company or per-user limits (company owner). |
 | Stats | Upload and storage statistics for the company. |
 
@@ -255,3 +282,22 @@ Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STO
 Approval consume (Identity #136): storage uses **HTTP status at the boundary** (`409` means not reusable; `200` with `consumed: true` means consumed). For `200` with `consumed: false`, it maps to **denied** with `error_code` **expired** only when the response body text (for example `detail` / `message` / `error`) indicates the approval was already consumed; it does not trust guessed JSON fields such as `error_code` or `http_status` in the body.
 
 Delegated agents must create approvals through the AI gateway; storage returns `out_of_sync` on MCP when a delegated token attempts direct approval creation without the gateway.
+
+## Upgrading: files stored as user 0
+
+Earlier versions gave every agent upload to user `0`, with no way to tell whose agent wrote it. After this change an agent acts as its creator, and user `0` matches nobody. The migration `0008_unowned_agent_files` therefore labels the legacy grants and keeps every file in place:
+
+- Files whose owner is user `0` stay visible to and manageable by company owners and Shellui staff of that company. Members and agents do not see them until an owner decides.
+- Nothing is deleted or moved, and quota usage does not change.
+- Storage keeps no record that links an upload to an agent or its creator (the event log has no agent id), so storage cannot reassign them on its own.
+
+To give files to a person, run, per company and optionally per folder:
+
+```bash
+python manage.py reassign_unowned_files --company 10 --user 42 --prefix reports/ --dry-run
+python manage.py reassign_unowned_files --company 10 --user 42 --prefix reports/
+```
+
+It moves the owner, the private grants, the creator id and the per-user quota usage to that user. Run it with `--dry-run` first.
+
+Deploy order: deploy Identity (#195) first, so the revocation snapshot carries `creator_status`, then storage. Until then every agent acts as a plain member of its creator, never as an owner.
