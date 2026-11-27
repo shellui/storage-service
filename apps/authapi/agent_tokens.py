@@ -87,6 +87,11 @@ def is_refresh_token(claims: dict) -> bool:
     return str(claims.get('token_type') or '').strip().lower() == 'refresh'
 
 
+def is_access_token(claims: dict) -> bool:
+    """True only for ``token_type`` ``access``. Refresh, setup and any other type is not a bearer."""
+    return str(claims.get('token_type') or '').strip().lower() == 'access'
+
+
 def is_agent_access_claims(claims: dict) -> bool:
     """True for an MCP agent access token (``agent_id`` or ``sub`` ``agent:…``)."""
     if claims.get('agent_id'):
@@ -121,8 +126,11 @@ def _owner_user_id(claims: dict) -> int:
 def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
     """Build a principal for an MCP agent access token.
 
-    The user id is ``owner_user_id`` when Identity sent one. The agent is never
-    a company owner and never staff, including when the creating user is.
+    A personal agent acts as its creator: the user id is ``owner_user_id`` and the role is
+    the creator's company role, from Identity's ``owner_is_company_owner`` claim (a real
+    boolean, and only with a creator). An agent with no creator is user 0, which means "no
+    user": it never matches a private file and is never an owner. An agent is never staff,
+    including when its creator is. ``user_metadata`` and other role-looking claims are ignored.
     """
     company_id = claims.get('company_id')
     try:
@@ -135,13 +143,14 @@ def principal_from_agent_claims(claims: dict) -> StoragePrincipal:
     username = str(claims.get('username') or user_meta.get('username') or '')
     if not username:
         username = f"agent:{claims.get('agent_id')}"
+    owner_id = _owner_user_id(claims)
     return StoragePrincipal(
-        user_id=_owner_user_id(claims),
+        user_id=owner_id,
         company_id=cid,
         email=str(claims.get('email') or user_meta.get('email') or ''),
         username=username,
         is_staff=False,
-        is_company_owner=False,
+        is_company_owner=bool(owner_id > 0 and claims.get('owner_is_company_owner') is True),
         claims=claims,
     )
 
@@ -165,7 +174,7 @@ def authenticate_agent_bearer(
     claims = _decode_agent_claims(raw_token, expected_resource=expected_resource)
     if claims is None:
         return None
-    if is_refresh_token(claims):
+    if not is_access_token(claims):
         return None
     if _agent_staff_refused(claims):
         return None

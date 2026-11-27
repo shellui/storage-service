@@ -13,6 +13,7 @@ from django.test import Client, TestCase, override_settings
 from drf_spectacular.generators import SchemaGenerator
 
 from apps.storage.access import COMPANY_BUCKET_NAME
+from apps.storage.models import StorageAccessGrant
 from apps.storage.tests.rs256_helpers import (
     MCP_SIGNING_TEST_SETTINGS,
     generate_test_rsa_jwks,
@@ -21,7 +22,7 @@ from apps.storage.tests.rs256_helpers import (
 from apps.authapi.mcp_openapi import MCP_EXCLUDED_PATH_PREFIXES, validate_mcp_schema
 from apps.storage.mcp_tool_names import apply_published_tool_names
 from shellui_django.mcp.openapi_tools import tools_from_schema
-from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_READ_ONLY, decide_write
+from shellui_django.mcp.write_gate import ACCESS_ASK, ACCESS_FULL, ACCESS_READ_ONLY, decide_write
 
 _AUTH_POST = 'apps.authapi.mcp_authority.requests.post'
 
@@ -35,18 +36,20 @@ def _mcp_host_kwargs() -> dict[str, str]:
     return {'HTTP_HOST': '127.0.0.1'}
 
 
+ASK_WRITE_OPERATION = 'storage_v1_quota_company_update'
+
+
 def _grant_create_call_arguments(tool: dict) -> dict:
-    """Body must include AccessGrantCreate required fields or tools/call is rejected before approval."""
+    """Arguments for a write tool that is not agent-refused (company quota update).
+
+    The name is kept from when this called the grant tool. Agents can no longer create grants.
+    """
     return {
         'path': tool['_meta']['path'],
         'method': tool['_meta']['method'],
         'query': {},
-        'body': {
-            'subject_type': 'user',
-            'subject_id': '7',
-            'resource_type': 'object',
-            'resource_id': 'notes/a.txt',
-        },
+        'path_params': {'company_id': 10},
+        'body': {'max_bytes': 1048576},
     }
 
 
@@ -69,10 +72,13 @@ def _agent_token(
     global_agent_id: str | None = None,
     mcp_authority: str | None = None,
     secret: str = 'test-secret',
+    owner_user_id: int | None = None,
+    owner_is_company_owner: bool | None = None,
 ) -> str:
     agent_id = agent_id or str(uuid.uuid4())
     payload = {
         'sub': f'agent:{agent_id}',
+        'token_type': 'access',
         'agent_id': agent_id,
         'company_id': company_id,
         'scope': scope,
@@ -83,6 +89,10 @@ def _agent_token(
         'iss': 'https://identity.test',
         'exp': 2**31 - 1,
     }
+    if owner_user_id is not None:
+        payload['owner_user_id'] = owner_user_id
+    if owner_is_company_owner is not None:
+        payload['owner_is_company_owner'] = owner_is_company_owner
     if not omit_grant_version and grant_version is not None:
         payload['grant_version'] = grant_version
     if global_company_id is not None:
@@ -209,6 +219,7 @@ class McpEndpointTests(TestCase):
         agent_id = str(uuid.uuid4())
         payload = {
             'sub': f'agent:{agent_id}',
+            'token_type': 'access',
             'agent_id': agent_id,
             'company_id': 10,
             'grant_version': 0,
@@ -266,6 +277,7 @@ class McpEndpointTests(TestCase):
         agent_id = str(uuid.uuid4())
         payload = {
             'sub': f'agent:{agent_id}',
+            'token_type': 'access',
             'agent_id': agent_id,
             'company_id': 10,
             'scope': 'storage',
@@ -399,7 +411,7 @@ class McpEndpointTests(TestCase):
         self.assertTrue(decision.needs_approval)
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = apply_published_tool_names(tools_from_schema(schema))
-        tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_access_grant_create')
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
         token = _agent_token(
             mcp_access=ACCESS_ASK,
             grant_version=0,
@@ -452,6 +464,94 @@ class McpEndpointTests(TestCase):
         meta = payload.get('meta') or {}
         self.assertTrue(meta.get('status') == 'pending' or meta.get('approval_id'))
 
+    def _rpc_as_agent(self, method, params=None, **token_kwargs):
+        token = _agent_token(**token_kwargs)
+        claims = jwt.decode(token, options={'verify_signature': False})
+        row = {
+            'agent_id': str(claims['agent_id']),
+            'company_id': int(claims['company_id']),
+            'grant_version': 0,
+        }
+        body = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}}
+        with patch('apps.storage.mcp_identity.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: _signed_revocation_for_tests(agents=[row]),
+            )
+            return self.client.post(
+                '/mcp',
+                data=json.dumps(body),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+                **_mcp_host_kwargs(),
+            )
+
+    def test_sharing_tools_are_not_listed_for_agents(self):
+        from apps.storage.mcp_server_strict import AGENT_REFUSED_OPERATIONS
+
+        response = self._rpc_as_agent('tools/list', mcp_access=ACCESS_FULL)
+        self.assertEqual(response.status_code, 200, response.content)
+        listed = {
+            str((tool.get('_meta') or {}).get('operationId') or tool['name'])
+            for tool in response.json()['result']['tools']
+        }
+        self.assertTrue(listed)
+        self.assertTrue(AGENT_REFUSED_OPERATIONS.isdisjoint(listed), AGENT_REFUSED_OPERATIONS & listed)
+        # Narrowing and reading sharing stays available.
+        self.assertIn('storage_v1_access_grant_list', listed)
+        self.assertIn('storage_v1_share_link_destroy', listed)
+
+    def test_agent_cannot_call_a_sharing_tool_even_with_full_access(self):
+        from apps.storage.mcp_server_strict import AGENT_REFUSED_OPERATIONS
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        by_op = {t['_meta']['operationId']: t for t in tools}
+        for op in sorted(AGENT_REFUSED_OPERATIONS):
+            response = self._rpc_as_agent(
+                'tools/call',
+                {'name': by_op[op]['name'], 'arguments': {}},
+                mcp_access=ACCESS_FULL,
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            error = response.json().get('error') or {}
+            self.assertEqual(error.get('message'), 'Unknown tool', op)
+        self.assertFalse(StorageAccessGrant.objects.exists())
+
+    def test_agent_admin_writes_follow_the_creators_role(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
+        params = {'name': tool['name'], 'arguments': _grant_create_call_arguments(tool)}
+        from apps.storage.access import ensure_company_bucket
+
+        ensure_company_bucket(company_id=10)
+        member = self._rpc_as_agent(
+            'tools/call', params, mcp_access=ACCESS_FULL, owner_user_id=7, owner_is_company_owner=False
+        ).json()['result']
+        self.assertTrue(member['isError'], member)
+        self.assertIn('permission', json.dumps(member))
+        ownerless = self._rpc_as_agent('tools/call', params, mcp_access=ACCESS_FULL).json()['result']
+        self.assertTrue(ownerless['isError'], ownerless)
+        owner = self._rpc_as_agent(
+            'tools/call', params, mcp_access=ACCESS_FULL, owner_user_id=7, owner_is_company_owner=True
+        ).json()['result']
+        self.assertFalse(owner['isError'], owner)
+
+    def test_mcp_refuses_the_scheduled_job_routes(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tools = apply_published_tool_names(tools_from_schema(schema))
+        names = {t['name'] for t in tools}
+        listed_paths = {str((t.get('_meta') or {}).get('path') or '') for t in tools}
+        self.assertFalse(any('scheduled-job' in path for path in listed_paths), listed_paths)
+        response = self._rpc_as_agent(
+            'tools/call',
+            {'name': 'storage_list_scheduled_jobs', 'arguments': {}},
+            mcp_access=ACCESS_FULL,
+        )
+        self.assertEqual((response.json().get('error') or {}).get('message'), 'Unknown tool')
+        self.assertNotIn('storage_list_scheduled_jobs', names)
+
     def test_wrong_service_scope_forbidden(self):
         token = _agent_token(scope='email')
         response = self.client.post(
@@ -472,7 +572,7 @@ class McpEndpointTests(TestCase):
     def test_ask_approval_create_pending_approve_consume_reuse_revoke(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = apply_published_tool_names(tools_from_schema(schema))
-        tool = next(t for t in tools if t['_meta']['operationId'] == 'storage_v1_access_grant_create')
+        tool = next(t for t in tools if t['_meta']['operationId'] == ASK_WRITE_OPERATION)
         agent_id = str(uuid.uuid4())
         company_id = 10
         appr_id = str(uuid.uuid4())

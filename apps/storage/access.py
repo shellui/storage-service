@@ -244,6 +244,44 @@ def _resource_matches_grant(
     return False
 
 
+# A USER grant with this subject id was written when every MCP agent was "user 0". Those
+# files have no known owner. Company owners and staff reach them. Nobody else does, and a
+# principal with no user (id 0) never matches any USER grant.
+LEGACY_UNOWNED_SUBJECT = '0'
+
+
+def principal_has_user(principal) -> bool:
+    """False for a principal with no user behind it (user id 0, as for an agent with no creator)."""
+    try:
+        return int(getattr(principal, 'user_id', 0) or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def assert_not_agent_sharing(principal) -> None:
+    """An agent may not create, change or delete a sharing grant or share link.
+
+    Opening a file to the company (or removing a deny) widens access without a person
+    deciding it, so only a signed-in user does that.
+    """
+    from apps.authapi.agent_tokens import is_agent_principal
+
+    from .services import StorageError
+
+    if is_agent_principal(principal):
+        raise StorageError(
+            'Agents cannot create or change sharing. Ask a person to share this file.',
+            status=403,
+            code='agent_cannot_share',
+        )
+
+
+def _is_company_admin(principal) -> bool:
+    return bool(
+        getattr(principal, 'is_company_owner', False) or getattr(principal, 'is_staff', False)
+    )
+
+
 def _subject_matches(grant: StorageAccessGrant, principal) -> bool:
     user_id = getattr(principal, 'user_id', None)
     company_id = getattr(principal, 'company_id', None)
@@ -251,7 +289,9 @@ def _subject_matches(grant: StorageAccessGrant, principal) -> bool:
         return False
 
     if grant.subject_type == StorageAccessGrant.SubjectType.USER:
-        return str(grant.subject_id) == str(int(user_id))
+        if str(grant.subject_id) == LEGACY_UNOWNED_SUBJECT:
+            return principal_has_user(principal) and _is_company_admin(principal)
+        return principal_has_user(principal) and str(grant.subject_id) == str(int(user_id))
 
     if grant.subject_type == StorageAccessGrant.SubjectType.COMPANY:
         return str(grant.subject_id) == str(int(company_id))
@@ -703,6 +743,34 @@ def _copy_folder_grants(
     return created
 
 
+def raise_ownerless_private() -> None:
+    from .services import StorageError
+
+    raise StorageError(
+        'This agent has no creating user, so it cannot store private files. '
+        'Upload to a folder that is already shared with the company, or create the agent from a user account.',
+        status=403,
+        code='agent_has_no_owner',
+    )
+
+
+def default_private_would_apply(*, company_id: int, bucket_name: str, name: str) -> bool:
+    """True when a new file or folder at ``name`` would get private-by-default grants.
+
+    A new item under a folder that already has grants inherits them and gets none of its own.
+    """
+    path = _normalize_path(name)
+    placeholder_suffix = f'/{FOLDER_PLACEHOLDER_NAME}'
+    if path.endswith(placeholder_suffix):
+        path = folder_path_from_placeholder(path)
+    if not path or path == FOLDER_PLACEHOLDER_NAME:
+        return False
+    nearest, parent_grants = _nearest_ancestor_folder_grants(
+        company_id=int(company_id), bucket_name=bucket_name, path=path
+    )
+    return not (nearest and parent_grants)
+
+
 def ensure_default_private_access(
     *,
     user_id: int,
@@ -752,6 +820,9 @@ def ensure_default_private_access(
                 target=target,
             )
         return []
+
+    if int(user_id) <= 0:
+        raise_ownerless_private()
 
     common = dict(
         company_id=int(target.company_id),

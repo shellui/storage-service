@@ -16,6 +16,7 @@ class AdminAuthAgentTenantTests(SimpleTestCase):
     def _agent_request(self, *, company_id: int, query_company: str | None = None):
         claims = {
             'sub': 'agent:00000000-0000-0000-0000-000000000001',
+            'token_type': 'access',
             'agent_id': '00000000-0000-0000-0000-000000000001',
             'company_id': company_id,
             'scope': 'storage',

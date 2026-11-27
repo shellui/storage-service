@@ -25,6 +25,7 @@ def _owner_token(*, company_id: int, user_id: int) -> str:
     return jwt.encode(
         {
             'sub': str(user_id),
+            'token_type': 'access',
             'user_id': user_id,
             'company_id': company_id,
             'email': f'owner-{company_id}@example.com',
@@ -197,12 +198,14 @@ class McpTenantIsolationTests(TestCase):
         self.assertTrue(ObjectShareLink.objects.filter(token=self.share_token, revoked_at__isnull=True).exists())
 
     def test_agent_cannot_destroy_company_b_access_grant(self):
+        # Agents cannot remove grants at all: the tool is unlisted, so it is not callable.
         tool = 'storage_v1_access_grant_destroy'
         response = self._mcp_tools_call(
             tool,
             path_params={'grant_id': str(self.grant_b.id)},
         )
-        self._assert_blocked_no_leak(response)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['error']['message'], 'Unknown tool')
         self.assertTrue(StorageAccessGrant.objects.filter(pk=self.grant_b.pk).exists())
 
     def test_agent_cannot_retrieve_company_b_action_rule(self):

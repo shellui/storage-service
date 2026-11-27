@@ -30,6 +30,7 @@ def _token(*, company_id=10, owner=True):
     return jwt.encode(
         {
             'sub': '1',
+            'token_type': 'access',
             'user_id': 1,
             'company_id': company_id,
             'email': 'owner@example.com',

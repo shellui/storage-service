@@ -23,6 +23,7 @@ SANDBOX_CSP = "sandbox; default-src 'none'"
 def make_token(*, user_id: int = 1, company_id: int = 10) -> str:
     payload = {
         'sub': str(user_id),
+        'token_type': 'access',
         'user_id': user_id,
         'company_id': company_id,
         'email': 'user@example.com',
@@ -337,10 +338,18 @@ class SignedUrlDispositionTests(SimpleTestCase):
             name=name,
         )
         with patch('apps.storage.downloads.default_storage') as storage:
-            storage.url = MagicMock(return_value='https://signed.example/object')
+            storage._normalize_name = lambda key: key
+            storage.bucket.name = 'bucket'
+            client = storage.connection.meta.client
+            client.generate_presigned_url = MagicMock(return_value='https://signed.example/object')
             url = build_signed_url(obj, expires_in=60)
         self.assertEqual(url, 'https://signed.example/object')
-        return storage.url.call_args.kwargs
+        call = client.generate_presigned_url.call_args
+        params = dict(call.kwargs['Params'])
+        return {
+            'expire': call.kwargs['ExpiresIn'],
+            'parameters': {k: v for k, v in params.items() if k.startswith('Response')},
+        }
 
     def test_html_and_svg_are_attachments_with_a_safe_type(self):
         for mime, name in (
@@ -376,3 +385,63 @@ class SignedUrlDispositionTests(SimpleTestCase):
             params = self._url(mime, 'file.bin')['parameters']
             self.assertEqual(params['ResponseContentType'], served, mime)
             self.assertTrue(params['ResponseContentDisposition'].startswith('inline;'), mime)
+
+
+@override_settings(SIGNED_URL_EXPIRES=3600, STORAGE_BACKEND='s3')
+class SignedUrlCustomDomainTests(SimpleTestCase):
+    """A CDN domain must never replace the signed S3 URL for a private object."""
+
+    def _real_storage(self, **options):
+        from storages.backends.s3 import S3Storage
+
+        return S3Storage(
+            bucket_name='private-bucket',
+            region_name='us-east-1',
+            access_key='AKIATESTKEY000000000',  # gitleaks:allow
+            secret_key='test-secret-key-not-real-0000000000000000',  # gitleaks:allow
+            endpoint_url='https://s3.example.test',
+            addressing_style='path',
+            querystring_auth=True,
+            file_overwrite=True,
+            signature_version='s3v4',
+            **options,
+        )
+
+    def _signed(self, mime: str, name: str, **options) -> 'urllib.parse.SplitResult':
+        from urllib.parse import urlsplit
+
+        obj = SimpleNamespace(storage_key='shellui/c1/' + name, mime_type=mime, basename=name, name=name)
+        storage = self._real_storage(**options)
+        with patch('apps.storage.downloads.default_storage', storage):
+            return urlsplit(build_signed_url(obj, expires_in=60))
+
+    def test_custom_domain_still_yields_a_signed_expiring_url_on_the_endpoint(self):
+        from urllib.parse import parse_qs
+
+        url = self._signed('text/html', 'evil.html', custom_domain='cdn.example.com')
+        self.assertEqual(url.netloc, 's3.example.test')
+        self.assertNotIn('cdn.example.com', url.geturl())
+        query = parse_qs(url.query)
+        self.assertIn('X-Amz-Signature', query)
+        self.assertEqual(query['X-Amz-Expires'], ['60'])
+        self.assertIn('response-content-type', query)
+        self.assertIn('response-content-disposition', query)
+        self.assertEqual(query['response-content-type'], ['text/plain; charset=utf-8'])
+        self.assertTrue(query['response-content-disposition'][0].startswith('attachment;'))
+
+    def test_url_is_identical_in_shape_without_a_custom_domain(self):
+        from urllib.parse import parse_qs
+
+        with_cdn = parse_qs(self._signed('image/png', 'a.png', custom_domain='cdn.example.com').query)
+        without = parse_qs(self._signed('image/png', 'a.png').query)
+        self.assertEqual(set(with_cdn), set(without))
+        self.assertEqual(with_cdn['response-content-type'], ['image/png'])
+        self.assertTrue(with_cdn['response-content-disposition'][0].startswith('inline;'))
+
+    def test_the_expiry_never_exceeds_the_setting(self):
+        from urllib.parse import parse_qs, urlsplit
+
+        obj = SimpleNamespace(storage_key='k/a.png', mime_type='image/png', basename='a.png', name='a.png')
+        with patch('apps.storage.downloads.default_storage', self._real_storage(custom_domain='cdn.example.com')):
+            url = urlsplit(build_signed_url(obj, expires_in=10**9))
+        self.assertEqual(parse_qs(url.query)['X-Amz-Expires'], ['3600'])

@@ -11,14 +11,6 @@
     {
       "destructive": false,
       "method": "POST",
-      "name": "storage_create_access_grant",
-      "needs_approval": false,
-      "path": "/storage/v1/access/grant",
-      "read_only": false
-    },
-    {
-      "destructive": false,
-      "method": "POST",
       "name": "storage_create_action_rules",
       "needs_approval": false,
       "path": "/api/v1/actions/rules",
@@ -78,22 +70,6 @@
       "name": "storage_create_object_prefix",
       "needs_approval": false,
       "path": "/storage/v1/object/prefix/{bucket_id}",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "POST",
-      "name": "storage_create_share",
-      "needs_approval": true,
-      "path": "/storage/v1/share/{bucket_id}/{object_path}",
-      "read_only": false
-    },
-    {
-      "destructive": true,
-      "method": "DELETE",
-      "name": "storage_delete_access_grant",
-      "needs_approval": true,
-      "path": "/storage/v1/access/grant/{grant_id}",
       "read_only": false
     },
     {
@@ -473,107 +449,6 @@
         "type": "object"
       },
       "name": "storage_copy_object"
-    },
-    {
-      "_meta": {
-        "body_fields": [
-          "bucket",
-          "effect",
-          "expires_at",
-          "notes",
-          "permission",
-          "resource_id",
-          "resource_type",
-          "subject_id",
-          "subject_type"
-        ],
-        "body_required": [
-          "resource_id",
-          "resource_type",
-          "subject_id",
-          "subject_type"
-        ],
-        "destructive": false,
-        "mcp_tagged": true,
-        "method": "POST",
-        "operationId": "storage_v1_access_grant_create",
-        "path": "/storage/v1/access/grant",
-        "path_params": [],
-        "query_fields": null,
-        "query_required": null,
-        "read_only": false
-      },
-      "annotations": {
-        "destructiveHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Creates an access grant. Requires `subject_type`, `subject_id`, `resource_type`, and `resource_id`, and returns the grant.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "bucket": {
-            "type": "string"
-          },
-          "effect": {
-            "description": "allow grants access. deny blocks it.\n\n* `allow` - Allow\n* `deny` - Deny (block)",
-            "enum": [
-              "allow",
-              "deny"
-            ],
-            "type": "string"
-          },
-          "expires_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "notes": {
-            "type": "string"
-          },
-          "permission": {
-            "description": "Access level: read, write, or admin.\n\n* `read` - Read\n* `write` - Write\n* `admin` - Admin",
-            "enum": [
-              "read",
-              "write",
-              "admin"
-            ],
-            "type": "string"
-          },
-          "resource_id": {
-            "type": "string"
-          },
-          "resource_type": {
-            "description": "What the grant covers: bucket, folder, or object.\n\n* `bucket` - Bucket\n* `folder` - Folder prefix\n* `object` - Object",
-            "enum": [
-              "bucket",
-              "folder",
-              "object"
-            ],
-            "type": "string"
-          },
-          "subject_id": {
-            "type": "string"
-          },
-          "subject_type": {
-            "description": "Who the grant applies to: user, group, or company.\n\n* `user` - User\n* `group` - Group\n* `company` - Company",
-            "enum": [
-              "user",
-              "group",
-              "company"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "resource_id",
-          "resource_type",
-          "subject_id",
-          "subject_type"
-        ],
-        "type": "object"
-      },
-      "name": "storage_create_access_grant"
     },
     {
       "_meta": {
@@ -1020,118 +895,6 @@
         "type": "object"
       },
       "name": "storage_create_object_prefix"
-    },
-    {
-      "_meta": {
-        "body_fields": [
-          "expiresAt",
-          "expires_at",
-          "maxDownloads",
-          "max_downloads",
-          "notes"
-        ],
-        "body_required": null,
-        "destructive": true,
-        "mcp_tagged": true,
-        "method": "POST",
-        "operationId": "storage_v1_share_create",
-        "path": "/storage/v1/share/{bucket_id}/{object_path}",
-        "path_params": [
-          "bucket_id",
-          "object_path"
-        ],
-        "query_fields": null,
-        "query_required": null,
-        "read_only": false
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Creates an anonymous download link for `bucket_id` and `object_path`. Optional `expires_at` and `max_downloads`, and the call returns the token once.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "bucket_id": {
-            "description": "Bucket slug, for example `company` or a connector mount id.",
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "expires_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "maxDownloads": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "max_downloads": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "notes": {
-            "type": "string"
-          },
-          "object_path": {
-            "description": "Object path within the bucket. May include `/` for nested folders.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "bucket_id",
-          "object_path"
-        ],
-        "type": "object"
-      },
-      "name": "storage_create_share"
-    },
-    {
-      "_meta": {
-        "body_fields": null,
-        "body_required": null,
-        "destructive": true,
-        "mcp_tagged": true,
-        "method": "DELETE",
-        "operationId": "storage_v1_access_grant_destroy",
-        "path": "/storage/v1/access/grant/{grant_id}",
-        "path_params": [
-          "grant_id"
-        ],
-        "query_fields": null,
-        "query_required": null,
-        "read_only": false
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "readOnlyHint": false
-      },
-      "description": "Deletes the access grant `grant_id`. Returns no content.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "grant_id": {
-            "description": "Access grant id.",
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "grant_id"
-        ],
-        "type": "object"
-      },
-      "name": "storage_delete_access_grant"
     },
     {
       "_meta": {

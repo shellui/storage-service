@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import tempfile
 import uuid
@@ -27,6 +28,8 @@ from .models import (
 )
 from .quotas import QuotaExceeded, assert_can_store, apply_usage_delta
 from .signals import storage_object_deleted, storage_object_uploaded
+
+logger = logging.getLogger(__name__)
 
 
 class StorageError(Exception):
@@ -389,23 +392,75 @@ def _as_django_file(fileobj) -> File:
     return File(fileobj)
 
 
-def _save_stream(storage_key: str, fileobj) -> None:
-    """Stream ``fileobj`` to ``storage_key``, replacing any previous bytes."""
-    django_file = _as_django_file(fileobj)
+class _HashingFile(File):
+    """Hash and count the bytes the storage backend actually reads from the source.
+
+    ``seek(start)`` restarts the hash, so a retried read is counted once. Any other seek
+    marks the hash unusable, and the caller then skips the comparison.
+    """
+
+    def __init__(self, file, *, start: int = 0):
+        super().__init__(file)
+        self._start = start
+        self._digest = hashlib.md5(usedforsecurity=False)
+        self.bytes_read = 0
+        self.hash_valid = True
+
+    def read(self, size=-1):
+        chunk = self.file.read(size)
+        if chunk:
+            self._digest.update(chunk)
+            self.bytes_read += len(chunk)
+        return chunk
+
+    def seek(self, offset, whence=os.SEEK_SET):
+        # Django's File.chunks() rewinds with seek(0). The upload starts at ``_start``.
+        if whence == os.SEEK_SET and offset == 0:
+            offset = self._start
+        position = self.file.seek(offset, whence)
+        if whence == os.SEEK_SET and offset == self._start:
+            self._digest = hashlib.md5(usedforsecurity=False)
+            self.bytes_read = 0
+        elif not (whence == os.SEEK_END or offset == self.bytes_read + self._start):
+            self.hash_valid = False
+        return position
+
+    def hexdigest(self) -> str:
+        return self._digest.hexdigest()
+
+
+def _save_stream(storage_key: str, fileobj, *, start: int = 0) -> tuple[str, str, int | None]:
+    """Stream ``fileobj`` to a new blob.
+
+    Returns ``(saved_key, md5 of the bytes the backend read, byte count)``. The hash and
+    count are ``''`` and ``None`` when the backend read the source in a way that cannot be
+    compared. The key must not exist yet: a replace writes a new key and removes the old
+    blob afterwards.
+    """
+    django_file = _HashingFile(fileobj, start=start)
     try:
-        seek = getattr(django_file, 'seek', None)
-        if callable(seek):
-            try:
-                seek(0)
-            except Exception:
-                pass
-        if default_storage.exists(storage_key):
-            default_storage.delete(storage_key)
-        default_storage.save(storage_key, django_file)
+        try:
+            django_file.seek(start)
+        except Exception:
+            pass
+        saved = default_storage.save(storage_key, django_file)
     except StorageError:
         raise
     except Exception as exc:
         raise _blob_write_error(exc) from exc
+    if not django_file.hash_valid:
+        return saved, '', None
+    return saved, django_file.hexdigest(), django_file.bytes_read
+
+
+def _delete_blob_quietly(key: str | None) -> None:
+    """Remove a blob after a failed write. A failure here must not hide the original error."""
+    if not key:
+        return
+    try:
+        delete_storage_key(key)
+    except Exception:
+        logger.warning('Could not remove an orphaned blob', exc_info=True)
 
 
 def _open_capped_upload(
@@ -472,6 +527,15 @@ def upload_object(
     if existing and not upsert:
         raise StorageError('The resource already exists', status=400, code='resource_already_exists')
 
+    if not existing and owner_id is not None and int(owner_id) <= 0:
+        from .access import default_private_would_apply, raise_ownerless_private
+
+        # An agent with no creating user cannot own a private file. Refuse before reading the body.
+        if default_private_would_apply(
+            company_id=bucket.company_id, bucket_name=bucket.name, name=object_name
+        ):
+            raise_ownerless_private()
+
     max_bytes = upload_limit_bytes(bucket)
     etag, size, source, close_source = _open_capped_upload(
         fileobj,
@@ -496,70 +560,84 @@ def upload_object(
     if cache_control:
         meta['cacheControl'] = cache_control
 
-    created_id = None
-    created_key = None
     try:
-        if existing:
-            _save_stream(existing.storage_key, source)
-        else:
-            created_id = uuid.uuid4()
-            created_key = build_storage_key(
-                company_id=bucket.company_id,
-                bucket_name=bucket.name,
-                object_name=object_name,
-                object_id=created_id,
-            )
-            _save_stream(created_key, source)
+        source_start = int(source.tell())
+    except Exception:
+        source_start = 0
+    new_id = uuid.uuid4()
+    new_key = build_storage_key(
+        company_id=bucket.company_id,
+        bucket_name=bucket.name,
+        object_name=object_name,
+        object_id=new_id,
+    )
+    try:
+        saved_key, saved_etag, saved_size = _save_stream(new_key, source, start=source_start)
     finally:
         if close_source is not None:
             close_source()
+    # From here a failure must remove the blob just written. The old blob stays until
+    # the row points at the new one and the transaction has committed.
+    try:
+        if saved_size is not None and (saved_size != size or saved_etag != etag):
+            raise StorageError(
+                'The upload changed while it was being stored. Try again.',
+                status=409,
+                code='upload_changed',
+            )
+        if existing:
+            old_key = existing.storage_key
+            delta = size - replacing
+            existing.size = size
+            existing.etag = etag
+            existing.mime_type = mime
+            existing.metadata = meta
+            existing.storage_key = saved_key
+            existing.version += 1
+            existing.updated_at = timezone.now()
+            if owner_id is not None and owner_id > 0:
+                existing.owner_id = owner_id
+            existing.save()
+            apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=delta)
+            if old_key and old_key != saved_key:
+                transaction.on_commit(lambda: _delete_blob_quietly(old_key))
+            storage_object_uploaded.send(
+                sender=StorageObject,
+                instance=existing,
+                created=False,
+                request=request,
+            )
+            return existing
 
-    if existing:
-        delta = size - replacing
-        existing.size = size
-        existing.etag = etag
-        existing.mime_type = mime
-        existing.metadata = meta
-        existing.version += 1
-        existing.updated_at = timezone.now()
-        if owner_id is not None:
-            existing.owner_id = owner_id
-        existing.save()
-        apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=delta)
+        obj = StorageObject.objects.create(
+            id=new_id,
+            bucket=bucket,
+            name=object_name,
+            company_id=bucket.company_id,
+            owner_id=owner_id,
+            size=size,
+            etag=etag,
+            mime_type=mime,
+            metadata=meta,
+            storage_key=saved_key,
+        )
+        apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=size)
+        from .access import apply_default_private_on_create
+
+        apply_default_private_on_create(
+            instance=obj,
+            user_id=owner_id,
+        )
         storage_object_uploaded.send(
             sender=StorageObject,
-            instance=existing,
-            created=False,
+            instance=obj,
+            created=True,
             request=request,
         )
-        return existing
-
-    obj = StorageObject.objects.create(
-        id=created_id,
-        bucket=bucket,
-        name=object_name,
-        company_id=bucket.company_id,
-        owner_id=owner_id,
-        size=size,
-        etag=etag,
-        mime_type=mime,
-        metadata=meta,
-        storage_key=created_key,
-    )
-    apply_usage_delta(company_id=bucket.company_id, user_id=owner_id, delta=size)
-    from .access import apply_default_private_on_create
-
-    apply_default_private_on_create(
-        instance=obj,
-        user_id=owner_id,
-    )
-    storage_object_uploaded.send(
-        sender=StorageObject,
-        instance=obj,
-        created=True,
-        request=request,
-    )
-    return obj
+        return obj
+    except BaseException:
+        _delete_blob_quietly(saved_key)
+        raise
 
 
 def ensure_folder_marker(bucket: Bucket, folder_path: str, *, owner_id: int | None) -> StorageObject:

@@ -22,13 +22,18 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ### 🔒 Security
 
-- Agent access tokens are accepted only on `POST /mcp`. A refresh token is not a bearer. The agent principal uses `owner_user_id` when the token includes it, and `is_company_owner` is always false. Scheduled-job routes (`global_refused`) refuse agent callers.
+- Agent access tokens are accepted only on `POST /mcp`, and only when `token_type` is `access`. Every other route returns 401 for them, including WebDAV and the scheduled-job routes. `/mcp` does not list or run the scheduled-job routes (`global_refused`).
+- A personal agent acts as its creator, with the creator's real company role (from the `owner_is_company_owner` claim) and file access. It never gains staff status. User `0` means no user: it never matches a private file or a user grant. An agent with no creator can use only company-visible files and cannot upload a private file (403 `agent_has_no_owner`).
+- Agents cannot create or delete access grants or create share links. Those tools are not listed on `/mcp` and calling one returns "Unknown tool". Revoking a share link stays available.
+- Signed URLs for private objects are always signed against the S3 endpoint. `AWS_S3_CUSTOM_DOMAIN` is no longer used for them, so an unsigned CDN URL can no longer replace a signed, expiring one.
+- A replaced file is written to a new key first. The old bytes are deleted only after the new file is saved and the database write succeeds. The checksum is computed on the same stream that is saved, and an orphan blob is removed when the database write fails.
 - S3 signed URLs set `ResponseContentDisposition` and `ResponseContentType`. HTML, SVG, XML, scripts, and other active types are attachments with a safe content type. Raster images other than SVG, PDF, plain text, audio, and video stay inline.
 - Uploads stream to storage in 1 MiB chunks. `Content-Length` above the cap is rejected before the body is read. The cap is the lower of the bucket `file_size_limit` and `MAX_UPLOAD_BYTES` (default 5 GiB). Multipart form uploads may declare up to 1 MiB above that cap for form framing.
 
 ### 🚨 Changed
 
-- MCP agents are not company owners. Connector writes, quota changes, and Shellui Actions admin calls from an agent return 403. A human company-owner JWT is unchanged.
+- Connector writes, quota changes, and Shellui Actions admin calls from an agent follow its creator's role. An agent made by a company owner has owner access (writes still need approval in `ask` mode), and any other agent gets 403. A human company-owner JWT is unchanged.
+- Deploy note: files that earlier versions stored as user `0` stay in place and become visible to and manageable by company owners and staff. Migration `0008_unowned_agent_files` labels them, and `manage.py reassign_unowned_files --company N --user M [--prefix P] [--dry-run]` gives them to a person. See [MCP agents](docs/mcp.md#upgrading-files-stored-as-user-0). Deploy Identity first so new agent tokens carry `owner_is_company_owner`.
 
 ## [0.9.1] - 2026-11-24
 

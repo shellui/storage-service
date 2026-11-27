@@ -34,6 +34,27 @@ from apps.storage.mcp_identity import (
     _published_registry_operation_matches,
 )
 
+# An agent never creates, widens or removes sharing. These tools are not listed and a
+# call to one is "Unknown tool". Narrowing tools (revoke a share link) stay available.
+AGENT_REFUSED_OPERATIONS = frozenset(
+    {
+        'storage_v1_access_grant_create',
+        'storage_v1_access_grant_destroy',
+        'storage_v1_share_create',
+    }
+)
+
+
+def agent_visible_tools(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    visible = []
+    for tool in published_mcp_tools(schema):
+        meta = tool.get('_meta') if isinstance(tool.get('_meta'), dict) else {}
+        if str(meta.get('operationId') or tool.get('name') or '') in AGENT_REFUSED_OPERATIONS:
+            continue
+        visible.append(tool)
+    return visible
+
+
 _BODYLESS_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS', 'TRACE'})
 
 # MCP downloads return base64. Larger objects should use a signed URL.
@@ -355,7 +376,7 @@ class StrictMcpServer:
             return JsonResponse(self._result(req_id, {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}}))
         if method == 'tools/list':
             schema = self.schema_provider()
-            tools = [public_mcp_tool(t) for t in published_mcp_tools(schema)]
+            tools = [public_mcp_tool(t) for t in agent_visible_tools(schema)]
             return JsonResponse(self._result(req_id, {'tools': tools}))
         if method == 'tools/call':
             return self._tools_call(request, req_id, params, agent_claims, mcp_resource_audience=mcp_resource_audience)
@@ -375,7 +396,7 @@ class StrictMcpServer:
         if raw_arguments is None:
             raw_arguments = {}
         schema = self.schema_provider()
-        tools = published_mcp_tools(schema)
+        tools = agent_visible_tools(schema)
         tool = next((t for t in tools if t['name'] == tool_name), None)
         if tool is None:
             return JsonResponse(self._error(req_id, -32602, 'Unknown tool'))

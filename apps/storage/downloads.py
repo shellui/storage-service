@@ -252,19 +252,27 @@ def build_signed_url(obj: StorageObject, expires_in: int | None = None) -> str:
     else:
         expires_in = max(1, min(int(expires_in), max_expires))
     try:
-        if is_s3_backend() and hasattr(default_storage, 'url'):
-            parameters = signed_url_response_params(obj)
-            try:
-                return default_storage.url(
-                    obj.storage_key,
-                    expire=expires_in,
-                    parameters=parameters,
-                )
-            except TypeError:
-                try:
-                    return default_storage.url(obj.storage_key, expire=expires_in)
-                except TypeError:
-                    return default_storage.url(obj.storage_key)
+        if is_s3_backend() and hasattr(default_storage, 'connection'):
+            return _presigned_s3_url(obj, expires_in)
         return default_storage.url(obj.storage_key)
     except Exception:
         return ''
+
+
+def _presigned_s3_url(obj: StorageObject, expires_in: int) -> str:
+    """Sign against the S3 API endpoint, never against ``AWS_S3_CUSTOM_DOMAIN``.
+
+    ``S3Storage.url()`` returns an unsigned URL on the custom domain, and S3 would ignore
+    the response overrides there. A private object is always served through a SigV4 URL
+    that carries an expiry and the ``response-content-*`` overrides in the signature.
+    """
+    from storages.utils import clean_name
+
+    params = signed_url_response_params(obj)
+    key = default_storage._normalize_name(clean_name(obj.storage_key))
+    params = {**params, 'Bucket': default_storage.bucket.name, 'Key': key}
+    return default_storage.connection.meta.client.generate_presigned_url(
+        'get_object',
+        Params=params,
+        ExpiresIn=expires_in,
+    )

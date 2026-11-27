@@ -10,7 +10,7 @@ from apps.storage.serializers import ErrorSerializer
 
 PERMISSIONS_BLOCK = (
     'Permissions: Shellui company owner for the JWT `company_id`, or Shellui staff. '
-    'Send `Authorization: Bearer <jwt>` from identity-service. MCP agent tokens act as the company owner. '
+    'Send `Authorization: Bearer <jwt>` from identity-service. An MCP agent token acts as its creator, so these routes are open to it only when the creator is a company owner. '
     'Service API keys (`esk_`) cannot call these routes.'
 )
 

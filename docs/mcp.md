@@ -75,11 +75,21 @@ The ai-service gateway records every `tools/call`. This service does not post ca
 
 ## Agent role
 
-Agent access tokens are accepted only on `POST /mcp`. A refresh token presented as a bearer is rejected, on `/mcp` and on the rest of the API. The principal's user id is `owner_user_id` when that claim is a positive integer. `is_company_owner` and `is_staff` stay false, including when the creating user is a company owner.
+Agent access tokens are accepted only on `POST /mcp`. Every other route, including the REST API, WebDAV, signed downloads and the scheduled-job routes, returns 401 for an agent token. A refresh token, a setup token or any token whose `token_type` is not `access` is not a bearer anywhere.
 
-Routes marked `global_refused` refuse agent callers. That mark is on the scheduled-job routes.
+### Who an agent acts as
 
-Connector writes, quota changes, and Shellui Actions admin routes still require a company owner or staff user. An agent call to those routes returns 403. Listing and reading objects follows the same company-bucket rules as a member.
+A personal agent acts as its creator. The principal's user id is `owner_user_id`, and its company role is the creator's own role, taken from the signed `owner_is_company_owner` claim (a real boolean that Identity sets from the creator's membership). The agent sees and manages the files its creator can, with the same grants, and no others. Staff status never passes to an agent, including when the creator is staff. Role-looking fields such as `user_metadata` are ignored on an agent token.
+
+An agent with no creator has user id `0`, which means "no user". It never matches a private file or a user grant. It can read and write company-visible files at its role (folders that carry a company grant), and it cannot upload a private file: the call fails with 403 `agent_has_no_owner` before the body is read, and nothing is stored. Create the agent from a user account, or upload into a folder that is already shared with the company.
+
+### Agents and sharing
+
+An agent cannot create or widen sharing. Creating or deleting an access grant and creating a share link are refused for agents, and those tools are not listed on `/mcp`. Calling one by name returns "Unknown tool". Narrowing stays available: an agent can list grants and share links and can revoke a share link it could already manage.
+
+Routes marked `global_refused` (the scheduled-job routes) are not listed and are refused for agents.
+
+Connector writes, quota changes, and Shellui Actions admin routes follow the creator's role. An agent created by a company owner has owner access to them, and every write still goes through the approval modes below. An agent with a member creator, or no creator, receives 403 on those routes.
 
 ## Required agent token claims
 
@@ -131,10 +141,10 @@ The published schema excludes `/api/v1/internal/*` and `/api/v1/scheduled-jobs*`
 | Area | Examples |
 | --- | --- |
 | Buckets | List and read the company bucket; empty a bucket (destructive). |
-| Connectors | List and read mounts. Create, update, delete, and configuration checks need a company owner or staff JWT (`credential` is `x-mcp-secret`). Agent callers receive 403 on those writes. |
+| Connectors | List and read mounts. Create, update, delete, and configuration checks need a company owner (the agent's creator, for an agent) or staff (`credential` is `x-mcp-secret`). Other agents receive 403 on those writes. |
 | Objects | List, upload, download, move, copy, delete, folder prefix stats, rename, delete, signed URLs. |
-| Access | List, create, and revoke path-level access grants. |
-| Share links | Create and list links for an object; revoke by token (not anonymous redeem). |
+| Access | List path-level access grants. Agents cannot create or delete grants. |
+| Share links | List links for an object; revoke by token (not anonymous redeem). Agents cannot create share links. |
 | Quotas | Read usage; set company or per-user limits (company owner). |
 | Stats | Upload and storage statistics for the company. |
 
@@ -263,3 +273,22 @@ Generate a key with `openssl genrsa 3072` and store it in a secret or file (`STO
 Approval consume (Identity #136): storage uses **HTTP status at the boundary** (`409` means not reusable; `200` with `consumed: true` means consumed). For `200` with `consumed: false`, it maps to **denied** with `error_code` **expired** only when the response body text (for example `detail` / `message` / `error`) indicates the approval was already consumed; it does not trust guessed JSON fields such as `error_code` or `http_status` in the body.
 
 Delegated agents must create approvals through the AI gateway; storage returns `out_of_sync` on MCP when a delegated token attempts direct approval creation without the gateway.
+
+## Upgrading: files stored as user 0
+
+Earlier versions gave every agent upload to user `0`, with no way to tell whose agent wrote it. After this change an agent acts as its creator, and user `0` matches nobody. The migration `0008_unowned_agent_files` therefore labels the legacy grants and keeps every file in place:
+
+- Files whose owner is user `0` stay visible to and manageable by company owners and Shellui staff of that company. Members and agents do not see them until an owner decides.
+- Nothing is deleted or moved, and quota usage does not change.
+- Storage keeps no record that links an upload to an agent or its creator (the event log has no agent id), so storage cannot reassign them on its own.
+
+To give files to a person, run, per company and optionally per folder:
+
+```bash
+python manage.py reassign_unowned_files --company 10 --user 42 --prefix reports/ --dry-run
+python manage.py reassign_unowned_files --company 10 --user 42 --prefix reports/
+```
+
+It moves the owner, the private grants, the creator id and the per-user quota usage to that user. Run it with `--dry-run` first.
+
+Deploy order: deploy Identity first so new agent tokens carry `owner_is_company_owner`, then storage. Existing agent tokens without the claim act as a member of their creator until they refresh, never as an owner.

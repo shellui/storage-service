@@ -97,7 +97,7 @@ S3 settings apply when `STORAGE_BACKEND=s3`. `AWS_STORAGE_BUCKET_NAME` is requir
 | `AWS_STORAGE_BUCKET_NAME` | empty | Bucket name |
 | `AWS_S3_REGION_NAME` | `us-east-1` | Region |
 | `AWS_S3_ENDPOINT_URL` | empty | Custom S3 endpoint, scheme and host only. Leave empty for AWS. MinIO in Compose is `http://minio:9000` |
-| `AWS_S3_CUSTOM_DOMAIN` | empty | Public host for the bucket, if it differs from the API endpoint. Leave empty unless you have a CDN |
+| `AWS_S3_CUSTOM_DOMAIN` | empty | Public host for the bucket, if it differs from the API endpoint. It is never used for private objects: signed URLs always point at the S3 endpoint, with an expiry and the response headers in the signature |
 | `AWS_S3_SIGNATURE_VERSION` | `s3v4` | Signature version |
 | `AWS_S3_ADDRESSING_STYLE` | inferred | `path` for MinIO, `virtual` for AWS and OVH, or `auto` |
 

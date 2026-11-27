@@ -20,7 +20,11 @@ from apps.actions.models import ActionOutbox, ActionRule, EventLog
 from apps.actions.webhook_transport import WebhookPostResult
 from apps.authapi.mcp_openapi import MCP_REQUIRED_OPERATION_IDS
 from apps.storage.access import COMPANY_BUCKET_NAME
-from apps.storage.mcp_server_strict import materialize_storage_mcp_path
+from apps.storage.mcp_server_strict import (
+    AGENT_REFUSED_OPERATIONS,
+    agent_visible_tools,
+    materialize_storage_mcp_path,
+)
 from apps.storage.models import Bucket, ObjectShareLink, StorageAccessGrant, StorageObject
 from apps.storage.tests.rs256_helpers import MCP_SIGNING_TEST_SETTINGS
 from apps.storage.tests.test_mcp import (
@@ -66,8 +70,9 @@ def _contract_document(public_tools: list, internal_tools: list) -> dict:
 def _owner_token() -> str:
     return jwt.encode(
         {
-            'sub': '0',
-            'user_id': 0,
+            'sub': '1',
+            'token_type': 'access',
+            'user_id': 1,
             'company_id': _COMPANY,
             'email': 'owner@example.com',
             'aud': 'shellui',
@@ -111,7 +116,13 @@ class McpToolContractTests(TestCase):
         cache.delete('mcp:revoked_trusted_payload')
         cache.delete('mcp:revoked_list_trusted')
         cache.delete('mcp:revoked_verified_claims')
-        self.token = _agent_token(company_id=_COMPANY, mcp_access='full', mcp_read='sensitive')
+        self.token = _agent_token(
+            company_id=_COMPANY,
+            mcp_access='full',
+            mcp_read='sensitive',
+            owner_user_id=1,
+            owner_is_company_owner=False,
+        )
         claims = jwt.decode(self.token, options={'verify_signature': False})
         body = _signed_revocation_for_tests(
             agents=[{'agent_id': str(claims['agent_id']), 'company_id': _COMPANY, 'grant_version': 0}],
@@ -138,11 +149,15 @@ class McpToolContractTests(TestCase):
 
     def test_tools_list_matches_snapshot(self):
         public_tools = self._tools_list()
-        internal = published_mcp_tools(SchemaGenerator().get_schema(request=None, public=True))
+        internal = agent_visible_tools(SchemaGenerator().get_schema(request=None, public=True))
         self.assertEqual([tool['name'] for tool in public_tools], [tool['name'] for tool in internal])
         self.assertEqual(
             {tool['name'] for tool in public_tools},
-            set(MCP_PUBLISHED_TOOL_NAMES.values()),
+            {
+                published
+                for op, published in MCP_PUBLISHED_TOOL_NAMES.items()
+                if op not in AGENT_REFUSED_OPERATIONS
+            },
         )
         for public, internal_tool in zip(public_tools, internal, strict=True):
             self.assertEqual(public['name'], internal_tool['name'])
@@ -257,7 +272,13 @@ class McpToolHappyPathTests(TestCase):
         cache.delete('mcp:revoked_verified_claims')
         self.client = Client()
         self.owner_token = _owner_token()
-        self.token = _agent_token(company_id=_COMPANY, mcp_access='full', mcp_read='sensitive')
+        self.token = _agent_token(
+            company_id=_COMPANY,
+            mcp_access='full',
+            mcp_read='sensitive',
+            owner_user_id=1,
+            owner_is_company_owner=False,
+        )
         claims = jwt.decode(self.token, options={'verify_signature': False})
         self.agent_id = str(claims['agent_id'])
         body = _signed_revocation_for_tests(
@@ -615,32 +636,9 @@ class McpToolHappyPathTests(TestCase):
                 'call': {'query': {'bucket': bucket, 'resource_type': 'object'}},
                 'check': lambda payload: self.assertIn(self.grant_id, json.dumps(payload)),
             },
-            'storage_v1_access_grant_create': {
-                'call': {
-                    'body': {
-                        'subject_type': 'user',
-                        'subject_id': '8',
-                        'resource_type': 'object',
-                        'resource_id': 'notes/a.txt',
-                        'bucket': bucket,
-                    }
-                },
-                'check': lambda payload: self.assertEqual(payload.get('subject_id'), '8'),
-            },
-            'storage_v1_access_grant_destroy': {
-                'call': {'path_params': {'grant_id': self.grant_id}},
-                'check': lambda payload: self.assertFalse(StorageAccessGrant.objects.filter(id=self.grant_id).exists()),
-            },
             'storage_v1_share_list': {
                 'call': {'path_params': {'bucket_id': bucket, 'object_path': 'notes/a.txt'}},
                 'check': self._check_share_list,
-            },
-            'storage_v1_share_create': {
-                'call': {
-                    'path_params': {'bucket_id': bucket, 'object_path': 'sign-me.txt'},
-                    'body': {'max_downloads': 2},
-                },
-                'check': self._check_share_create,
             },
             'storage_v1_share_link_destroy': {
                 'call': {'path_params': {'token': self.share_token}},
@@ -737,12 +735,6 @@ class McpToolHappyPathTests(TestCase):
         link = ObjectShareLink.objects.get(token=self.share_token)
         self.assertIsNotNone(link.revoked_at)
 
-    def _check_share_create(self, payload):
-        token = payload.get('token')
-        self.assertTrue(token and token != '[redacted]')
-        self.assertEqual(payload.get('path_url'), '[redacted]')
-        self.assertNotIn(token, payload.get('path_url') or '')
-
     def _check_rule_create(self, payload):
         self.assertEqual(payload.get('name'), 'mcp-created-rule')
         self.assertEqual(payload.get('secret'), '[redacted]')
@@ -822,5 +814,5 @@ def _bind_happy_path(name: str):
     return test
 
 
-for _tool_name in sorted(MCP_REQUIRED_OPERATION_IDS):
+for _tool_name in sorted(MCP_REQUIRED_OPERATION_IDS - AGENT_REFUSED_OPERATIONS):
     setattr(McpToolHappyPathTests, f'test_{_tool_name}', _bind_happy_path(_tool_name))

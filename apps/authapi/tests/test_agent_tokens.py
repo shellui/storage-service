@@ -13,7 +13,7 @@ from apps.authapi.principal import StoragePrincipal
 
 
 def _encode(payload: dict) -> str:
-    body = {'exp': 2**31 - 1, **payload}
+    body = {'exp': 2**31 - 1, 'token_type': 'access', **payload}
     return jwt.encode(body, 'test-secret', algorithm='HS256')
 
 

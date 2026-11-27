@@ -9,7 +9,12 @@ from django.db.models import F
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .access import assert_can_access_path, get_accessible_bucket
+from .access import (
+    assert_can_access_path,
+    assert_not_agent_sharing,
+    get_accessible_bucket,
+    principal_has_user,
+)
 from .mime import safe_object_path
 from .models import ObjectShareLink, StorageObject
 from .services import StorageError
@@ -69,6 +74,7 @@ def create_share_link(
     max_downloads: int | None = None,
     notes: str = '',
 ) -> ObjectShareLink:
+    assert_not_agent_sharing(principal)
     bucket = get_accessible_bucket(principal, bucket_name)
     name = safe_object_path(path)
     obj = StorageObject.objects.filter(bucket=bucket, name=name).first()
@@ -128,7 +134,10 @@ def list_share_links_for_object(*, principal, bucket_name: str, path: str) -> li
     if not (
         getattr(principal, 'is_company_owner', False) or getattr(principal, 'is_staff', False)
     ):
-        qs = qs.filter(created_by_id=int(principal.user_id))
+        if principal_has_user(principal):
+            qs = qs.filter(created_by_id=int(principal.user_id))
+        else:
+            qs = qs.none()
     return list(qs)
 
 
@@ -142,7 +151,7 @@ def revoke_share_link(*, principal, token: str) -> ObjectShareLink:
     if company_id is None or int(link.company_id) != int(company_id):
         raise StorageError('Share link not found', status=404, code='share_not_found')
 
-    is_creator = int(link.created_by_id) == int(principal.user_id)
+    is_creator = principal_has_user(principal) and int(link.created_by_id) == int(principal.user_id)
     is_admin = bool(
         getattr(principal, 'is_company_owner', False) or getattr(principal, 'is_staff', False)
     )
