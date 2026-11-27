@@ -36,4 +36,4 @@ package = false
 
 # Temporary: shellui-django 0.9.0 is not on PyPI yet. Remove this source once it is released.
 [tool.uv.sources]
-shellui-django = { url = "https://github.com/shellui/django-commons/archive/23b3c4d6390a93e2606af495d83f417df64e6536.tar.gz" }
+shellui-django = { url = "https://github.com/shellui/django-commons/archive/0678dda529ae52da1266d3e0502209ec889dd83d.tar.gz" }
