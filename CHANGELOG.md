@@ -39,6 +39,8 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - An agent now needs a person's approval, in every access mode including `full`, to: create or update an Actions webhook, change any quota, mount an outside bucket (create a connector, which carries credentials), and move, copy or rename a file or folder so that anyone could read something they could not read before (keys are normalized first, folders and their markers are included, files already in a folder that a marker is moved or copied onto are included, and a source or destination that cannot be resolved asks). The check runs after the real write, in the same transaction and under a per-company lock, and rolls back if access widened. An error answer after the write rolls it back too, and a copy whose check did not run asks. It is bounded (300 objects, 3000 access checks, 2.5 seconds) and asks beyond that, with the reason in the prompt. Changing or deleting a connector, deleting a webhook and other destructive calls already needed approval. A read only agent is still refused. The approval is single use and bound to the exact arguments.
 - Deploy notes: `AWS_S3_ENDPOINT_URL` must be a public URL that clients can reach, because private objects are always signed against it (an internal-only endpoint produces signed links nobody can open). A token with no `token_type` is no longer a bearer and now gets 401; refresh and setup tokens are refused the same way. Deploy Identity (#195) first.
 - Deploy note: files that earlier versions stored as user `0` stay in place and become visible to and manageable by company owners and staff. Migration `0008_unowned_agent_files` labels them, and `manage.py reassign_unowned_files --company N --user M [--prefix P] [--dry-run]` gives them to a person. See [MCP agents](docs/mcp.md#upgrading-files-stored-as-user-0). Deploy Identity (#195) first: it adds `creator_status` to the revocation snapshot. Storage on an older Identity treats every agent as a plain member.
+- Django 6.1 requires PostgreSQL 15 or newer, and drops 14. Check the database of any deployment before upgrading. CI runs PostgreSQL 18.
+- drf-spectacular 0.30 describes blank URL and slug fields as `oneOf` (the field's format or an empty string) in the OpenAPI schema. Generated clients and the published schema see that change. The API itself does not change.
 
 ### 🏗 Chore
 
@@ -46,6 +48,8 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - GitHub Actions: actions/checkout v7, actions/setup-node v7, astral-sh/setup-uv v10.4.0, docker/build-push-action v7, docker/login-action v4, docker/metadata-action v6, docker/setup-buildx-action v4, docker/setup-qemu-action v4, peter-evans/dockerhub-description v5.0.0.
 - Python dependencies: python-dotenv 1.2.4, psycopg 3.3.9, sentry-sdk 2.77.0, cryptography 50.0.2, requests 2.34.2, markdown 3.11.4, redis 8.2.0, sqlparse 0.6.1, celery 5.7.0.
 - npm dependencies: @tailwindcss/cli 4.3.5, tailwindcss 4.3.5.
+- CI runs `manage.py makemigrations --check --dry-run`, so a model change without a migration fails the build.
+- CI pins Python 3.14.10 and uv 0.13.10, and the Dockerfile copies the same uv, so CI and the image run the same interpreter and the same tool.
 
 ## [0.9.1] - 2026-11-24
 

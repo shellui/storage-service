@@ -11,7 +11,7 @@ COPY templates ./templates
 RUN npm run build:css
 
 # Local Shellui dev stack: deps in /opt/venv, source bind-mounted at /app.
-FROM python:3.14-slim AS dev
+FROM python:3.14.10-slim AS dev
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock /app/
 RUN uv sync --frozen --no-dev --no-install-project
@@ -39,7 +39,7 @@ EXPOSE 8000
 
 ENTRYPOINT ["/app/tools/docker-dev.sh"]
 
-FROM python:3.14-slim
+FROM python:3.14.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -58,7 +58,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock /app/
 RUN uv sync --frozen --no-dev --no-install-project
