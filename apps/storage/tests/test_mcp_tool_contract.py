@@ -46,10 +46,11 @@ _FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'mcp_tools_contract.js
 # Write-tool arguments whose name looks like a destination but that are not one. Anything new that looks like a
 # destination must be marked `x-mcp-destination` (fix the serializer) or be added here with a reason.
 ALLOWED_UNMARKED: dict[str, set[str]] = {
-    # `to` is a path inside the caller's own storage (a folder, or bucket/path). Nothing leaves storage.
-    'storage_copy_object': {'to'},
-    'storage_create_object_prefix': {'to'},
-    'storage_move_object': {'to'},
+    # `to`, `destination` and `destinationKey` are paths inside the caller's own storage (a folder, or bucket/path).
+    # Nothing leaves storage.
+    'storage_copy_object': {'to', 'destinationKey'},
+    'storage_create_object_prefix': {'to', 'destination'},
+    'storage_move_object': {'to', 'destinationKey'},
 }
 
 # `connector_settings` is a free-form object in the schema, so its keys cannot carry a marker. The service

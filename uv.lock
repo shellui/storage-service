@@ -1141,12 +1141,12 @@ wheels = [
 [[package]]
 name = "shellui-django"
 version = "0.9.0"
-source = { url = "https://github.com/shellui/django-commons/archive/1a22885001f119a6dd4f5df354fac23409563c71.tar.gz" }
+source = { url = "https://github.com/shellui/django-commons/archive/6bcbed234995cdbe88e13a070aa78f597273cfea.tar.gz" }
 dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
 ]
-sdist = { hash = "sha256:3b29c462a93ee16c3d2a8102c3001d3ba4143b873eba521cd9584e345b7b62d0" }
+sdist = { hash = "sha256:2bd9574a82fa6a8526b3746eb917cf56a87ca9cdd19c2530dc995c701c529945" }
 
 [package.optional-dependencies]
 mcp = [
@@ -1255,7 +1255,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.2.0" },
     { name = "requests", specifier = "==2.34.2" },
     { name = "sentry-sdk", specifier = "==2.77.0" },
-    { name = "shellui-django", extras = ["mcp", "otel"], url = "https://github.com/shellui/django-commons/archive/1a22885001f119a6dd4f5df354fac23409563c71.tar.gz" },
+    { name = "shellui-django", extras = ["mcp", "otel"], url = "https://github.com/shellui/django-commons/archive/6bcbed234995cdbe88e13a070aa78f597273cfea.tar.gz" },
     { name = "sqlparse", specifier = "==0.6.1" },
     { name = "whitenoise", specifier = "==6.12.0" },
 ]
