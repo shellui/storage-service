@@ -36,7 +36,7 @@ The API is at [http://localhost:8001/storage/v1/health](http://localhost:8001/st
 
 ## Start from a checkout
 
-Use this path when you are changing the Python code. You need [uv](https://docs.astral.sh/uv/) and Node.js 22:
+Use this path when you are changing the Python code. You need [uv](https://docs.astral.sh/uv/) and Node.js 26:
 
 ```bash
 uv sync

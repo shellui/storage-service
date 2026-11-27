@@ -29,13 +29,23 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 - A replaced file is written to a new key first. The old bytes are deleted only after the new file is saved and the database write succeeds. The checksum is computed on the same stream that is saved, and an orphan blob is removed when the database write fails.
 - S3 signed URLs set `ResponseContentDisposition` and `ResponseContentType`. HTML, SVG, XML, scripts, and other active types are attachments with a safe content type. Raster images other than SVG, PDF, plain text, audio, and video stay inline.
 - Uploads stream to storage in 1 MiB chunks. `Content-Length` above the cap is rejected before the body is read. The cap is the lower of the bucket `file_size_limit` and `MAX_UPLOAD_BYTES` (default 5 GiB). Multipart form uploads may declare up to 1 MiB above that cap for form framing.
+- Django 6.1.3 includes the Django security releases of October and November 2026, among them a fix for memory use when parsing large multipart uploads.
 
 ### 🚨 Changed
 
+- `shellui-django` 0.8.0 with Django 6.1.3, Django REST framework 3.18.3 and drf-spectacular 0.30.0. The shellui-django pins are exact, so these move together.
+- gunicorn 27.0.1. A request whose `Transfer-Encoding` does not end with `chunked` (for example `identity` alone) now gets HTTP 400. No gunicorn setting changed.
 - Connector writes, quota changes, and Shellui Actions admin calls from an agent follow its creator's live role. An agent whose creator is a company owner has owner access, and any other agent gets 403. A human company-owner JWT is unchanged.
 - An agent now needs a person's approval, in every access mode including `full`, to: create or update an Actions webhook, change any quota, mount an outside bucket (create a connector, which carries credentials), and copy or move a file to a place more people can see than at the source (a company-visible or shared folder, or a folder shared with someone the source is not). Changing or deleting a connector, deleting a webhook and other destructive calls already needed approval. A read only agent is still refused. The approval is single use and bound to the exact arguments.
 - Deploy notes: `AWS_S3_ENDPOINT_URL` must be a public URL that clients can reach, because private objects are always signed against it (an internal-only endpoint produces signed links nobody can open). A token with no `token_type` is no longer a bearer and now gets 401; refresh and setup tokens are refused the same way. Deploy Identity (#195) first.
 - Deploy note: files that earlier versions stored as user `0` stay in place and become visible to and manageable by company owners and staff. Migration `0008_unowned_agent_files` labels them, and `manage.py reassign_unowned_files --company N --user M [--prefix P] [--dry-run]` gives them to a person. See [MCP agents](docs/mcp.md#upgrading-files-stored-as-user-0). Deploy Identity (#195) first: it adds `creator_status` to the revocation snapshot. Storage on an older Identity treats every agent as a plain member.
+
+### 🏗 Chore
+
+- Node.js 26, the current LTS, for the image build stage and CI.
+- GitHub Actions: actions/checkout v7, actions/setup-node v7, astral-sh/setup-uv v10.4.0, docker/build-push-action v7, docker/login-action v4, docker/metadata-action v6, docker/setup-buildx-action v4, docker/setup-qemu-action v4, peter-evans/dockerhub-description v5.0.0.
+- Python dependencies: python-dotenv 1.2.4, psycopg 3.3.9, sentry-sdk 2.77.0, cryptography 50.0.2, requests 2.34.2, markdown 3.11.4, redis 8.2.0, sqlparse 0.6.1, celery 5.7.0.
+- npm dependencies: @tailwindcss/cli 4.3.5, tailwindcss 4.3.5.
 
 ## [0.9.1] - 2026-11-24
 

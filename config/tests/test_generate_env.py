@@ -100,6 +100,7 @@ class GenerateEnvTests(SimpleTestCase):
     def test_settings_load_with_generated_block(self):
         values = _parse(_run('--host', 'storage.example.com').stdout)
         values['POSTGRES_DATABASE_URL'] = ''  # SQLite, nothing to connect to
+        values['SQLITE_PATH'] = ':memory:'  # Django 6.1 `check --deploy` opens the database
         values['IDENTITY_SERVICE_URL'] = 'https://id.example.com'
         values['IDENTITY_ISSUER'] = 'https://id.example.com'
         env = {**_base_env(), 'DJANGO_SETTINGS_MODULE': 'config.settings'}
