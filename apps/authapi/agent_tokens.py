@@ -139,10 +139,10 @@ def principal_from_agent_claims(claims: dict, *, creator_status: str | None = No
     company role is never read from the token. It comes from ``creator_status``, which the
     caller takes from Identity's signed revocation snapshot (``owner`` or ``member``), so a
     demotion applies on the next poll instead of at token expiry. Anything else, including no
-    answer, is a plain member. A global or delegated token is always a plain member, whatever
-    role-looking claims it carries. An agent with no creator is user 0, which means "no user":
-    it never matches a private file and is never an owner. An agent is never staff, including
-    when its creator is. ``user_metadata`` and other role-looking claims are ignored.
+    answer, is a plain member. A global or delegated token has no creator at all: it is user 0
+    and a plain member, whatever owner id or role-looking claims it carries, so it never reads
+    its creator's private files. User 0 means "no user": it never matches a private file and is
+    never an owner. An agent is never staff, including when its creator is. ``user_metadata`` and other role-looking claims are ignored.
     """
     company_id = claims.get('company_id')
     try:
@@ -155,8 +155,9 @@ def principal_from_agent_claims(claims: dict, *, creator_status: str | None = No
     username = str(claims.get('username') or user_meta.get('username') or '')
     if not username:
         username = f"agent:{claims.get('agent_id')}"
-    owner_id = _owner_user_id(claims)
-    is_owner = bool(owner_id > 0 and creator_status == 'owner' and not _is_global_or_delegated(claims))
+    # A global or delegated token is not its creator's personal agent: no user, no role.
+    owner_id = 0 if _is_global_or_delegated(claims) else _owner_user_id(claims)
+    is_owner = bool(owner_id > 0 and creator_status == 'owner')
     return StoragePrincipal(
         user_id=owner_id,
         company_id=cid,

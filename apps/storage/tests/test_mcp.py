@@ -797,6 +797,93 @@ class McpEndpointTests(TestCase):
         self.assertFalse(result['isError'], result)
         self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='mine-2.txt').exists())
 
+    def _visibility_fixture(self):
+        """A private folder of agent 7's, with a file in it that is shared with person 9."""
+        import io
+
+        from apps.storage.access import ensure_company_bucket
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+        from apps.storage.services import upload_object
+
+        bucket = ensure_company_bucket(company_id=10)
+        marker = StorageObject.objects.create(
+            bucket=bucket,
+            company_id=10,
+            name=f'priv/{FOLDER_PLACEHOLDER_NAME}',
+            size=0,
+            mime_type='application/x-directory',
+            storage_key='k/priv',
+        )
+        common = {'company_id': 10, 'bucket': bucket, 'resource_type': StorageAccessGrant.ResourceType.FOLDER}
+        StorageAccessGrant.objects.create(
+            object=marker, subject_type='company', subject_id='10', permission='read', effect='deny', **common
+        )
+        StorageAccessGrant.objects.create(
+            object=marker, subject_type='user', subject_id='7', permission='admin', effect='allow', **common
+        )
+        shared = upload_object(
+            bucket=bucket, path='priv/s.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        StorageAccessGrant.objects.create(
+            company_id=10,
+            bucket=bucket,
+            object=shared,
+            resource_type=StorageAccessGrant.ResourceType.OBJECT,
+            subject_type='user',
+            subject_id='9',
+            permission='read',
+            effect='allow',
+        )
+        upload_object(
+            bucket=bucket, path='priv/sub/t.txt', fileobj=io.BytesIO(b'x'), owner_id=7, content_type='text/plain'
+        )
+        return bucket
+
+    def _full_access_call(self, operation_id, **kwargs):
+        return self._tool_call(operation_id, mcp_access=ACCESS_FULL, owner_user_id=7, creator_status='member', **kwargs)
+
+    def test_a_move_that_exposes_a_private_file_needs_approval_through_mcp(self):
+        from apps.storage.models import FOLDER_PLACEHOLDER_NAME, StorageObject
+
+        bucket = self._visibility_fixture()
+        names = lambda: sorted(StorageObject.objects.filter(bucket=bucket).values_list('name', flat=True))  # noqa: E731
+        before = names()
+        key = lambda name: f'{COMPANY_BUCKET_NAME}/{name}'  # noqa: E731
+        for source, destination in (
+            ('priv//s.txt', 's.txt'),  # an unnormalized key
+            ('priv/s.txt', 's.txt'),  # a file with its own allow grant, leaving its private folder
+            (f'priv/{FOLDER_PLACEHOLDER_NAME}', f'x/{FOLDER_PLACEHOLDER_NAME}'),  # the folder's marker
+            ('priv/missing.txt', 'missing.txt'),  # a source that is not found
+        ):
+            with self.subTest(source=source):
+                response = self._full_access_call(
+                    'storage_v1_object_move_create',
+                    body={'sourceKey': key(source), 'destinationKey': key(destination)},
+                )
+                self._assert_needs_approval(response)
+                self.assertEqual(before, names())
+
+    def test_a_folder_rename_that_exposes_private_files_needs_approval_through_mcp(self):
+        from apps.storage.models import StorageObject
+
+        bucket = self._visibility_fixture()
+        before = sorted(StorageObject.objects.filter(bucket=bucket).values_list('name', flat=True))
+        response = self._full_access_call(
+            'storage_v1_object_prefix_create',
+            path_params={'bucket_id': COMPANY_BUCKET_NAME},
+            body={'from': 'priv/sub', 'to': 'sub'},
+        )
+        self._assert_needs_approval(response)
+        self.assertEqual(before, sorted(StorageObject.objects.filter(bucket=bucket).values_list('name', flat=True)))
+        # A rename inside the same private folder goes through.
+        inside = self._full_access_call(
+            'storage_v1_object_prefix_create',
+            path_params={'bucket_id': COMPANY_BUCKET_NAME},
+            body={'from': 'priv/sub', 'to': 'priv/sub2'},
+        )
+        self.assertFalse(inside.json()['result']['isError'], inside.content)
+        self.assertTrue(StorageObject.objects.filter(bucket=bucket, name='priv/sub2/t.txt').exists())
+
     def test_mcp_refuses_the_scheduled_job_routes(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         tools = apply_published_tool_names(tools_from_schema(schema))

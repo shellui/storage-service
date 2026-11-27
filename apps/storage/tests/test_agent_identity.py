@@ -143,6 +143,25 @@ class AgentActsAsCreatorTests(_Base):
                 principal = principal_from_agent_claims({**base, **extra}, creator_status='owner')
                 self.assertFalse(principal.is_company_owner)
                 self.assertFalse(principal.is_staff)
+                # No creator at all: user 0, not user 7.
+                self.assertEqual(principal.user_id, 0)
+
+    def test_global_token_carrying_a_creator_id_cannot_read_that_users_private_file(self):
+        private = self.upload('seven.txt', 7)
+        claims = {
+            'sub': 'agent:x',
+            'agent_id': 'x',
+            'company_id': COMPANY,
+            'token_type': 'access',
+            'owner_user_id': 7,
+        }
+        personal = principal_from_agent_claims(claims, creator_status='member')
+        self.assertTrue(can_access_path(personal, self.bucket, private.name))
+        for extra in ({'global_agent_id': str(uuid.uuid4())}, {'mcp_authority': 'delegated'}):
+            with self.subTest(extra=sorted(extra)):
+                principal = principal_from_agent_claims({**claims, **extra}, creator_status='member')
+                self.assertFalse(can_access_path(principal, self.bucket, private.name))
+                self.assertFalse(can_access_path(principal, self.bucket, private.name, write=True))
 
     def test_owner_agent_is_not_staff_and_cannot_read_others_private_files(self):
         theirs = self.upload('theirs.txt', 8)

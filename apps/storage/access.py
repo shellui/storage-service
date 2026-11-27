@@ -369,8 +369,13 @@ def evaluate_access(
     object_id: str | None = None,
     write: bool = False,
     admin: bool = False,
+    grants: list[StorageAccessGrant] | None = None,
 ) -> bool:
-    """Return whether principal may perform the required action on bucket/path."""
+    """Return whether principal may perform the required action on bucket/path.
+
+    ``grants`` is an optional pre-fetched list of the company's active grants
+    (``active_grants_for_company``), so a caller that evaluates many paths reads them once.
+    """
     company_id = getattr(principal, 'company_id', None)
     user_id = getattr(principal, 'user_id', None)
     if company_id is None or user_id is None:
@@ -380,9 +385,10 @@ def evaluate_access(
 
     required = _required_permission(write=write, admin=admin)
 
+    pool = grants if grants is not None else _active_grants_qs(company_id=int(company_id))
     grants = [
         g
-        for g in _active_grants_qs(company_id=int(company_id))
+        for g in pool
         if _subject_matches(g, principal)
         and _resource_matches_grant(g, bucket=bucket, path=path, object_id=object_id)
     ]
