@@ -20,6 +20,11 @@ See for sample https://raw.githubusercontent.com/favoloso/conventional-changelog
 
 ## [Unreleased]
 
+### 🚨 Changed
+
+- The action rule `url` is marked `x-mcp-destination` in the OpenAPI schema and the MCP tool schemas. The gateway reads the marker to show it first and in full on the approval prompt. No request or response changes. Needs `shellui-django` 0.9.0.
+- The contract test fails when a new write-tool argument named like a destination (`*url`, `*uri`, `*host`, `*email`, `*domain`, `*origin`, `redirect*`, `callback*`) is neither marked `x-mcp-destination` nor on a short allow-list, and the tools now declare `destinations_declared` so the approval prompt does not warn about them. No request or response changes. `connector_settings` stays free-form, so a test pins the keys the service accepts (`display_name`, `external_root_path`, `tenant_id`, `site_id`, `drive_id`, `resource_id`).
+
 ### 🔒 Security
 
 - Agent access tokens are accepted only on `POST /mcp`, and only when `token_type` is `access`. Every other route returns 401 for them, including WebDAV and the scheduled-job routes. `/mcp` does not list or run the scheduled-job routes (`global_refused`).

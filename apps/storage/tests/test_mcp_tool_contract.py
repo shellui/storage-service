@@ -33,11 +33,38 @@ from apps.storage.tests.test_mcp import (
     _mcp_host_kwargs,
     _signed_revocation_for_tests,
 )
+from apps.storage.connector_services import ALLOWED_CONNECTOR_SETTING_KEYS
 from apps.storage.mcp_tool_names import MCP_PUBLISHED_TOOL_NAMES
 from apps.storage.mcp_tool_schema import published_mcp_tools
+from shellui_django.mcp.approval_summary import destination_paths
+from shellui_django.mcp.destinations import lint_destination_names
 from shellui_django.mcp.routing import McpToolArgumentError
 
 _FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'mcp_tools_contract.json'
+# Properties that name where a call sends something. Each must carry `x-mcp-destination` (on the items
+# for a list) so the gateway shows it first in the approval prompt.
+# Write-tool arguments whose name looks like a destination but that are not one. Anything new that looks like a
+# destination must be marked `x-mcp-destination` (fix the serializer) or be added here with a reason.
+ALLOWED_UNMARKED: dict[str, set[str]] = {
+    # `to`, `destination` and `destinationKey` are paths inside the caller's own storage (a folder, or bucket/path).
+    # Nothing leaves storage.
+    'storage_copy_object': {'to', 'destinationKey'},
+    'storage_create_object_prefix': {'to', 'destination'},
+    'storage_move_object': {'to', 'destinationKey'},
+}
+
+# `connector_settings` is a free-form object in the schema, so its keys cannot carry a marker. The service
+# accepts only these keys (anything else is a 400). None names an address the service sends data to. A new key
+# that does must become a marked serializer field instead of joining this list.
+CONNECTOR_SETTING_KEYS = frozenset(
+    {'display_name', 'external_root_path', 'tenant_id', 'site_id', 'drive_id', 'resource_id'}
+)
+
+DESTINATION_PATHS: dict[str, set[str]] = {
+    'storage_create_action_rules': {'url'},
+    'storage_update_action_rules': {'url'},
+}
+
 _COMPANY = 10
 _APPROVAL_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
 _RULE_SECRET = 'whsec-audit-known'
@@ -181,6 +208,20 @@ class McpToolContractTests(TestCase):
             if name.startswith('test_storage_v1_') or name.startswith('test_api_v1_')
         }
         self.assertEqual(ops, methods)
+
+    def test_connector_settings_accept_only_pinned_keys_none_of_which_is_an_address(self):
+        self.assertEqual(ALLOWED_CONNECTOR_SETTING_KEYS, CONNECTOR_SETTING_KEYS)
+
+    def test_fields_named_like_destinations_are_marked_or_allow_listed(self):
+        tools = published_mcp_tools(SchemaGenerator().get_schema(request=None, public=True))
+        self.assertTrue(all(tool['_meta'].get('destinations_declared') is True for tool in tools))
+        self.assertEqual(lint_destination_names(tools, allow=ALLOWED_UNMARKED), [])
+
+    def test_destination_properties_are_marked_for_the_approval_prompt(self):
+        tools = {tool['name']: tool for tool in published_mcp_tools(SchemaGenerator().get_schema(request=None, public=True))}
+        self.assertLessEqual(set(DESTINATION_PATHS), set(tools))
+        for name, tool in tools.items():
+            self.assertEqual(destination_paths(tool['inputSchema']), DESTINATION_PATHS.get(name, set()), name)
 
     def test_tool_names_use_storage_prefix(self):
         for tool in self._tools_list():

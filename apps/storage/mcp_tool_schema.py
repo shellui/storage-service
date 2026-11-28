@@ -23,7 +23,7 @@ _SCHEMA_BOUNDS = ('minimum', 'maximum', 'minLength', 'maxLength')
 def published_mcp_tools(schema: dict[str, Any]) -> list[dict[str, Any]]:
     """Gateway tool names, flat input schemas, and ``_meta`` for dispatch."""
     operations = _operations_by_id(schema)
-    tools = apply_published_tool_names(tools_from_schema(schema))
+    tools = apply_published_tool_names(tools_from_schema(schema, destinations_declared=True))
     for tool in tools:
         meta = tool.get('_meta') or {}
         op_id = str(meta.get('operationId') or '')
